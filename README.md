@@ -18,8 +18,16 @@ Part of the [ankimcp.ai](https://ankimcp.ai) project.
 
 ## Installation
 
-1. Download `anki_mcp_server.ankiaddon` from [Releases](https://github.com/anthropics/anki-mcp-server/releases)
-2. Double-click to install, or use Anki's *Tools → Add-ons → Install from file...*
+### From AnkiWeb (recommended)
+
+1. Open Anki and go to *Tools → Add-ons → Get Add-ons...*
+2. Enter code: `124672614`
+3. Restart Anki
+
+### From GitHub Releases
+
+1. Download `anki_mcp_server.ankiaddon` from [Releases](https://github.com/ankimcp/anki-mcp-server-addon/releases)
+2. Double-click to install, or use *Tools → Add-ons → Install from file...*
 3. Restart Anki
 
 ## Usage
