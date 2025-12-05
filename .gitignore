@@ -1,0 +1,22 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Anki addon build artifacts
+*.ankiaddon
+vendor/
+
+# OS
+.DS_Store
+
+# Claude Code
+.claude/
+.claude-draft/

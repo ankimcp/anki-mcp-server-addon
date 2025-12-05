@@ -1,0 +1,6 @@
+{
+  "mode": "http",
+  "http_port": 3141,
+  "http_host": "127.0.0.1",
+  "auto_connect_on_startup": true
+}
