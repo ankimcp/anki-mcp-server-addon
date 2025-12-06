@@ -1,0 +1,107 @@
+<p><b>Note:</b> On first run, this addon downloads <code>pydantic_core</code> (~2MB) from PyPI. This is required because pydantic_core contains platform-specific binaries (Windows/macOS/Linux) that cannot be bundled in a single addon file.</p>
+
+<h2>What is this?</h2>
+<p>AnkiMCP Server runs a local MCP server inside Anki, allowing AI assistants like Claude to interact with your flashcard collection. This enables AI-powered study sessions, card creation, and collection management.</p>
+
+<p>Part of the <a href="https://ankimcp.ai">ankimcp.ai</a> project.</p>
+
+<h2>Features</h2>
+<ul>
+<li><b>Local HTTP server</b> - Runs on http://127.0.0.1:3141/ by default</li>
+<li><b>MCP protocol</b> - Compatible with any MCP client (Claude Desktop, etc.)</li>
+<li><b>Auto-start</b> - Server starts automatically when Anki opens</li>
+<li><b>Tunnel-friendly</b> - Works with Cloudflare Tunnel, ngrok, etc.</li>
+<li><b>Cross-platform</b> - Works on macOS, Windows, and Linux</li>
+</ul>
+
+<h2>Installation</h2>
+
+<h3>From AnkiWeb (recommended)</h3>
+<ol>
+<li>Go to Tools → Add-ons → Get Add-ons...</li>
+<li>Enter code: <b>124672614</b></li>
+<li>Restart Anki</li>
+</ol>
+
+<h3>From GitHub Releases</h3>
+<ol>
+<li>Download from <a href="https://github.com/ankimcp/anki-mcp-server-addon/releases">Releases</a></li>
+<li>Double-click to install, or use Tools → Add-ons → Install from file</li>
+<li>Restart Anki</li>
+</ol>
+
+<h2>Connect with Claude Desktop</h2>
+<p>Add to your Claude Desktop config (<code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS):</p>
+<pre>
+{
+  "mcpServers": {
+    "anki": {
+      "url": "http://127.0.0.1:3141/"
+    }
+  }
+}
+</pre>
+
+<h2>Available Tools</h2>
+
+<h3>Essential Tools</h3>
+<ul>
+<li><b>sync</b> - Synchronize collection with AnkiWeb</li>
+<li><b>list_decks</b> - List all decks in the collection</li>
+<li><b>create_deck</b> - Create a new deck</li>
+<li><b>find_notes</b> - Search for notes using Anki's search syntax</li>
+<li><b>notes_info</b> - Get detailed information about notes</li>
+<li><b>add_note</b> - Add a new note to a deck</li>
+<li><b>update_note_fields</b> - Update fields of existing notes</li>
+<li><b>delete_notes</b> - Delete notes from the collection</li>
+<li><b>get_due_cards</b> - Get cards due for review</li>
+<li><b>present_card</b> - Get card content for review</li>
+<li><b>rate_card</b> - Rate a card after review (Again/Hard/Good/Easy)</li>
+<li><b>model_names</b> - List available note types</li>
+<li><b>model_field_names</b> - Get field names for a note type</li>
+<li><b>model_styling</b> - Get CSS styling for a note type</li>
+<li><b>update_model_styling</b> - Update CSS styling for a note type</li>
+<li><b>create_model</b> - Create a new note type</li>
+<li><b>store_media_file</b> - Store a media file (image/audio)</li>
+<li><b>get_media_files_names</b> - List media files matching a pattern</li>
+<li><b>delete_media_file</b> - Delete a media file</li>
+</ul>
+
+<h3>GUI Tools</h3>
+<ul>
+<li><b>gui_browse</b> - Open the card browser with a search query</li>
+<li><b>gui_add_cards</b> - Open the Add Cards dialog</li>
+<li><b>gui_edit_note</b> - Open the note editor for a specific note</li>
+<li><b>gui_current_card</b> - Get info about the currently displayed card</li>
+<li><b>gui_show_question</b> - Show the question side of current card</li>
+<li><b>gui_show_answer</b> - Show the answer side of current card</li>
+<li><b>gui_select_card</b> - Select a specific card in the reviewer</li>
+<li><b>gui_deck_browser</b> - Navigate to deck browser</li>
+<li><b>gui_undo</b> - Undo the last operation</li>
+</ul>
+
+<h3>Resources</h3>
+<ul>
+<li><b>system_info</b> - Anki version and system information</li>
+</ul>
+
+<h3>Prompts</h3>
+<ul>
+<li><b>review_session</b> - Guided review session workflow</li>
+</ul>
+
+<h2>Requirements</h2>
+<p>Anki 25.x or later (Python 3.13)</p>
+
+<h2>Architecture</h2>
+<p>The addon runs an MCP server in a background thread with HTTP transport (FastMCP + uvicorn). All Anki operations are bridged to the main Qt thread via a queue system, following the same proven pattern as AnkiConnect.</p>
+
+<h2>License</h2>
+<p>AGPL-3.0-or-later</p>
+
+<h2>Links</h2>
+<ul>
+<li><a href="https://ankimcp.ai">ankimcp.ai</a> - Project homepage</li>
+<li><a href="https://github.com/ankimcp/anki-mcp-server-addon">GitHub</a> - Source code & issues</li>
+<li><a href="https://modelcontextprotocol.io/">MCP Protocol</a> - Model Context Protocol specification</li>
+</ul>

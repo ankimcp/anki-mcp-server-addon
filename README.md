@@ -8,6 +8,10 @@ AnkiMCP Server runs a local MCP server inside Anki, allowing AI assistants like 
 
 Part of the [ankimcp.ai](https://ankimcp.ai) project.
 
+## Note on First Run
+
+On first run, this addon downloads `pydantic_core` (~2MB) from PyPI. This is required because pydantic_core contains platform-specific binaries (Windows/macOS/Linux) that cannot be bundled in a single addon file.
+
 ## Features
 
 - **Local HTTP server** - Runs on `http://127.0.0.1:3141/` by default
