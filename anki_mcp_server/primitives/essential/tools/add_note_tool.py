@@ -156,13 +156,15 @@ def _add_note_handler(
             note.tags = tags
 
         # Add the note to the collection
-        changes = mw.col.add_note(note, deck_id)
+        # Note: add_note() sets note.id and returns OpChangesWithCount (for undo)
+        mw.col.add_note(note, deck_id)
 
     finally:
         if mw.col:
             mw.maybeReset()
 
-    if not changes or not changes.note_id:
+    # note.id is set by add_note() - check it was assigned
+    if not note.id:
         return {
             "success": False,
             "error": "Failed to create note",
@@ -177,7 +179,7 @@ def _add_note_handler(
 
     return {
         "success": True,
-        "noteId": changes.note_id,
+        "noteId": note.id,
         "deckName": deckName,
         "modelName": modelName,
         "message": f'Successfully created note in deck "{deckName}"',

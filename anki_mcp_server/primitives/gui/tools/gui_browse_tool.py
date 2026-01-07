@@ -61,7 +61,8 @@ def _gui_browse_handler(
                 browser.onSearchActivated()
 
         # Find cards matching the query
-        card_ids = mw.col.find_cards(query)
+        # find_cards() returns a protobuf RepeatedScalarContainer, convert to list
+        card_ids = list(mw.col.find_cards(query))
         card_count = len(card_ids)
 
         # TODO: Implement reordering if both parameters are provided

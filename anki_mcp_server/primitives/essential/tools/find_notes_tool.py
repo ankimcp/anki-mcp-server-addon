@@ -64,12 +64,12 @@ def _find_notes_handler(query: str) -> dict[str, Any]:
         raise RuntimeError("Collection not loaded")
 
     # Execute the search using Anki's collection API
-    # find_notes() returns a list of note IDs
+    # find_notes() returns a protobuf RepeatedScalarContainer, convert to list
     try:
-        note_ids = mw.col.find_notes(query)
+        note_ids = list(mw.col.find_notes(query))
     except Exception as e:
-        # Re-raise with more context about the query
-        raise Exception(f"Search query failed: {str(e)}")
+        # Re-raise with more context about the query, preserving original traceback
+        raise Exception(f"Search query failed: {str(e)}") from e
 
     # Return result in expected format
     return {
