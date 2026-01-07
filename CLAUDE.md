@@ -16,7 +16,7 @@ Anki addon that runs an MCP server inside Anki, exposing collection operations t
 
 - **Package**: `anki_mcp_server.ankiaddon`
 - **Default Port**: 3141
-- **License**: MIT
+- **License**: AGPL-3.0-or-later
 
 ## Architecture
 
@@ -53,66 +53,61 @@ Anki addon that runs an MCP server inside Anki, exposing collection operations t
 
 **Key Principle**: Never access `mw.col` from background threads. All Anki operations must go through the queue bridge to execute on the main Qt thread.
 
-### File Structure
+### Core Files
 
 ```
 anki_mcp_server/
-├── __init__.py              # Entry point, hooks registration, pydantic_core loader
-├── addon.py                 # Main addon class, lifecycle management
+├── __init__.py              # Entry point, vendor path setup, lifecycle hooks
+├── connection_manager.py    # Manages MCP server lifecycle
 ├── config.py                # Configuration from Anki's addon config
 ├── mcp_server.py            # FastMCP server in background thread
 ├── queue_bridge.py          # Thread-safe request/response queue
 ├── request_processor.py     # Main thread handler dispatcher
 ├── handler_registry.py      # Maps tool names to handler functions
-├── settings_dialog.py       # Qt settings UI
-├── primitives/              # MCP tools, resources, prompts
+├── dependency_loader.py     # Runtime pydantic_core download from PyPI
+├── primitives/
 │   ├── tools.py             # Central tool registration
 │   ├── resources.py         # Central resource registration
 │   ├── prompts.py           # Central prompt registration
-│   ├── essential/           # Core Anki operations
-│   │   ├── tools/           # sync, add_note, find_notes, etc.
-│   │   ├── resources/       # system_info
-│   │   └── prompts/         # review_session
-│   └── gui/                 # GUI interaction tools
-│       └── tools/           # gui_browse, gui_add_cards, etc.
-└── vendor/                  # Vendored dependencies (mcp, uvicorn, starlette, etc.)
+│   ├── essential/tools/     # Core tools: sync, notes, decks, models, media
+│   ├── essential/resources/ # system_info
+│   ├── essential/prompts/   # review_session
+│   └── gui/tools/           # UI tools: browse, add_cards, edit_note, etc.
+└── vendor/                  # Vendored dependencies
 ```
 
 ### Tool Pattern
 
-Each tool has two parts:
+Each tool file contains both MCP and main-thread handlers in one place:
 
-1. **MCP Handler** (`primitives/.../tools/*_tool.py`) - Runs in background thread
-   - Registers with FastMCP via decorator
-   - Calls `call_main_thread(tool_name, arguments)`
-   - Returns result to MCP client
-
-2. **Main Thread Handler** (`primitives/.../tools/*_tool.py`) - Runs on Qt main thread
-   - Registers via `@register_handler("tool_name")`
-   - Has safe access to `mw.col`
-   - Returns result dict
-
-Example structure:
 ```python
-# MCP HANDLER - Background thread
-def register_my_tool(mcp, call_main_thread):
-    @mcp.tool(name="my_tool", description="...")
-    async def my_tool(arg: str) -> str:
-        result = await call_main_thread("my_tool", {"arg": arg})
-        return json.dumps(result)
+# primitives/essential/tools/my_tool.py
+from ....handler_registry import register_handler
 
-# MAIN THREAD HANDLER - Qt main thread
-@register_handler("my_tool")
-def handle_my_tool(arguments: dict[str, Any]) -> dict[str, Any]:
+# ============================================================================
+# HANDLER - Runs on Qt main thread, accesses mw.col
+# ============================================================================
+def _my_handler() -> dict[str, Any]:
+    from aqt import mw
     # Safe to access mw.col here
     return {"status": "success"}
+
+register_handler("my_tool", _my_handler)
+
+# ============================================================================
+# MCP TOOL - Runs in background thread, bridges to handler via queue
+# ============================================================================
+def register_my_tool(mcp, call_main_thread):
+    @mcp.tool(description="Does something useful")
+    async def my_tool(arg: str) -> dict[str, Any]:
+        return await call_main_thread("my_tool", {"arg": arg})
 ```
 
 ## Adding New Tools
 
 1. Create `primitives/essential/tools/my_tool.py` (or `gui/tools/` for GUI tools)
-2. Implement both MCP handler and main thread handler
-3. Add import and registration call to `primitives/tools.py`
+2. Add both the handler function (with `register_handler`) and MCP registration function
+3. Import and call registration in `primitives/tools.py`
 4. Rebuild: `./package.sh`
 
 ## Key Implementation Details
@@ -121,17 +116,27 @@ def handle_my_tool(arguments: dict[str, Any]) -> dict[str, Any]:
 
 - Server starts on `profile_did_open` hook
 - Server stops on `profile_will_close` hook
-- Fallback cleanup on `app_will_close` (Edge case: called on profile switch)
-
-### DNS Rebinding Protection
-
-Disabled in `mcp_server.py` to allow tunnel/proxy access (Cloudflare, ngrok). Users explicitly configure tunnel access.
+- Fallback cleanup on `app_will_close`
 
 ### Vendored Dependencies
 
 Dependencies are vendored in `vendor/shared/` to avoid conflicts with other addons. The `__init__.py` prepends vendor path to `sys.path`.
 
-`pydantic_core` is special - it's lazy-loaded from PyPI at runtime due to platform-specific binaries.
+`pydantic_core` is lazy-loaded from PyPI at runtime via `dependency_loader.py` because it contains platform-specific binaries that can't be bundled in a single addon file.
+
+### DNS Rebinding Protection
+
+Disabled in `mcp_server.py` to allow tunnel/proxy access (Cloudflare, ngrok).
+
+## Development Workflow
+
+No test framework currently. To test changes:
+1. Run `./package.sh`
+2. Install the `.ankiaddon` in Anki
+3. Restart Anki and check *Tools → AnkiMCP Server Settings...* for status
+4. Test with an MCP client (e.g., Claude Desktop)
+
+Debug output goes to Anki's console/terminal (run Anki from command line to see logs).
 
 ## Documentation
 
