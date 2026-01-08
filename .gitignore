@@ -21,3 +21,4 @@ vendor/
 .claude/
 .claude-draft/
 .sandbox/
+.docs/
