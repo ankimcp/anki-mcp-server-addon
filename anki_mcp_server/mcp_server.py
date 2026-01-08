@@ -19,7 +19,7 @@ Thread Safety:
 import asyncio
 import threading
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 import uvicorn
 from mcp.server.fastmcp import FastMCP
@@ -60,7 +60,7 @@ class McpServer:
         """
         self._bridge = bridge
         self._config = config
-        self._thread: threading.Thread | None = None
+        self._thread: Optional[threading.Thread] = None
         self._shutdown_event = threading.Event()
 
     def start(self) -> None:

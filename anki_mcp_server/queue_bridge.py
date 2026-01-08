@@ -18,7 +18,7 @@ Thread Safety:
 
 import queue
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 
 @dataclass
@@ -84,7 +84,7 @@ class ToolResponse:
     request_id: str
     success: bool
     result: Any = None
-    error: str | None = None
+    error: Optional[str] = None
 
 
 class QueueBridge:
@@ -206,7 +206,7 @@ class QueueBridge:
         # If this times out, something is seriously wrong (main thread crashed, etc.)
         return self.response_queue.get(timeout=30)
 
-    def get_pending_request(self) -> ToolRequest | None:
+    def get_pending_request(self) -> Optional[ToolRequest]:
         """Non-blocking check for pending requests.
 
         Called from main thread (QTimer callback) to check if there are any

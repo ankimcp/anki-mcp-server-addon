@@ -20,3 +20,4 @@ vendor/
 # Claude Code
 .claude/
 .claude-draft/
+.sandbox/
