@@ -1,7 +1,8 @@
 from typing import Any
 import logging
 
-from ....tool_decorator import Tool, ToolError
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError
 
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ def gui_select_card(card_id: int) -> dict[str, Any]:
     from aqt import mw, dialogs
 
     if mw is None or mw.col is None:
-        raise ToolError("Anki not ready", hint="Open a profile in Anki first")
+        raise HandlerError("Anki not ready", hint="Open a profile in Anki first")
 
     browser = dialogs._dialogs.get("Browser", [None, None])[1]
 
@@ -37,16 +38,16 @@ def gui_select_card(card_id: int) -> dict[str, Any]:
     try:
         card = mw.col.get_card(card_id)
         if not card:
-            raise ToolError(
+            raise HandlerError(
                 f"Card {card_id} not found",
                 hint="Card ID not found. Make sure the card exists and is visible in the current browser search.",
                 cardId=card_id,
                 browserOpen=True,
             )
-    except ToolError:
+    except HandlerError:
         raise
     except Exception:
-        raise ToolError(
+        raise HandlerError(
             f"Card {card_id} not found",
             hint="Card ID not found. Make sure the card exists and is visible in the current browser search.",
             cardId=card_id,
@@ -62,7 +63,7 @@ def gui_select_card(card_id: int) -> dict[str, Any]:
             logger.debug(f"Selected card {card_id} using table.select_rows()")
         except Exception as e:
             logger.warning(f"select_rows failed with card ID: {e}, card may not be in current view")
-            raise ToolError(
+            raise HandlerError(
                 f"Failed to select card {card_id}",
                 hint="The card may not be visible in the current browser search results.",
                 cardId=card_id,
@@ -70,7 +71,7 @@ def gui_select_card(card_id: int) -> dict[str, Any]:
             )
     else:
         logger.warning("Browser doesn't have expected selection methods, card selection may not work")
-        raise ToolError(
+        raise HandlerError(
             "Browser card selection not supported in this Anki version",
             hint="This Anki version may not support programmatic card selection in the browser.",
             cardId=card_id,

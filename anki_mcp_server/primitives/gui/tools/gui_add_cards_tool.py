@@ -1,6 +1,7 @@
 from typing import Any
 
-from ....tool_decorator import Tool, ToolError
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError
 
 
 @Tool(
@@ -16,7 +17,7 @@ def gui_add_cards() -> dict[str, Any]:
     from aqt import mw, dialogs
 
     if mw is None:
-        raise ToolError("Main window not available", hint="Make sure Anki is running")
+        raise HandlerError("Main window not available", hint="Make sure Anki is running")
 
     dialogs.open("AddCards", mw)
 

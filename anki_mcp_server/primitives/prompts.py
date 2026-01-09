@@ -1,8 +1,10 @@
 # primitives/prompts.py
 """Central prompt registration module."""
 
-# Import all prompts
-from .essential.prompts.review_session_prompt import register_review_session_prompt
+from ..prompt_decorator import register_prompts
+
+# Import triggers registration via @Prompt decorator
+from .essential.prompts import review_session_prompt  # noqa: F401
 
 
 def register_all_prompts(mcp) -> None:
@@ -15,5 +17,4 @@ def register_all_prompts(mcp) -> None:
     Args:
         mcp: FastMCP server instance
     """
-    # Register essential prompts
-    register_review_session_prompt(mcp)
+    register_prompts(mcp)

@@ -1,7 +1,8 @@
 from typing import Any, Optional
 import logging
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ def get_due_cards(deck_name: Optional[str] = None, limit: int = 10) -> dict[str,
     try:
         card_ids = col.find_cards(query)
     except Exception as e:
-        raise ToolError(f"Failed to find due cards: {str(e)}")
+        raise HandlerError(f"Failed to find due cards: {str(e)}")
 
     if len(card_ids) == 0:
         return {

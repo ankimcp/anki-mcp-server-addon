@@ -1,6 +1,7 @@
 from typing import Any
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
@@ -12,7 +13,7 @@ def model_field_names(model_name: str) -> dict[str, Any]:
 
     model = col.models.by_name(model_name)
     if model is None:
-        raise ToolError(
+        raise HandlerError(
             f'Model "{model_name}" not found',
             hint="Use modelNames tool to see available models",
             model_name=model_name,

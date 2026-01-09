@@ -1,7 +1,8 @@
 from typing import Any, Optional
 import re
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
@@ -19,17 +20,17 @@ def create_model(
     col = get_col()
 
     if not model_name or not model_name.strip():
-        raise ToolError("Model name cannot be empty")
+        raise HandlerError("Model name cannot be empty")
 
     if not in_order_fields or len(in_order_fields) == 0:
-        raise ToolError("At least one field is required")
+        raise HandlerError("At least one field is required")
 
     if not card_templates or len(card_templates) == 0:
-        raise ToolError("At least one card template is required")
+        raise HandlerError("At least one card template is required")
 
     existing_model = col.models.by_name(model_name)
     if existing_model is not None:
-        raise ToolError(
+        raise HandlerError(
             f'Model "{model_name}" already exists',
             hint="A model with this name already exists. Use a different name or use modelNames tool to see existing models.",
             model_name=model_name,
@@ -37,15 +38,15 @@ def create_model(
 
     for field_name in in_order_fields:
         if not field_name or not field_name.strip():
-            raise ToolError("Field names cannot be empty")
+            raise HandlerError("Field names cannot be empty")
 
     for i, template in enumerate(card_templates):
         if "Name" not in template or not template["Name"]:
-            raise ToolError(f"Template {i} missing required 'Name' field")
+            raise HandlerError(f"Template {i} missing required 'Name' field")
         if "Front" not in template or not template["Front"]:
-            raise ToolError(f"Template {i} ('{template.get('Name', 'unnamed')}') missing required 'Front' field")
+            raise HandlerError(f"Template {i} ('{template.get('Name', 'unnamed')}') missing required 'Front' field")
         if "Back" not in template or not template["Back"]:
-            raise ToolError(f"Template {i} ('{template.get('Name', 'unnamed')}') missing required 'Back' field")
+            raise HandlerError(f"Template {i} ('{template.get('Name', 'unnamed')}') missing required 'Back' field")
 
     # Validate field references in templates (warning only)
     warnings: list[str] = []

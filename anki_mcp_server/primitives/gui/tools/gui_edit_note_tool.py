@@ -1,7 +1,8 @@
 from typing import Any
 import logging
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ def gui_edit_note(note_id: int) -> dict[str, Any]:
         col.get_note(note_id)
     except Exception as e:
         logger.error(f"Note {note_id} not found: {e}")
-        raise ToolError(
+        raise HandlerError(
             f"Note {note_id} not found",
             hint="Use findNotes to search for notes and get valid note IDs.",
             noteId=note_id,

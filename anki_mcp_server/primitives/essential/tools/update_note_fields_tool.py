@@ -1,7 +1,8 @@
 from typing import Any
 import logging
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 logger = logging.getLogger(__name__)
 
@@ -20,34 +21,34 @@ def update_note_fields(note: dict[str, Any]) -> dict[str, Any]:
     picture = note.get("picture")
 
     if not note_id:
-        raise ToolError("note.id is required")
+        raise HandlerError("note.id is required")
 
     if not fields_to_update:
-        raise ToolError(
+        raise HandlerError(
             "No fields provided for update. Provide at least one field to update.",
             hint="Include fields dict with field names and values to update",
         )
 
     if not isinstance(fields_to_update, dict):
-        raise ToolError("note.fields must be a dictionary")
+        raise HandlerError("note.fields must be a dictionary")
 
     try:
         anki_note = col.get_note(note_id)
     except KeyError:
-        raise ToolError(
+        raise HandlerError(
             f"Note not found with ID {note_id}. The note ID is invalid or the note has been deleted.",
             hint="Use findNotes to get valid note IDs.",
         )
     except Exception as e:
         logger.error(f"Unexpected error getting note {note_id}: {e}", exc_info=True)
-        raise ToolError(f"Failed to retrieve note {note_id}: {str(e)}")
+        raise HandlerError(f"Failed to retrieve note {note_id}: {str(e)}")
 
     model_name = anki_note.note_type()["name"]
     existing_fields = list(anki_note.keys())
 
     invalid_fields = [field for field in fields_to_update.keys() if field not in existing_fields]
     if invalid_fields:
-        raise ToolError(
+        raise HandlerError(
             f'Invalid fields for model "{model_name}": {", ".join(invalid_fields)}. '
             f'Valid fields are: {", ".join(existing_fields)}.',
             hint="Use modelFieldNames to see valid fields for this model.",

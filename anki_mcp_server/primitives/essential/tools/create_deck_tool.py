@@ -1,7 +1,8 @@
 """Create deck tool - create a new Anki deck."""
 from typing import Any
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
@@ -19,13 +20,13 @@ def create_deck(deck_name: str) -> dict[str, Any]:
 
     parts = deck_name.split("::")
     if len(parts) > 2:
-        raise ToolError(
+        raise HandlerError(
             f"Deck name can have maximum 2 levels (parent::child). Provided: {len(parts)} levels",
             hint="Use format like 'Parent::Child', not 'A::B::C'",
         )
 
     if any(part.strip() == "" for part in parts):
-        raise ToolError("Deck name parts cannot be empty")
+        raise HandlerError("Deck name parts cannot be empty")
 
     all_deck_names = col.decks.all_names_and_ids()
     deck_exists = any(d.name == deck_name for d in all_deck_names)

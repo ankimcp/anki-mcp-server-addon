@@ -1,7 +1,8 @@
 from typing import Any
 from datetime import datetime
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
@@ -17,13 +18,13 @@ def rate_card(card_id: int, rating: int) -> dict[str, Any]:
     col = get_col()
 
     if not isinstance(rating, int) or rating < 1 or rating > 4:
-        raise ToolError(
+        raise HandlerError(
             f"Invalid rating: {rating}. Must be 1-4 (1=Again, 2=Hard, 3=Good, 4=Easy)",
             hint="Rating must be an integer between 1 and 4",
         )
 
     if not isinstance(card_id, int) or card_id <= 0:
-        raise ToolError(
+        raise HandlerError(
             f"card_id must be a positive integer, got: {card_id}",
             hint="Use get_due_cards or findCards to get valid card IDs",
         )
@@ -31,7 +32,7 @@ def rate_card(card_id: int, rating: int) -> dict[str, Any]:
     try:
         card = col.get_card(card_id)
     except Exception:
-        raise ToolError(
+        raise HandlerError(
             f"Card not found: {card_id}",
             hint="Verify the card ID is correct using get_due_cards or other card operations",
         )

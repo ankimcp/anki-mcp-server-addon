@@ -1,62 +1,54 @@
 # primitives/essential/prompts/review_session_prompt.py
 """Review session prompt - guides LLM through conducting Anki review sessions."""
 
-from typing import Any
-import logging
-
-logger = logging.getLogger(__name__)
+from ....prompt_decorator import Prompt
 
 
 # ============================================================================
 # MCP PROMPT - Runs in background thread
 # ============================================================================
 
-def register_review_session_prompt(mcp) -> None:
-    """Register the review_session prompt with the MCP server."""
+@Prompt(
+    "review_session",
+    "Creates a structured prompt for conducting an Anki review session. "
+    "Use this prompt to guide the LLM through presenting cards, collecting answers, "
+    "and rating cards appropriately. Helps maintain consistent review workflow."
+)
+def review_session(
+    deck_name: str = "Default",
+    card_limit: int = 20,
+    review_style: str = "interactive"
+) -> str:
+    """Generate a review session prompt for Anki.
 
-    @mcp.prompt(
-        name="review_session",
-        description=(
-            "Creates a structured prompt for conducting an Anki review session. "
-            "Use this prompt to guide the LLM through presenting cards, collecting answers, "
-            "and rating cards appropriately. Helps maintain consistent review workflow."
-        )
-    )
-    def review_session(
-        deck_name: str = "Default",
-        card_limit: int = 20,
-        review_style: str = "interactive"
-    ) -> str:
-        """Generate a review session prompt for Anki.
+    Creates a structured prompt that guides the LLM through conducting
+    an effective Anki review session with the user.
 
-        Creates a structured prompt that guides the LLM through conducting
-        an effective Anki review session with the user.
+    Args:
+        deck_name: Name of the deck to review (default: "Default")
+        card_limit: Maximum number of cards to review in this session
+        review_style: Review approach - "interactive" for Q&A or
+                     "quick" for rapid-fire mode
 
-        Args:
-            deck_name: Name of the deck to review (default: "Default")
-            card_limit: Maximum number of cards to review in this session
-            review_style: Review approach - "interactive" for Q&A or
-                         "quick" for rapid-fire mode
+    Returns:
+        A formatted prompt string with review session instructions
 
-        Returns:
-            A formatted prompt string with review session instructions
-
-        Example:
-            >>> prompt = await get_prompt("review_session", {
-            ...     "deck_name": "Spanish Vocabulary",
-            ...     "card_limit": 10,
-            ...     "review_style": "interactive"
-            ... })
-        """
-        if review_style == "quick":
-            style_instructions = """
+    Example:
+        >>> prompt = await get_prompt("review_session", {
+        ...     "deck_name": "Spanish Vocabulary",
+        ...     "card_limit": 10,
+        ...     "review_style": "interactive"
+        ... })
+    """
+    if review_style == "quick":
+        style_instructions = """
 QUICK REVIEW MODE:
 - Present cards rapidly with minimal discussion
 - Show question, wait for user signal, show answer
 - Rate based on user's quick self-assessment (Again/Hard/Good/Easy)
 - Aim for efficient coverage without deep exploration"""
-        else:
-            style_instructions = """
+    else:
+        style_instructions = """
 INTERACTIVE REVIEW MODE:
 - Present each card's question and wait for the user's answer
 - After they respond, reveal the answer and discuss if needed
@@ -68,7 +60,7 @@ INTERACTIVE REVIEW MODE:
   * Good (3): Correct with reasonable effort
   * Easy (4): Instant, effortless recall"""
 
-        return f"""You are helping the user conduct an Anki review session.
+    return f"""You are helping the user conduct an Anki review session.
 
 SESSION PARAMETERS:
 - Deck: "{deck_name}"

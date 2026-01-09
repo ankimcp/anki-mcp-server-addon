@@ -1,7 +1,8 @@
 from typing import Any
 import logging
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 logger = logging.getLogger(__name__)
 
@@ -15,20 +16,20 @@ def delete_notes(notes: list[int], confirmDeletion: bool) -> dict[str, Any]:
     col = get_col()
 
     if not confirmDeletion:
-        raise ToolError(
+        raise HandlerError(
             "Deletion not confirmed. Set confirmDeletion to true to permanently "
             "delete these notes and all their cards. This action cannot be undone!",
             hint="Set confirmDeletion to true to permanently delete these notes and all their cards",
         )
 
     if len(notes) > 100:
-        raise ToolError(
+        raise HandlerError(
             f"Cannot delete more than 100 notes at once for safety. Requested: {len(notes)} notes",
             hint="Delete notes in smaller batches (maximum 100 at a time) for safety",
         )
 
     if len(notes) == 0:
-        raise ToolError("No note IDs provided")
+        raise HandlerError("No note IDs provided")
 
     # Get info about notes before deletion
     valid_notes = []

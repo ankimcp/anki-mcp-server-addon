@@ -3,8 +3,10 @@
 
 from typing import Any, Callable, Coroutine
 
-# Import all resources (this triggers handler registration at import time)
-from .essential.resources.system_info_resource import register_system_info_resource
+from ..resource_decorator import register_resources
+
+# Import triggers registration via @Resource decorator
+from .essential.resources import system_info_resource  # noqa: F401
 
 
 def register_all_resources(
@@ -17,5 +19,4 @@ def register_all_resources(
         mcp: FastMCP server instance
         call_main_thread: Async function to bridge calls to Anki's main thread
     """
-    # Register essential resources
-    register_system_info_resource(mcp, call_main_thread)
+    register_resources(mcp, call_main_thread)

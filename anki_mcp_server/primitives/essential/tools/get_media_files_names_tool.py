@@ -2,7 +2,8 @@ from typing import Any, Optional
 import os
 import fnmatch
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
@@ -25,7 +26,7 @@ def get_media_files_names(pattern: Optional[str] = None) -> dict[str, Any]:
     try:
         all_entries = os.listdir(media_dir)
     except OSError as e:
-        raise ToolError(f"Failed to list media directory: {e}")
+        raise HandlerError(f"Failed to list media directory: {e}")
 
     all_files = [
         entry for entry in all_entries

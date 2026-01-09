@@ -2,7 +2,8 @@
 from typing import Any
 import logging
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +15,10 @@ logger = logging.getLogger(__name__)
 )
 def notes_info(notes: list[int]) -> dict[str, Any]:
     if not notes:
-        raise ToolError("notes parameter cannot be empty")
+        raise HandlerError("notes parameter cannot be empty")
 
     if len(notes) > 100:
-        raise ToolError(
+        raise HandlerError(
             f"Maximum 100 notes at once (requested: {len(notes)})",
             hint="Split your request into smaller batches",
         )

@@ -1,7 +1,8 @@
 from typing import Any
 import os
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
@@ -16,16 +17,16 @@ def delete_media_file(filename: str) -> dict[str, Any]:
     col = get_col()
 
     if not filename or not filename.strip():
-        raise ToolError("Filename cannot be empty")
+        raise HandlerError("Filename cannot be empty")
 
     if os.path.sep in filename or (os.path.altsep and os.path.altsep in filename):
-        raise ToolError(
+        raise HandlerError(
             f"Filename cannot contain path separators. Got: {filename}",
             hint="Use only the filename without directory paths",
         )
 
     if ".." in filename or filename.startswith("."):
-        raise ToolError(
+        raise HandlerError(
             f"Filename cannot contain relative path indicators (./ or ../). Got: {filename}",
             hint="Use only the filename without relative path components",
         )
@@ -34,13 +35,13 @@ def delete_media_file(filename: str) -> dict[str, Any]:
     file_path = os.path.join(media_dir, filename)
 
     if not os.path.exists(file_path):
-        raise ToolError(
+        raise HandlerError(
             f"Media file not found: {filename}",
             hint="The file may have already been deleted or never existed",
         )
 
     if not os.path.isfile(file_path):
-        raise ToolError(
+        raise HandlerError(
             f"Path exists but is not a file: {filename}",
             hint="Cannot delete directories",
         )
@@ -48,7 +49,7 @@ def delete_media_file(filename: str) -> dict[str, Any]:
     try:
         os.remove(file_path)
     except PermissionError:
-        raise ToolError(
+        raise HandlerError(
             f"Permission denied when trying to delete {filename}",
             hint="The file may be in use by another process",
         )

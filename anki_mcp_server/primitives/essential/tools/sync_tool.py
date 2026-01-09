@@ -1,7 +1,8 @@
 """Sync tool - trigger Anki sync with AnkiWeb."""
 from typing import Any
 
-from ....tool_decorator import Tool, ToolError
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError
 
 
 @Tool(
@@ -12,7 +13,7 @@ def sync() -> dict[str, Any]:
     from aqt import mw
 
     if not mw.pm.profile.get("syncKey"):
-        raise ToolError(
+        raise HandlerError(
             "Sync not configured",
             hint="Please sync manually first to set up AnkiWeb credentials",
         )

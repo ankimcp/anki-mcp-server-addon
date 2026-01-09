@@ -4,7 +4,8 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 
 def _get_file_bytes(
@@ -22,7 +23,7 @@ def _get_file_bytes(
         try:
             return base64.b64decode(data), "base64"
         except Exception as e:
-            raise ToolError(
+            raise HandlerError(
                 f"Failed to decode base64 data: {e}",
                 hint="Ensure the data is valid base64-encoded content",
                 filename=filename,
@@ -32,15 +33,15 @@ def _get_file_bytes(
         file_path = Path(path)
 
         if not file_path.exists():
-            raise ToolError(f"File not found: {path}", filename=filename)
+            raise HandlerError(f"File not found: {path}", filename=filename)
 
         if not file_path.is_file():
-            raise ToolError(f"Path is not a file: {path}", filename=filename)
+            raise HandlerError(f"Path is not a file: {path}", filename=filename)
 
         try:
             return file_path.read_bytes(), "file"
         except Exception as e:
-            raise ToolError(
+            raise HandlerError(
                 f"Failed to read file: {e}",
                 filename=filename,
                 path=path,
@@ -51,25 +52,25 @@ def _get_file_bytes(
             with urllib.request.urlopen(url, timeout=30) as response:
                 return response.read(), "url"
         except urllib.error.HTTPError as e:
-            raise ToolError(
+            raise HandlerError(
                 f"HTTP error downloading file: {e.code} {e.reason}",
                 filename=filename,
                 url=url,
             )
         except urllib.error.URLError as e:
-            raise ToolError(
+            raise HandlerError(
                 f"Failed to download file: {e.reason}",
                 filename=filename,
                 url=url,
             )
         except Exception as e:
-            raise ToolError(
+            raise HandlerError(
                 f"Failed to download file: {e}",
                 filename=filename,
                 url=url,
             )
 
-    raise ToolError("No data source provided")
+    raise HandlerError("No data source provided")
 
 
 @Tool(
@@ -90,25 +91,25 @@ def store_media_file(
 
     sources_provided = sum(x is not None for x in [data, path, url])
     if sources_provided == 0:
-        raise ToolError(
+        raise HandlerError(
             "Must provide exactly one of: data, path, or url",
             hint="Specify the file source using one of the three options",
         )
     if sources_provided > 1:
-        raise ToolError(
+        raise HandlerError(
             "Must provide exactly one of: data, path, or url (got multiple)",
             hint="Only one source can be used at a time",
         )
 
     if not filename or not filename.strip():
-        raise ToolError("Filename cannot be empty")
+        raise HandlerError("Filename cannot be empty")
 
     filename = filename.strip()
 
     file_bytes, source_type = _get_file_bytes(data, path, url, filename)
 
     if not file_bytes:
-        raise ToolError("File data is empty", filename=filename)
+        raise HandlerError("File data is empty", filename=filename)
 
     actual_filename = col.media.write_data(filename, file_bytes)
     media_dir = col.media.dir()

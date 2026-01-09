@@ -1,7 +1,8 @@
 """Find notes tool - search for notes using Anki query syntax."""
 from typing import Any
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
@@ -16,7 +17,7 @@ def find_notes(query: str) -> dict[str, Any]:
     try:
         note_ids = list(col.find_notes(query))
     except Exception as e:
-        raise ToolError(
+        raise HandlerError(
             f"Search query failed: {e}",
             hint="Check Anki documentation for valid search syntax",
             examples=[

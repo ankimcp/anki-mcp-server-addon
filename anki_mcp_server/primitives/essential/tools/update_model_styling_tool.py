@@ -1,6 +1,7 @@
 from typing import Any
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
@@ -13,7 +14,7 @@ def update_model_styling(model_name: str, css: str) -> dict[str, Any]:
 
     model = col.models.by_name(model_name)
     if model is None:
-        raise ToolError(
+        raise HandlerError(
             f'Model "{model_name}" not found',
             hint="Model not found. Use modelNames tool to see available models.",
             model_name=model_name,

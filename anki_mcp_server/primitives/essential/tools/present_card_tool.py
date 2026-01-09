@@ -1,6 +1,7 @@
 from typing import Any
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
@@ -13,7 +14,7 @@ def present_card(card_id: int, show_answer: bool = False) -> dict[str, Any]:
     try:
         card = col.get_card(card_id)
     except Exception:
-        raise ToolError(
+        raise HandlerError(
             f"Card not found with ID {card_id}",
             hint="Verify the card ID is correct using get_due_cards or findCards",
         )

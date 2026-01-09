@@ -2,7 +2,8 @@
 from typing import Any, Optional
 import logging
 
-from ....tool_decorator import Tool, ToolError, get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError, get_col
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ def add_note(
 
     empty_fields = [key for key, value in fields.items() if not value or not value.strip()]
     if empty_fields:
-        raise ToolError(
+        raise HandlerError(
             f"Fields cannot be empty: {', '.join(empty_fields)}",
             deck_name=deck_name,
             model_name=model_name,
@@ -38,7 +39,7 @@ def add_note(
 
     deck = col.decks.by_name(deck_name)
     if deck is None:
-        raise ToolError(
+        raise HandlerError(
             f"Deck not found: {deck_name}",
             hint="Use list_decks tool to see available decks or createDeck to create a new one.",
             deck_name=deck_name,
@@ -48,7 +49,7 @@ def add_note(
 
     model = col.models.by_name(model_name)
     if model is None:
-        raise ToolError(
+        raise HandlerError(
             f"Model not found: {model_name}",
             hint="Use modelNames tool to see available models.",
             deck_name=deck_name,
@@ -60,7 +61,7 @@ def add_note(
     missing_fields = [f for f in model_fields if f not in provided_fields]
 
     if missing_fields:
-        raise ToolError(
+        raise HandlerError(
             f"Missing required fields: {', '.join(missing_fields)}",
             hint="Use modelFieldNames tool to see required fields for this model.",
             deck_name=deck_name,
@@ -71,7 +72,7 @@ def add_note(
 
     extra_fields = [f for f in provided_fields if f not in model_fields]
     if extra_fields:
-        raise ToolError(
+        raise HandlerError(
             f"Unknown fields for this model: {', '.join(extra_fields)}",
             hint="Use modelFieldNames tool to see valid fields for this model.",
             deck_name=deck_name,
@@ -87,13 +88,13 @@ def add_note(
         try:
             duplicate_note_ids = col.find_notes(f'{first_field_name}:"{first_field_value}"')
             if duplicate_note_ids:
-                raise ToolError(
+                raise HandlerError(
                     "Failed to create note - it may be a duplicate",
                     hint="The note appears to be a duplicate. Set allow_duplicate to true if you want to add it anyway.",
                     deck_name=deck_name,
                     model_name=model_name,
                 )
-        except ToolError:
+        except HandlerError:
             raise
         except Exception as e:
             logger.warning(f"Duplicate check failed: {e}")
@@ -110,7 +111,7 @@ def add_note(
     col.add_note(note, deck_id)
 
     if not note.id:
-        raise ToolError(
+        raise HandlerError(
             "Failed to create note",
             hint="Check if the model and deck names are correct.",
             deck_name=deck_name,

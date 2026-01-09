@@ -4,30 +4,20 @@ import inspect
 import logging
 
 from .handler_registry import register_handler
+from .handler_wrappers import (
+    HandlerError,
+    _error_handler,
+    _require_col,
+    _get_mw,
+    get_mw,
+    get_col,
+)
 
 logger = logging.getLogger(__name__)
 
 # Global registry storing all tools registered via @Tool decorator
-# Key: tool name, Value: dict with name, description, handler (wrapped), original (unwrapped)
+# Key: tool name, Value: dict with name, description, original (unwrapped)
 _registry: dict[str, dict[str, Any]] = {}
-
-
-# ------------------------------------------------------------------------------
-# ToolError - Custom exception for tool failures with structured error response
-# ------------------------------------------------------------------------------
-# Raise this in tool functions to return a clean error to the AI client.
-# - message: What went wrong
-# - hint: Actionable suggestion for the AI (optional)
-# - **data: Extra context like filename, query, etc. (optional)
-#
-# Example: raise ToolError("Deck not found", hint="Check spelling", deck_name="Spansh")
-# ------------------------------------------------------------------------------
-class ToolError(Exception):
-    def __init__(self, message: str, hint: Optional[str] = None, **data: Any):
-        super().__init__(message)
-        self.message = message
-        self.hint = hint
-        self.data = data
 
 
 # ------------------------------------------------------------------------------
@@ -45,12 +35,11 @@ class ToolError(Exception):
 #   - require_col: If True (default), checks collection is open before running
 #
 # What happens at import time:
-#   1. Wraps function with _auto_response (normalizes return values)
-#   2. Wraps with _write_lock if write=True (Anki undo handling)
-#   3. Wraps with _require_col if require_col=True (collection check)
-#   4. Wraps with _error_handler (catches exceptions, returns JSON)
-#   5. Registers handler for main-thread dispatch
-#   6. Stores in _registry for later MCP registration
+#   1. Wraps with _write_lock if write=True (Anki undo handling)
+#   2. Wraps with _require_col if require_col=True (collection check)
+#   3. Wraps with _error_handler (catches exceptions, returns JSON)
+#   4. Registers handler for main-thread dispatch
+#   5. Stores in _registry for later MCP registration
 # ------------------------------------------------------------------------------
 class Tool:
     def __init__(
@@ -82,9 +71,8 @@ class Tool:
             raise ValueError(f"Tool already registered: {self.name}")
 
         # Stack wrappers from inside out
-        # Execution order: _error_handler -> _require_col -> _write_lock -> _auto_response -> func
+        # Execution order: _error_handler -> _require_col -> _write_lock -> func
         wrapped = func
-        wrapped = _auto_response(wrapped)  # Innermost: normalize return values
 
         if self.write:
             wrapped = _write_lock(wrapped)  # Handle Anki's undo system
@@ -105,55 +93,8 @@ class Tool:
         _registry[self.name] = {
             "name": self.name,
             "description": self.description,
-            "handler": wrapped,
             "original": func,
         }
-
-
-# ------------------------------------------------------------------------------
-# _error_handler - Outermost wrapper that catches exceptions
-# ------------------------------------------------------------------------------
-# Converts any exception into a JSON response:
-#   - ToolError -> {"success": False, "error": "...", "hint": "...", ...extra_data}
-#   - Other exceptions -> {"success": False, "error": "TypeError: ..."}
-# ------------------------------------------------------------------------------
-def _error_handler(func: Callable[..., Any]) -> Callable[..., Any]:
-    @wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        try:
-            return func(*args, **kwargs)
-        except ToolError as e:
-            # Filter out reserved keys to prevent overwriting success/error/hint
-            filtered_data = {
-                k: v for k, v in e.data.items() if k not in ("success", "error", "hint")
-            }
-            result: dict[str, Any] = {"success": False, "error": e.message, **filtered_data}
-            if e.hint:
-                result["hint"] = e.hint
-            return result
-        except Exception as e:
-            # Log full traceback for debugging, return clean error to client
-            logger.exception("Tool error: %s", e)
-            return {"success": False, "error": f"{type(e).__name__}: {e}"}
-
-    return wrapper
-
-
-# ------------------------------------------------------------------------------
-# _require_col - Check that Anki collection is open
-# ------------------------------------------------------------------------------
-# Raises ToolError if mw (main window) or mw.col (collection) is None.
-# Most tools need the collection - this is enabled by default.
-# ------------------------------------------------------------------------------
-def _require_col(func: Callable[..., Any]) -> Callable[..., Any]:
-    @wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        mw = _get_mw()
-        if mw is None or mw.col is None:
-            raise ToolError("Collection not available", hint="Open a profile in Anki first")
-        return func(*args, **kwargs)
-
-    return wrapper
 
 
 # ------------------------------------------------------------------------------
@@ -170,7 +111,7 @@ def _write_lock(func: Callable[..., Any]) -> Callable[..., Any]:
 
         # Guard against edge case where write=True but require_col=False
         if mw is None:
-            raise ToolError("Main window not available", hint="Make sure Anki is fully loaded")
+            raise HandlerError("Main window not available", hint="Make sure Anki is fully loaded")
 
         try:
             mw.requireReset()  # Mark that we're about to modify collection
@@ -181,77 +122,6 @@ def _write_lock(func: Callable[..., Any]) -> Callable[..., Any]:
                 mw.maybeReset()
 
     return wrapper
-
-
-# ------------------------------------------------------------------------------
-# _auto_response - Normalize return values to standard JSON format
-# ------------------------------------------------------------------------------
-# Ensures all tools return {"success": True, ...} format:
-#   - Already has "success" bool -> pass through unchanged
-#   - None -> {"success": True}
-#   - list/tuple -> {"success": True, "result": [...]}
-#   - dict -> {"success": True, **dict}
-#   - other -> {"success": True, "result": value}
-# ------------------------------------------------------------------------------
-def _auto_response(func: Callable[..., Any]) -> Callable[..., Any]:
-    @wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        result = func(*args, **kwargs)
-
-        # Already formatted correctly - pass through
-        if isinstance(result, dict) and isinstance(result.get("success"), bool):
-            return result
-
-        # None means "operation succeeded, nothing to return"
-        if result is None:
-            return {"success": True}
-
-        # Wrap sequences in result key
-        if isinstance(result, (list, tuple)):
-            return {"success": True, "result": list(result)}
-
-        # Merge dict into response (common pattern: return {"note_id": 123, ...})
-        if isinstance(result, dict):
-            return {"success": True, **result}
-
-        # Wrap primitive values
-        return {"success": True, "result": result}
-
-    return wrapper
-
-
-# ------------------------------------------------------------------------------
-# _get_mw - Internal helper to get main window (single import point for aqt)
-# ------------------------------------------------------------------------------
-def _get_mw() -> Any:
-    from aqt import mw
-    return mw
-
-
-# ------------------------------------------------------------------------------
-# get_mw - Helper to get main window with validation
-# ------------------------------------------------------------------------------
-# Use this in tool functions that need mw but not necessarily col.
-# Raises ToolError if Anki main window not available.
-# ------------------------------------------------------------------------------
-def get_mw() -> Any:
-    mw = _get_mw()
-    if mw is None:
-        raise ToolError("Main window not available", hint="Make sure Anki is fully loaded")
-    return mw
-
-
-# ------------------------------------------------------------------------------
-# get_col - Helper to get collection with validation
-# ------------------------------------------------------------------------------
-# Use this in tool functions instead of accessing mw.col directly.
-# Raises ToolError with helpful hint if collection not available.
-# ------------------------------------------------------------------------------
-def get_col() -> Any:
-    mw = _get_mw()
-    if mw is None or mw.col is None:
-        raise ToolError("Collection not available", hint="Open a profile in Anki first")
-    return mw.col
 
 
 # ------------------------------------------------------------------------------
