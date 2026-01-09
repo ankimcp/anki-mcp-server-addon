@@ -60,54 +60,127 @@ anki_mcp_server/
 ├── __init__.py              # Entry point, vendor path setup, lifecycle hooks
 ├── connection_manager.py    # Manages MCP server lifecycle
 ├── config.py                # Configuration from Anki's addon config
-├── mcp_server.py            # FastMCP server in background thread
+├── mcp_server.py            # FastMCP server in background thread (HTTP via uvicorn)
 ├── queue_bridge.py          # Thread-safe request/response queue
 ├── request_processor.py     # Main thread handler dispatcher
-├── handler_registry.py      # Maps tool names to handler functions
+├── handler_registry.py      # Maps handler names to functions
+├── handler_wrappers.py      # Shared wrappers: _error_handler, _require_col, HandlerError
+├── tool_decorator.py        # @Tool decorator implementation
+├── resource_decorator.py    # @Resource decorator implementation
+├── prompt_decorator.py      # @Prompt decorator implementation
 ├── dependency_loader.py     # Runtime pydantic_core download from PyPI
-├── primitives/
-│   ├── tools.py             # Central tool registration
-│   ├── resources.py         # Central resource registration
-│   ├── prompts.py           # Central prompt registration
-│   ├── essential/tools/     # Core tools: sync, notes, decks, models, media
-│   ├── essential/resources/ # system_info
-│   ├── essential/prompts/   # review_session
-│   └── gui/tools/           # UI tools: browse, add_cards, edit_note, etc.
-└── vendor/                  # Vendored dependencies
+└── primitives/
+    ├── tools.py             # Imports all tool modules to trigger @Tool registration
+    ├── resources.py         # Imports all resource modules to trigger @Resource registration
+    ├── prompts.py           # Imports all prompt modules to trigger @Prompt registration
+    ├── essential/
+    │   ├── tools/           # Core tools: sync, notes, decks, models, media
+    │   ├── resources/       # system_info, query_syntax, schema, stats
+    │   └── prompts/         # review_session
+    └── gui/tools/           # UI tools: browse, add_cards, edit_note, etc.
 ```
 
-### Tool Pattern
+**Vendored Dependencies**: Located in `vendor/shared/`. The `__init__.py` prepends vendor path to `sys.path` at startup.
 
-Each tool file contains both MCP and main-thread handlers in one place:
+### Decorator Patterns
+
+All MCP primitives use decorator-based registration. At import time, decorators automatically:
+1. Wrap functions with error handling and collection checks
+2. Register handlers for main-thread dispatch
+3. Store metadata for MCP registration at server startup
+
+#### @Tool Decorator
 
 ```python
 # primitives/essential/tools/my_tool.py
-from ....handler_registry import register_handler
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError
 
-# ============================================================================
-# HANDLER - Runs on Qt main thread, accesses mw.col
-# ============================================================================
-def _my_handler() -> dict[str, Any]:
+@Tool(
+    "my_tool",                    # Tool name exposed to MCP clients
+    "Description for AI",         # Shown to AI to understand usage
+    write=True,                   # Set True for operations that modify collection
+)
+def my_tool(arg: str) -> dict[str, Any]:
     from aqt import mw
-    # Safe to access mw.col here
+    # Runs on Qt main thread - safe to access mw.col
+    if not arg:
+        raise HandlerError("Invalid arg", hint="Provide a non-empty string")
     return {"status": "success"}
-
-register_handler("my_tool", _my_handler)
-
-# ============================================================================
-# MCP TOOL - Runs in background thread, bridges to handler via queue
-# ============================================================================
-def register_my_tool(mcp, call_main_thread):
-    @mcp.tool(description="Does something useful")
-    async def my_tool(arg: str) -> dict[str, Any]:
-        return await call_main_thread("my_tool", {"arg": arg})
 ```
 
-## Adding New Tools
+Options:
+- `write=True`: Wraps with Anki's undo system (`requireReset`/`maybeReset`)
+- `require_col=True` (default): Checks collection is open before running
 
-1. Create `primitives/essential/tools/my_tool.py` (or `gui/tools/` for GUI tools)
-2. Add both the handler function (with `register_handler`) and MCP registration function
-3. Import and call registration in `primitives/tools.py`
+#### @Resource Decorator
+
+```python
+# primitives/essential/resources/my_resource.py
+from ....resource_decorator import Resource
+
+@Resource(
+    "anki://deck/{deck_id}/stats",  # URI with template variables
+    "Get statistics for a deck",
+    name="deck_stats",               # Handler name (required, explicit)
+    title="Deck Statistics",         # Human-readable title (optional)
+)
+def deck_stats(deck_id: str) -> dict[str, Any]:
+    # deck_id extracted from URI template
+    from aqt import mw
+    return {"cards": 100}
+```
+
+Resources are read-only - no `write` option. URI template variables become function parameters.
+
+#### @Prompt Decorator
+
+```python
+# primitives/essential/prompts/my_prompt.py
+from ....prompt_decorator import Prompt
+
+@Prompt("review_tips", "Tips for effective review")
+def review_tips(deck_name: str = "Default") -> str:
+    return f"When reviewing {deck_name}, focus on..."
+```
+
+Prompts don't access `mw.col` - they just generate text templates.
+
+### Error Handling
+
+Use `HandlerError` for structured errors with actionable hints:
+
+```python
+from ....handler_wrappers import HandlerError
+
+raise HandlerError(
+    "Deck not found",
+    hint="Check spelling or use list_decks to see available decks",
+    deck_name="Spansh"  # Extra context passed as kwargs
+)
+```
+
+## Adding New Primitives
+
+### Adding a Tool
+
+1. Create `primitives/essential/tools/my_tool.py` (or `gui/tools/` for UI tools)
+2. Use `@Tool` decorator with name, description, and optional `write=True`
+3. Import in the package's `__init__.py` (e.g., `primitives/essential/tools/__init__.py`)
+4. Rebuild: `./package.sh`
+
+### Adding a Resource
+
+1. Create `primitives/essential/resources/my_resource.py`
+2. Use `@Resource` decorator with URI, description, and explicit `name`
+3. Import in `primitives/essential/resources/__init__.py`
+4. Rebuild: `./package.sh`
+
+### Adding a Prompt
+
+1. Create `primitives/essential/prompts/my_prompt.py`
+2. Use `@Prompt` decorator with name and description
+3. Import in `primitives/essential/prompts/__init__.py`
 4. Rebuild: `./package.sh`
 
 ## Key Implementation Details
@@ -118,9 +191,7 @@ def register_my_tool(mcp, call_main_thread):
 - Server stops on `profile_will_close` hook
 - Fallback cleanup on `app_will_close`
 
-### Vendored Dependencies
-
-Dependencies are vendored in `vendor/shared/` to avoid conflicts with other addons. The `__init__.py` prepends vendor path to `sys.path`.
+### pydantic_core Runtime Loading
 
 `pydantic_core` is lazy-loaded from PyPI at runtime via `dependency_loader.py` because it contains platform-specific binaries that can't be bundled in a single addon file.
 
@@ -132,11 +203,25 @@ Disabled in `mcp_server.py` to allow tunnel/proxy access (Cloudflare, ngrok).
 
 No test framework currently. To test changes:
 1. Run `./package.sh`
-2. Install the `.ankiaddon` in Anki
+2. Install the `.ankiaddon` in Anki (double-click or *Tools → Add-ons → Install from file...*)
 3. Restart Anki and check *Tools → AnkiMCP Server Settings...* for status
 4. Test with an MCP client (e.g., Claude Desktop)
 
-Debug output goes to Anki's console/terminal (run Anki from command line to see logs).
+### Viewing Debug Output
+
+Run Anki from terminal to see logs:
+```bash
+# macOS
+/Applications/Anki.app/Contents/MacOS/anki
+
+# Linux
+anki
+
+# Windows
+"C:\Program Files\Anki\anki.exe"
+```
+
+All `print()` statements and `logging` output appears in the terminal.
 
 ## Documentation
 
