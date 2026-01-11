@@ -1,0 +1,14 @@
+services:
+  anki:
+    image: ghcr.io/ankimcp/headless-anki:qt-vnc-v1.0.0
+    volumes:
+      # Addon file to install
+      - ../anki_mcp_server.ankiaddon:/app/addon.ankiaddon:ro
+      # Config override (binds to 0.0.0.0)
+      - ./config.json:/app/config.json:ro
+      # Custom entrypoint
+      - ./entrypoint.sh:/app/entrypoint.sh:ro
+    ports:
+      - "3141:3141"   # MCP Server
+      - "5900:5900"   # VNC (for debugging)
+    entrypoint: ["/bin/bash", "/app/entrypoint.sh"]

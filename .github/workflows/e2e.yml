@@ -1,0 +1,80 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main, feature/*]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python dependencies
+        run: |
+          pip install pytest
+
+      - name: Build addon package
+        run: |
+          chmod +x ./package.sh
+          ./package.sh
+
+      - name: Pull headless-anki image
+        run: |
+          # TODO: Replace with actual registry when available
+          # docker pull ghcr.io/your-org/headless-anki:x11-1.0.0
+          echo "Skipping pull - using local image for now"
+
+      - name: Start Anki container
+        working-directory: .docker
+        run: |
+          docker compose up -d
+          echo "Waiting for container to start..."
+          sleep 5
+
+      - name: Wait for MCP server
+        run: |
+          echo "Waiting for MCP server to be ready..."
+          for i in {1..60}; do
+            if npx @modelcontextprotocol/inspector --cli http://localhost:3141 --transport http --method tools/list 2>/dev/null; then
+              echo "Server is ready!"
+              exit 0
+            fi
+            echo "Attempt $i/60 - waiting..."
+            sleep 1
+          done
+          echo "Server failed to start"
+          docker compose -f .docker/docker-compose.yml logs
+          exit 1
+
+      - name: Run E2E tests
+        run: |
+          pytest tests/e2e/ -v --tb=short
+
+      - name: Show container logs on failure
+        if: failure()
+        working-directory: .docker
+        run: |
+          docker compose logs
+
+      - name: Stop Anki container
+        if: always()
+        working-directory: .docker
+        run: |
+          docker compose down
