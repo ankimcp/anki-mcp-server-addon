@@ -61,9 +61,22 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "mode": "http",
   "http_port": 3141,
   "http_host": "127.0.0.1",
+  "cors_origins": [],
   "auto_connect_on_startup": true
 }
 ```
+
+### CORS Configuration
+
+To allow browser-based MCP clients (like web-hosted MCP Inspector), add allowed origins:
+
+```json
+{
+  "cors_origins": ["https://inspector.example.com", "http://localhost:5173"]
+}
+```
+
+Use `["*"]` to allow all origins (not recommended for production).
 
 ## Available Tools
 

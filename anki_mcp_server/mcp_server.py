@@ -196,6 +196,18 @@ class McpServer:
         """
         app = mcp.streamable_http_app()
 
+        # Apply CORS middleware if configured
+        if self._config.cors_origins:
+            from starlette.middleware.cors import CORSMiddleware
+
+            app = CORSMiddleware(
+                app,
+                allow_origins=self._config.cors_origins,
+                allow_methods=["GET", "POST", "OPTIONS"],
+                allow_headers=["*"],
+                allow_credentials=True,
+            )
+
         config = uvicorn.Config(
             app,
             host=self._config.http_host,

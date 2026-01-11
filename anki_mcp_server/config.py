@@ -4,8 +4,8 @@ This module provides configuration dataclass and manager for persisting
 addon settings using Anki's built-in configuration system.
 """
 
-from dataclasses import dataclass, asdict
-from typing import Literal, Callable
+from dataclasses import dataclass, field, asdict
+from typing import Literal, Callable, List
 
 
 @dataclass
@@ -23,6 +23,11 @@ class Config:
     # HTTP settings
     http_port: int = 3141
     http_host: str = "127.0.0.1"
+
+    # CORS settings (list of allowed origins, empty = CORS disabled)
+    # Example: ["https://inspector.example.com", "http://localhost:5173"]
+    # Use ["*"] to allow all origins (not recommended for production)
+    cors_origins: List[str] = field(default_factory=list)
 
     # General
     auto_connect_on_startup: bool = True
