@@ -129,6 +129,43 @@ The addon runs an MCP server in a background thread with HTTP transport (FastMCP
 
 For details, see [Anki Add-on Development Documentation](https://addon-docs.ankiweb.net/).
 
+## Development
+
+### Running E2E Tests
+
+E2E tests run against a real Anki instance in Docker using [headless-anki](https://github.com/ankimcp/headless-anki).
+
+```bash
+# Install test dependencies
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+
+# Build the addon
+./package.sh
+
+# Start Anki container
+cd .docker && docker compose up -d && cd ..
+
+# Run tests (waits for server automatically)
+pytest tests/e2e/ -v
+
+# Stop container
+cd .docker && docker compose down
+```
+
+Or use the Makefile shortcuts:
+```bash
+make e2e        # Build, start container, run tests, stop
+make e2e-up     # Just start container
+make e2e-test   # Just run tests
+make e2e-down   # Just stop container
+```
+
+### CI
+
+E2E tests run automatically on push to `main` and `feature/*` branches, and on PRs. See `.github/workflows/e2e.yml`.
+
 ## License
 
 AGPL-3.0-or-later
