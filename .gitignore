@@ -9,6 +9,8 @@ __pycache__/
 *.pyo
 .pytest_cache/
 .mypy_cache/
+.venv/
+venv/
 
 # Anki addon build artifacts
 *.ankiaddon
