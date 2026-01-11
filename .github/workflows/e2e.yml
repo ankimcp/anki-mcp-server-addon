@@ -37,9 +37,7 @@ jobs:
 
       - name: Pull headless-anki image
         run: |
-          # TODO: Replace with actual registry when available
-          # docker pull ghcr.io/your-org/headless-anki:x11-1.0.0
-          echo "Skipping pull - using local image for now"
+          docker pull ghcr.io/ankimcp/headless-anki:qt-vnc-v1.0.0
 
       - name: Start Anki container
         working-directory: .docker
