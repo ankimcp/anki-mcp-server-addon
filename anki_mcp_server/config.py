@@ -29,6 +29,12 @@ class Config:
     # Use ["*"] to allow all origins (not recommended for production)
     cors_origins: List[str] = field(default_factory=list)
 
+    # CORS expose headers (headers browser JavaScript can read from responses)
+    # MCP protocol requires session ID header to be readable
+    cors_expose_headers: List[str] = field(
+        default_factory=lambda: ["mcp-session-id", "mcp-protocol-version"]
+    )
+
     # General
     auto_connect_on_startup: bool = True
 

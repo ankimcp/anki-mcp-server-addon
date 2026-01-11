@@ -205,6 +205,7 @@ class McpServer:
                 allow_origins=self._config.cors_origins,
                 allow_methods=["GET", "POST", "OPTIONS"],
                 allow_headers=["*"],
+                expose_headers=self._config.cors_expose_headers,
                 allow_credentials=True,
             )
 
