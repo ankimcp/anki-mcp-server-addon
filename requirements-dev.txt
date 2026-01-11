@@ -1,0 +1,2 @@
+# Development dependencies for E2E testing
+pytest>=9.0.0
