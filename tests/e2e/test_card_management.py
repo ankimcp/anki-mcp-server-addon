@@ -1,18 +1,18 @@
-"""Tests for card_actions multi-action tool."""
+"""Tests for card_management multi-action tool."""
 from __future__ import annotations
 
 from .conftest import unique_id
 from .helpers import call_tool, list_tools
 
 
-class TestCardActions:
-    """Tests for card_actions multi-action tool."""
+class TestCardManagement:
+    """Tests for card_management multi-action tool."""
 
-    def test_card_actions_tool_exists(self):
-        """card_actions tool should be registered."""
+    def test_card_management_tool_exists(self):
+        """card_management tool should be registered."""
         tools = list_tools()
         tool_names = [t["name"] for t in tools]
-        assert "card_actions" in tool_names
+        assert "card_management" in tool_names
 
     def test_reposition_action_basic(self):
         """reposition action should reposition new cards."""
@@ -43,11 +43,13 @@ class TestCardActions:
         assert len(card_ids) == 3
 
         # Reposition cards starting at position 100
-        result = call_tool("card_actions", {
-            "action": "reposition",
-            "card_ids": card_ids,
-            "starting_from": 100,
-            "step_size": 1
+        result = call_tool("card_management", {
+            "params": {
+                "action": "reposition",
+                "card_ids": card_ids,
+                "starting_from": 100,
+                "step_size": 1
+            }
         })
 
         # Should not error
@@ -84,11 +86,13 @@ class TestCardActions:
                     card_ids.append(cards[0])
 
         # Reposition with randomize
-        result = call_tool("card_actions", {
-            "action": "reposition",
-            "card_ids": card_ids,
-            "starting_from": 50,
-            "randomize": True
+        result = call_tool("card_management", {
+            "params": {
+                "action": "reposition",
+                "card_ids": card_ids,
+                "starting_from": 50,
+                "randomize": True
+            }
         })
 
         assert result.get("isError") is not True
@@ -96,9 +100,11 @@ class TestCardActions:
 
     def test_reposition_empty_card_ids(self):
         """reposition action should error with empty card_ids."""
-        result = call_tool("card_actions", {
-            "action": "reposition",
-            "card_ids": []
+        result = call_tool("card_management", {
+            "params": {
+                "action": "reposition",
+                "card_ids": []
+            }
         })
 
         assert result.get("isError") is True
@@ -121,10 +127,12 @@ class TestCardActions:
         card_id = notes_info["notes"][0]["cards"][0]
 
         # Try reposition with negative starting_from
-        result = call_tool("card_actions", {
-            "action": "reposition",
-            "card_ids": [card_id],
-            "starting_from": -1
+        result = call_tool("card_management", {
+            "params": {
+                "action": "reposition",
+                "card_ids": [card_id],
+                "starting_from": -1
+            }
         })
 
         assert result.get("isError") is True
@@ -147,10 +155,12 @@ class TestCardActions:
         card_id = notes_info["notes"][0]["cards"][0]
 
         # Try reposition with step_size = 0
-        result = call_tool("card_actions", {
-            "action": "reposition",
-            "card_ids": [card_id],
-            "step_size": 0
+        result = call_tool("card_management", {
+            "params": {
+                "action": "reposition",
+                "card_ids": [card_id],
+                "step_size": 0
+            }
         })
 
         assert result.get("isError") is True
@@ -186,10 +196,12 @@ class TestCardActions:
         assert len(card_ids) == 2
 
         # Move cards to target deck (will be created)
-        result = call_tool("card_actions", {
-            "action": "changeDeck",
-            "card_ids": card_ids,
-            "deck": target_deck
+        result = call_tool("card_management", {
+            "params": {
+                "action": "changeDeck",
+                "card_ids": card_ids,
+                "deck": target_deck
+            }
         })
 
         # Should not error
@@ -227,10 +239,12 @@ class TestCardActions:
         card_id = notes_info["notes"][0]["cards"][0]
 
         # Move to nested deck
-        result = call_tool("card_actions", {
-            "action": "changeDeck",
-            "card_ids": [card_id],
-            "deck": target_deck
+        result = call_tool("card_management", {
+            "params": {
+                "action": "changeDeck",
+                "card_ids": [card_id],
+                "deck": target_deck
+            }
         })
 
         assert result.get("isError") is not True
@@ -243,10 +257,12 @@ class TestCardActions:
 
     def test_change_deck_empty_card_ids(self):
         """changeDeck action should error with empty card_ids."""
-        result = call_tool("card_actions", {
-            "action": "changeDeck",
-            "card_ids": [],
-            "deck": "SomeDeck"
+        result = call_tool("card_management", {
+            "params": {
+                "action": "changeDeck",
+                "card_ids": [],
+                "deck": "SomeDeck"
+            }
         })
 
         assert result.get("isError") is True
@@ -268,14 +284,18 @@ class TestCardActions:
         notes_info = call_tool("notesInfo", {"notes": [note_id]})
         card_id = notes_info["notes"][0]["cards"][0]
 
-        # Try changeDeck without deck param
-        result = call_tool("card_actions", {
-            "action": "changeDeck",
-            "card_ids": [card_id]
+        # Try changeDeck without deck param - Pydantic validates this
+        result = call_tool("card_management", {
+            "params": {
+                "action": "changeDeck",
+                "card_ids": [card_id]
+                # deck is missing - should fail validation
+            }
         })
 
         assert result.get("isError") is True
-        assert "deck is required" in str(result)
+        # Pydantic validation error for missing required field
+        assert "deck" in str(result).lower() or "required" in str(result).lower()
 
     def test_change_deck_empty_deck_name(self):
         """changeDeck action should error with empty deck name."""
@@ -293,11 +313,13 @@ class TestCardActions:
         notes_info = call_tool("notesInfo", {"notes": [note_id]})
         card_id = notes_info["notes"][0]["cards"][0]
 
-        # Try changeDeck with empty string
-        result = call_tool("card_actions", {
-            "action": "changeDeck",
-            "card_ids": [card_id],
-            "deck": "   "  # Whitespace only
+        # Try changeDeck with whitespace-only string
+        result = call_tool("card_management", {
+            "params": {
+                "action": "changeDeck",
+                "card_ids": [card_id],
+                "deck": "   "  # Whitespace only
+            }
         })
 
         assert result.get("isError") is True
