@@ -1,8 +1,8 @@
 from typing import Any
 import logging
 
-from ....tool_decorator import Tool
-from ....handler_wrappers import HandlerError
+from anki_mcp_server.tool_decorator import Tool
+from anki_mcp_server.handler_wrappers import HandlerError
 
 
 logger = logging.getLogger(__name__)

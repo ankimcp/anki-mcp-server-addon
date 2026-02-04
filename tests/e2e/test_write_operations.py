@@ -1,15 +1,10 @@
 """E2E tests for write operations (create, update, delete)."""
 from __future__ import annotations
 
-import time
 import pytest
 
+from .conftest import unique_id
 from .helpers import call_tool
-
-
-def unique_id() -> str:
-    """Generate unique suffix to avoid duplicate conflicts."""
-    return str(int(time.time() * 1000))[-8:]
 
 
 class TestCreateDeck:

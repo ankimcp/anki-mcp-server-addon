@@ -1,6 +1,6 @@
 from typing import Any
 
-from ....tool_decorator import Tool
+from anki_mcp_server.tool_decorator import Tool
 
 
 @Tool(

@@ -1,8 +1,6 @@
 """Auto-discover and import all GUI tool modules."""
-from pathlib import Path
+import pkgutil
 import importlib
 
-# Auto-import all .py files in this directory (except __init__.py)
-for _file in Path(__file__).parent.glob("*.py"):
-    if not _file.stem.startswith("_"):
-        importlib.import_module(f".{_file.stem}", __package__)
+for importer, modname, ispkg in pkgutil.walk_packages(__path__, __name__ + "."):
+    importlib.import_module(modname)

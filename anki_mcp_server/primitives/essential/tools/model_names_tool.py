@@ -1,7 +1,8 @@
 """Model names tool - get all available note type names."""
 from typing import Any
 
-from ....tool_decorator import Tool, get_col
+from anki_mcp_server.tool_decorator import Tool
+from anki_mcp_server.handler_wrappers import get_col
 
 
 @Tool(

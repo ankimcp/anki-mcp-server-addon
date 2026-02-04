@@ -1,8 +1,8 @@
 """Find notes tool - search for notes using Anki query syntax."""
 from typing import Any
 
-from ....tool_decorator import Tool
-from ....handler_wrappers import HandlerError, get_col
+from anki_mcp_server.tool_decorator import Tool
+from anki_mcp_server.handler_wrappers import HandlerError, get_col
 
 
 @Tool(

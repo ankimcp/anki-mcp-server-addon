@@ -1,7 +1,7 @@
 # primitives/essential/prompts/review_session_prompt.py
 """Review session prompt - guides LLM through conducting Anki review sessions."""
 
-from ....prompt_decorator import Prompt
+from anki_mcp_server.prompt_decorator import Prompt
 
 
 # ============================================================================

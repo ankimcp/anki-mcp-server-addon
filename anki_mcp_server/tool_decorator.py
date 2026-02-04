@@ -3,8 +3,8 @@ from functools import wraps
 import inspect
 import logging
 
-from .handler_registry import register_handler
-from .handler_wrappers import (
+from anki_mcp_server.handler_registry import register_handler
+from anki_mcp_server.handler_wrappers import (
     HandlerError,
     _error_handler,
     _require_col,

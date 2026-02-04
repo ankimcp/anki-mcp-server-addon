@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+import uuid
 
 import pytest
 
@@ -11,6 +12,11 @@ import pytest
 SERVER_URL = os.environ.get("MCP_SERVER_URL", "http://localhost:3141")
 KEEP_RUNNING = os.environ.get("E2E_KEEP_RUNNING", "0") == "1"
 MAX_WAIT_SECONDS = int(os.environ.get("E2E_MAX_WAIT", "60"))
+
+
+def unique_id() -> str:
+    """Generate unique suffix to avoid duplicate conflicts."""
+    return str(uuid.uuid4())
 
 
 @pytest.fixture(scope="session", autouse=True)
