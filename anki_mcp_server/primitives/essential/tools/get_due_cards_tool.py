@@ -7,11 +7,25 @@ from ....handler_wrappers import HandlerError, get_col
 logger = logging.getLogger(__name__)
 
 
+def _has_images(fields: list[str]) -> bool:
+    """Check if any field contains image tags."""
+    return any('<img ' in field.lower() or '<img>' in field.lower() for field in fields)
+
+
+def _has_audio(fields: list[str]) -> bool:
+    """Check if any field contains audio references."""
+    return any('[sound:' in field.lower() for field in fields)
+
+
 @Tool(
     "get_due_cards",
-    "Retrieve the next single card due for review from a specified deck in true scheduler order. IMPORTANT: Use sync tool FIRST before getting cards to ensure latest data. After getting the card, use present_card to show it to the user. Returns one card per call to ensure correct scheduler interleaving. The deck_name parameter is required - you must specify which deck to study.",
+    "Retrieve the next single card due for review from a specified deck in true scheduler order. IMPORTANT: Use sync tool FIRST before getting cards to ensure latest data. After getting the card, use present_card to show it to the user. Returns one card per call to ensure correct scheduler interleaving. The deck_name parameter is required - you must specify which deck to study. For voice-mode review, use skip_images=True and/or skip_audio=True to filter out cards with media.",
 )
-def get_due_cards(deck_name: str) -> dict[str, Any]:
+def get_due_cards(
+    deck_name: str,
+    skip_images: bool = False,
+    skip_audio: bool = False
+) -> dict[str, Any]:
     from aqt import mw
     from anki.consts import QUEUE_TYPE_NEW, QUEUE_TYPE_LRN, QUEUE_TYPE_REV
 
@@ -28,9 +42,15 @@ def get_due_cards(deck_name: str) -> dict[str, Any]:
     col.decks.select(deck["id"])
 
     # Use scheduler's queue (idempotent peek - doesn't modify state)
-    # Hardcoded to 1 to ensure true scheduler order on each call
+    # When filtering is active, fetch all due cards to scan through
+    # Otherwise, fetch just 1 to ensure true scheduler order
+    if skip_images or skip_audio:
+        new_count, lrn_count, rev_count = col.sched.counts()
+        fetch_limit = new_count + lrn_count + rev_count
+    else:
+        fetch_limit = 1
     try:
-        queued = col.sched.get_queued_cards(fetch_limit=1)
+        queued = col.sched.get_queued_cards(fetch_limit=fetch_limit)
     except Exception as e:
         raise HandlerError(
             f"Failed to retrieve queued cards: {str(e)}",
@@ -60,6 +80,8 @@ def get_due_cards(deck_name: str) -> dict[str, Any]:
 
     # Process each queued card
     due_cards = []
+    skipped = {"images": 0, "audio": 0}
+
     for qc in queued.cards:
         try:
             # Get full card and note objects
@@ -76,6 +98,15 @@ def get_due_cards(deck_name: str) -> dict[str, Any]:
                 field_values = list(fields_dict.values())
                 front = field_values[0] if len(field_values) > 0 else ""
                 back = field_values[1] if len(field_values) > 1 else ""
+
+            # Apply filters
+            fields = list(note.fields)
+            if skip_images and _has_images(fields):
+                skipped["images"] += 1
+                continue
+            if skip_audio and _has_audio(fields):
+                skipped["audio"] += 1
+                continue
 
             # Get deck name
             deck = col.decks.get(card.did)
@@ -99,6 +130,8 @@ def get_due_cards(deck_name: str) -> dict[str, Any]:
                 "interval": card.ivl,
                 "factor": card.factor,
             })
+            # Only return ONE card - break after finding a match
+            break
         except Exception as e:
             logger.warning(f"Could not retrieve card {qc.card.id}: {e}")
             continue
@@ -106,7 +139,8 @@ def get_due_cards(deck_name: str) -> dict[str, Any]:
     # Calculate total cards available across all queues
     total_due = queued.new_count + queued.learning_count + queued.review_count
 
-    return {
+    # Build response
+    response = {
         "cards": due_cards,
         "counts": {
             "new": queued.new_count,
@@ -115,5 +149,22 @@ def get_due_cards(deck_name: str) -> dict[str, Any]:
         },
         "total": total_due,
         "returned": len(due_cards),
-        "message": f"Next card in scheduler order (total {total_due} due cards)",
     }
+
+    # Add skipped counts when filtering is active
+    if skip_images or skip_audio:
+        response["skipped"] = skipped
+        if len(due_cards) == 0:
+            if total_due > 0:
+                response["message"] = "All cards contain media. Try without filters or review on desktop."
+            else:
+                response["message"] = "No cards are due for review."
+        else:
+            response["message"] = f"Next card in scheduler order (total {total_due} due cards, skipped {sum(skipped.values())} with media)"
+    else:
+        if len(due_cards) == 0:
+            response["message"] = "No cards are due for review."
+        else:
+            response["message"] = f"Next card in scheduler order (total {total_due} due cards)"
+
+    return response

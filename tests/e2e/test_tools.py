@@ -233,3 +233,333 @@ class TestGetDueCards:
             assert isinstance(card["due"], int)
             assert isinstance(card["interval"], int)
             assert isinstance(card["factor"], int)
+
+    def test_get_due_cards_skip_images_filters_image_cards(self):
+        """get_due_cards with skip_images should filter out cards with images."""
+        uid = unique_id()
+        deck_name = f"E2E::FilterImg{uid}"
+        call_tool("create_deck", {"deck_name": deck_name})
+
+        # Add note WITH an image
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"<img src='test.jpg'>Question With Image {uid}",
+                "Back": f"Answer {uid}"
+            }
+        })
+
+        # Add note WITHOUT an image
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"Text Only Question {uid}",
+                "Back": f"Text Answer {uid}"
+            }
+        })
+
+        # Call with skip_images=True
+        result = call_tool("get_due_cards", {
+            "deck_name": deck_name,
+            "skip_images": True
+        })
+
+        # Should not error
+        assert result.get("isError") is not True
+
+        # Should return the text-only card
+        assert len(result["cards"]) == 1
+        card = result["cards"][0]
+        assert "Text Only Question" in card["front"]
+        assert "<img" not in card["front"]
+
+        # Should have skipped field with image count
+        assert "skipped" in result
+        assert result["skipped"]["images"] == 1  # We created exactly 1 image card
+
+    def test_get_due_cards_skip_audio_filters_audio_cards(self):
+        """get_due_cards with skip_audio should filter out cards with audio."""
+        uid = unique_id()
+        deck_name = f"E2E::FilterAudio{uid}"
+        call_tool("create_deck", {"deck_name": deck_name})
+
+        # Add note WITH audio
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"[sound:test.mp3]Question With Audio {uid}",
+                "Back": f"Answer {uid}"
+            }
+        })
+
+        # Add note WITHOUT audio
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"Text Only Question {uid}",
+                "Back": f"Text Answer {uid}"
+            }
+        })
+
+        # Call with skip_audio=True
+        result = call_tool("get_due_cards", {
+            "deck_name": deck_name,
+            "skip_audio": True
+        })
+
+        # Should not error
+        assert result.get("isError") is not True
+
+        # Should return the text-only card
+        assert len(result["cards"]) == 1
+        card = result["cards"][0]
+        assert "Text Only Question" in card["front"]
+        assert "[sound:" not in card["front"]
+
+        # Should have skipped field with audio count
+        assert "skipped" in result
+        assert result["skipped"]["audio"] == 1  # We created exactly 1 audio card
+
+    def test_get_due_cards_skip_both_filters(self):
+        """get_due_cards with both skip parameters should filter both types."""
+        uid = unique_id()
+        deck_name = f"E2E::FilterBoth{uid}"
+        call_tool("create_deck", {"deck_name": deck_name})
+
+        # Add note with image
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"<img src='test.jpg'>Image Question {uid}",
+                "Back": f"Answer {uid}"
+            }
+        })
+
+        # Add note with audio
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"[sound:test.mp3]Audio Question {uid}",
+                "Back": f"Answer {uid}"
+            }
+        })
+
+        # Add text-only note
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"Text Only Question {uid}",
+                "Back": f"Text Answer {uid}"
+            }
+        })
+
+        # Call with both filters
+        result = call_tool("get_due_cards", {
+            "deck_name": deck_name,
+            "skip_images": True,
+            "skip_audio": True
+        })
+
+        # Should not error
+        assert result.get("isError") is not True
+
+        # Should return the text-only card
+        assert len(result["cards"]) == 1
+        card = result["cards"][0]
+        assert "Text Only Question" in card["front"]
+
+        # Should have skipped counts for both
+        assert "skipped" in result
+        assert result["skipped"]["images"] >= 1
+        assert result["skipped"]["audio"] >= 1
+
+    def test_get_due_cards_skip_images_filters_back_field(self):
+        """get_due_cards should filter cards with images in Back field."""
+        uid = unique_id()
+        deck_name = f"E2E::FilterBack{uid}"
+        call_tool("create_deck", {"deck_name": deck_name})
+
+        # Add note with image in BACK field only
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"Clean front {uid}",
+                "Back": f"<img src='test.jpg'>Answer with image {uid}"
+            }
+        })
+
+        # Add text-only note
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"Text question {uid}",
+                "Back": f"Text answer {uid}"
+            }
+        })
+
+        result = call_tool("get_due_cards", {
+            "deck_name": deck_name,
+            "skip_images": True
+        })
+
+        assert result.get("isError") is not True
+        assert len(result["cards"]) == 1
+        assert "Text question" in result["cards"][0]["front"]
+        assert result["skipped"]["images"] == 1
+
+    def test_get_due_cards_skip_audio_case_insensitive(self):
+        """get_due_cards should filter audio regardless of case."""
+        uid = unique_id()
+        deck_name = f"E2E::FilterAudioCase{uid}"
+        call_tool("create_deck", {"deck_name": deck_name})
+
+        # Add note with UPPERCASE audio tag
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"[SOUND:test.mp3]Uppercase audio {uid}",
+                "Back": f"Answer {uid}"
+            }
+        })
+
+        # Add text-only note
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"Text question {uid}",
+                "Back": f"Text answer {uid}"
+            }
+        })
+
+        result = call_tool("get_due_cards", {
+            "deck_name": deck_name,
+            "skip_audio": True
+        })
+
+        assert result.get("isError") is not True
+        assert len(result["cards"]) == 1
+        assert "Text question" in result["cards"][0]["front"]
+        assert result["skipped"]["audio"] == 1
+
+    def test_get_due_cards_card_with_both_media_types(self):
+        """Card with both image and audio should be filtered by either flag."""
+        uid = unique_id()
+        deck_name = f"E2E::FilterBothTypes{uid}"
+        call_tool("create_deck", {"deck_name": deck_name})
+
+        # Add note with BOTH image and audio
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"<img src='test.jpg'>[sound:test.mp3]Both media {uid}",
+                "Back": f"Answer {uid}"
+            }
+        })
+
+        # Add text-only note
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"Text question {uid}",
+                "Back": f"Text answer {uid}"
+            }
+        })
+
+        # Test with only skip_images - should still filter the mixed card
+        result = call_tool("get_due_cards", {
+            "deck_name": deck_name,
+            "skip_images": True
+        })
+
+        assert result.get("isError") is not True
+        assert len(result["cards"]) == 1
+        assert "Text question" in result["cards"][0]["front"]
+
+    def test_get_due_cards_all_filtered_returns_empty(self):
+        """get_due_cards should return empty when all cards are filtered."""
+        uid = unique_id()
+        deck_name = f"E2E::AllFiltered{uid}"
+        call_tool("create_deck", {"deck_name": deck_name})
+
+        # Add ONLY image cards
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"<img src='test1.jpg'>Image Question 1 {uid}",
+                "Back": f"Answer 1 {uid}"
+            }
+        })
+
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"<img src='test2.jpg'>Image Question 2 {uid}",
+                "Back": f"Answer 2 {uid}"
+            }
+        })
+
+        # Call with skip_images=True (should filter all)
+        result = call_tool("get_due_cards", {
+            "deck_name": deck_name,
+            "skip_images": True
+        })
+
+        # Should not error
+        assert result.get("isError") is not True
+
+        # Should return empty cards
+        assert result["cards"] == []
+        assert result["returned"] == 0
+
+        # Should have skipped count
+        assert "skipped" in result
+        assert result["skipped"]["images"] > 0
+
+        # Should have message about all cards containing media
+        assert "message" in result
+        assert "All cards contain media" in result["message"]
+
+    def test_get_due_cards_no_filter_no_skipped_field(self):
+        """get_due_cards without filters should not include skipped field."""
+        uid = unique_id()
+        deck_name = f"E2E::NoFilter{uid}"
+        call_tool("create_deck", {"deck_name": deck_name})
+
+        # Add a card (any type)
+        call_tool("addNote", {
+            "deck_name": deck_name,
+            "model_name": "Basic",
+            "fields": {
+                "Front": f"Question {uid}",
+                "Back": f"Answer {uid}"
+            }
+        })
+
+        # Call WITHOUT skip parameters (default)
+        result = call_tool("get_due_cards", {
+            "deck_name": deck_name
+        })
+
+        # Should not error
+        assert result.get("isError") is not True
+
+        # Should return a card
+        assert len(result["cards"]) >= 1
+
+        # Should NOT have skipped field
+        assert "skipped" not in result
