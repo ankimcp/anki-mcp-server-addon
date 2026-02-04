@@ -28,15 +28,6 @@ def add_note(
 
     col = get_col()
 
-    empty_fields = [key for key, value in fields.items() if not value or not value.strip()]
-    if empty_fields:
-        raise HandlerError(
-            f"Fields cannot be empty: {', '.join(empty_fields)}",
-            deck_name=deck_name,
-            model_name=model_name,
-            empty_fields=empty_fields,
-        )
-
     deck = col.decks.by_name(deck_name)
     if deck is None:
         raise HandlerError(
@@ -57,6 +48,19 @@ def add_note(
         )
 
     model_fields = [field["name"] for field in model["flds"]]
+    sort_field = model_fields[0]  # First field is the sort field
+
+    # Only the sort field is required to be non-empty (matches Anki's behavior)
+    sort_field_value = fields.get(sort_field, "")
+    if not sort_field_value or not sort_field_value.strip():
+        raise HandlerError(
+            f"Sort field '{sort_field}' cannot be empty",
+            hint="The first field (sort field) must have content. Other fields can be empty.",
+            deck_name=deck_name,
+            model_name=model_name,
+            sort_field=sort_field,
+        )
+
     provided_fields = list(fields.keys())
     missing_fields = [f for f in model_fields if f not in provided_fields]
 
