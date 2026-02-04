@@ -53,15 +53,16 @@ def card_management(params: CardManagementParams) -> dict[str, Any]:
             action=params.action,
         )
 
-    if params.action == "reposition":
-        return reposition_impl(
-            card_ids=params.card_ids,
-            starting_from=params.starting_from,
-            step_size=params.step_size,
-            randomize=params.randomize,
-            shift_existing=params.shift_existing,
-        )
-    elif params.action == "changeDeck":
-        return change_deck_impl(card_ids=params.card_ids, deck=params.deck)
-    else:
-        raise HandlerError(f"Unknown action: {params.action}")
+    match params.action:
+        case "reposition":
+            return reposition_impl(
+                card_ids=params.card_ids,
+                starting_from=params.starting_from,
+                step_size=params.step_size,
+                randomize=params.randomize,
+                shift_existing=params.shift_existing,
+            )
+        case "changeDeck":
+            return change_deck_impl(card_ids=params.card_ids, deck=params.deck)
+        case _:
+            raise HandlerError(f"Unknown action: {params.action}")
