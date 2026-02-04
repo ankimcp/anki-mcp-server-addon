@@ -3,7 +3,7 @@
 
 from typing import Any
 
-from ....resource_decorator import Resource
+from anki_mcp_server.resource_decorator import Resource
 
 
 # Schema is static documentation - no collection access needed

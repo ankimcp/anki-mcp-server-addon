@@ -224,7 +224,7 @@ class TestCardActions:
         })
         note_id = result["note_id"]
         notes_info = call_tool("notesInfo", {"notes": [note_id]})
-        card_id = notes_info[0]["cards"][0]
+        card_id = notes_info["notes"][0]["cards"][0]
 
         # Move to nested deck
         result = call_tool("card_actions", {
