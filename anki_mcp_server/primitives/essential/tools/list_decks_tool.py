@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 )
 def list_decks(include_stats: bool = False) -> dict[str, Any]:
     col = get_col()
-    from aqt import mw
 
     deck_name_id_pairs = col.decks.all_names_and_ids()
 
@@ -35,42 +34,48 @@ def list_decks(include_stats: bool = False) -> dict[str, Any]:
             "review_cards": 0,
         }
 
+        # Use deck_due_tree() for efficient stats retrieval
+        deck_tree = col.sched.deck_due_tree()
+
+        # Build a map of deck_id -> tree node for quick lookup
+        def build_node_map(node, node_map):
+            node_map[node.deck_id] = node
+            for child in node.children:
+                build_node_map(child, node_map)
+
+        node_map: dict[int, Any] = {}
+        for child in deck_tree.children:
+            build_node_map(child, node_map)
+
         for deck_pair in deck_name_id_pairs:
             deck_name = deck_pair.name
             deck_id = deck_pair.id
 
-            try:
-                counts = col.sched.counts_for_deck_today(deck_id)
-                new_count = counts[0] if len(counts) > 0 else 0
-                learn_count = counts[1] if len(counts) > 1 else 0
-                review_count = counts[2] if len(counts) > 2 else 0
+            tree_node = node_map.get(deck_id)
 
-                total_cards = col.db.scalar(
-                    "SELECT count() FROM cards WHERE did = ? OR odid = ?",
-                    deck_id,
-                    deck_id,
-                ) or 0
+            if tree_node:
+                new_count = tree_node.new_count
+                learn_count = tree_node.learn_count
+                review_count = tree_node.review_count
+                total_in_deck = tree_node.total_in_deck  # Available in Anki 2.1.46+
 
                 deck_info: dict[str, Any] = {
                     "name": deck_name,
                     "stats": {
                         "deck_id": deck_id,
-                        "name": deck_name,
                         "new_count": new_count,
                         "learn_count": learn_count,
                         "review_count": review_count,
-                        "total_new": new_count,
-                        "total_cards": total_cards,
+                        "total_in_deck": total_in_deck,
                     },
                 }
 
-                summary["total_cards"] += total_cards
+                summary["total_cards"] += total_in_deck
                 summary["new_cards"] += new_count
                 summary["learning_cards"] += learn_count
                 summary["review_cards"] += review_count
-
-            except Exception as e:
-                logger.warning(f"Could not get stats for deck {deck_name}: {e}")
+            else:
+                logger.warning(f"Could not find stats for deck {deck_name}")
                 deck_info = {"name": deck_name}
 
             decks.append(deck_info)
