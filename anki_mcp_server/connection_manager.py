@@ -23,10 +23,10 @@ Thread Safety:
 
 from typing import Optional
 
-from anki_mcp_server.config import Config
-from anki_mcp_server.mcp_server import McpServer
-from anki_mcp_server.queue_bridge import QueueBridge
-from anki_mcp_server.request_processor import RequestProcessor
+from .config import Config
+from .mcp_server import McpServer
+from .queue_bridge import QueueBridge
+from .request_processor import RequestProcessor
 
 
 class ConnectionManager:

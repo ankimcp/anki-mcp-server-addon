@@ -2,8 +2,8 @@
 from typing import Any
 import logging
 
-from anki_mcp_server.tool_decorator import Tool
-from anki_mcp_server.handler_wrappers import get_col
+from ....tool_decorator import Tool
+from ....handler_wrappers import get_col
 
 logger = logging.getLogger(__name__)
 

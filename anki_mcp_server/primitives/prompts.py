@@ -1,7 +1,7 @@
 # primitives/prompts.py
 """Central prompt registration module."""
 
-from anki_mcp_server.prompt_decorator import register_prompts
+from ..prompt_decorator import register_prompts
 
 # Import triggers registration via @Prompt decorator
 from .essential.prompts import review_session_prompt  # noqa: F401

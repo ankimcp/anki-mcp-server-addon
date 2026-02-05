@@ -1,7 +1,7 @@
 """Central tool registration module."""
 from typing import Any, Callable, Coroutine
 
-from anki_mcp_server.tool_decorator import register_tools
+from ..tool_decorator import register_tools
 
 # Import packages to trigger auto-discovery of all tool modules
 from .essential import tools as _essential_tools  # noqa: F401

@@ -1,8 +1,8 @@
 """Sync tool - trigger Anki sync with AnkiWeb."""
 from typing import Any
 
-from anki_mcp_server.tool_decorator import Tool
-from anki_mcp_server.handler_wrappers import HandlerError
+from ....tool_decorator import Tool
+from ....handler_wrappers import HandlerError
 
 
 @Tool(
