@@ -2,6 +2,11 @@
 import sys
 from pathlib import Path
 
+# Ensure absolute imports work regardless of directory name.
+# AnkiWeb installs use the addon ID (e.g., "124672614") as directory name,
+# but .ankiaddon installs use "anki_mcp_server" from manifest.json.
+sys.modules.setdefault("anki_mcp_server", sys.modules[__name__])
+
 __version__ = "0.1.1"
 
 # Packages we vendor that might conflict with other addons
