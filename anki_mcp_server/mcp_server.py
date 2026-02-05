@@ -25,9 +25,9 @@ import uvicorn
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
-from anki_mcp_server.config import Config
-from anki_mcp_server.queue_bridge import QueueBridge, ToolRequest
-from anki_mcp_server.primitives import register_all_tools, register_all_resources, register_all_prompts
+from .config import Config
+from .queue_bridge import QueueBridge, ToolRequest
+from .primitives import register_all_tools, register_all_resources, register_all_prompts
 
 
 class McpServer:
@@ -130,7 +130,7 @@ class McpServer:
             >>> # Main thread executes sync, returns result via queue
             >>> print(result)  # {"status": "success", ...}
         """
-        from anki_mcp_server.queue_bridge import ToolRequest
+        from .queue_bridge import ToolRequest
 
         request = ToolRequest(
             request_id=str(uuid.uuid4()),

@@ -23,8 +23,8 @@ Performance:
 from aqt import mw
 from aqt.qt import QTimer
 
-from anki_mcp_server.handler_registry import execute
-from anki_mcp_server.queue_bridge import QueueBridge, ToolRequest, ToolResponse
+from .handler_registry import execute
+from .queue_bridge import QueueBridge, ToolRequest, ToolResponse
 
 
 class RequestProcessor:

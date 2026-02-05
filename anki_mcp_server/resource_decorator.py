@@ -3,8 +3,8 @@ import inspect
 import logging
 import re
 
-from anki_mcp_server.handler_registry import register_handler
-from anki_mcp_server.handler_wrappers import (
+from .handler_registry import register_handler
+from .handler_wrappers import (
     HandlerError,  # noqa: F401 - re-exported for convenience
     _error_handler,
     _require_col,

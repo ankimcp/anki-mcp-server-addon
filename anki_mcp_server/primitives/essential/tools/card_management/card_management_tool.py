@@ -3,8 +3,8 @@ from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field
 
-from anki_mcp_server.tool_decorator import Tool
-from anki_mcp_server.handler_wrappers import HandlerError
+from .....tool_decorator import Tool
+from .....handler_wrappers import HandlerError
 
 from .actions.reposition import reposition_impl
 from .actions.change_deck import change_deck_impl

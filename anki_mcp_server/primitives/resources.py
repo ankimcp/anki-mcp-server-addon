@@ -1,7 +1,7 @@
 """Central resource registration module."""
 from typing import Any, Callable, Coroutine
 
-from anki_mcp_server.resource_decorator import register_resources
+from ..resource_decorator import register_resources
 
 # Import package to trigger auto-discovery of all resource modules
 from .essential import resources as _essential_resources  # noqa: F401

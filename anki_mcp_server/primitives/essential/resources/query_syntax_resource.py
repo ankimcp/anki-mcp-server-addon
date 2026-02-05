@@ -3,7 +3,7 @@
 
 from typing import Any
 
-from anki_mcp_server.resource_decorator import Resource
+from ....resource_decorator import Resource
 
 
 @Resource(

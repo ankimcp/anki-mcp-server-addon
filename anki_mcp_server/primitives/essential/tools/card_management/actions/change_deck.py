@@ -1,7 +1,7 @@
 """Change deck action implementation for card_actions tool."""
 from typing import Any
 
-from anki_mcp_server.handler_wrappers import HandlerError, get_col
+from ......handler_wrappers import HandlerError, get_col
 
 
 def change_deck_impl(card_ids: list[int], deck: str) -> dict[str, Any]:

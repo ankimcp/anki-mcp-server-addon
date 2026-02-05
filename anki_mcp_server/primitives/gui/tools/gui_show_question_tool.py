@@ -1,7 +1,7 @@
 from typing import Any
 import logging
 
-from anki_mcp_server.tool_decorator import Tool
+from ....tool_decorator import Tool
 
 
 logger = logging.getLogger(__name__)

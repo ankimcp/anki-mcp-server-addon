@@ -1,7 +1,7 @@
 """Reposition action implementation for card_actions tool."""
 from typing import Any
 
-from anki_mcp_server.handler_wrappers import HandlerError, get_col
+from ......handler_wrappers import HandlerError, get_col
 
 
 def reposition_impl(
