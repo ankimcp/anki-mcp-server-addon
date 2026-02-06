@@ -229,7 +229,32 @@ All `print()` statements and `logging` output appears in the terminal.
 - [MCP Protocol](https://modelcontextprotocol.io/) - Model Context Protocol specification
 - [FastMCP](https://github.com/jlowin/fastmcp) - MCP SDK used by this addon
 
-## Common Issues
+## Known Gotchas
+
+### Imports Must Be Relative
+
+All imports in this addon use **relative imports** (e.g., `from ....tool_decorator import Tool`). This is the Anki addon ecosystem standard — AnkiConnect does this too. Absolute imports (`from anki_mcp_server.config import ...`) break AnkiWeb installs because AnkiWeb uses the addon ID (`124672614/`) as the directory name, not the package name.
+
+### Anki Scheduler API Pitfalls
+
+- `col.sched.deck_due_tree()` — correct way to get deck stats (AnkiConnect pattern). Tree nodes have: `deck_id`, `name`, `new_count`, `learn_count`, `review_count`, `total_in_deck` (Anki 2.1.46+)
+- `col.sched.counts()` — returns (new, learning, review) for the **currently selected** deck
+- `col.sched.counts_for_deck_today()` — does **NOT** work in modern Anki, silently returns wrong values
+- Raw SQL (`col.db`) is acceptable for analytics/stats (revlog, card stats) — AnkiConnect does this too. For deck stats, always prefer `deck_due_tree()` over SQL.
+
+### Python Version Compatibility
+
+- MCP Python SDK requires Python >= 3.10 (uses `match`/`case`, `X | Y` syntax) — hard blocker, no workaround
+- Anki 25.02 and earlier: Python 3.9 (**not supported**)
+- Anki 25.07+: Python 3.13 (supported)
+- No Anki version ships Python 3.10/3.11/3.12 — went directly from 3.9 → 3.13
+- `__init__.py` has an early version check that raises `ImportError` with a clear message on Python < 3.10
+
+### Install Methods
+
+Always test both install methods when making changes:
+- `.ankiaddon` file (double-click or *Tools → Add-ons → Install from file...*)
+- AnkiWeb code (`124672614`) — directory name is the addon ID, not the package name
 
 ### UI Freezes During Operations
 
