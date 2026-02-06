@@ -1,8 +1,16 @@
-# Vendor imports - must be first, before any other imports
+# Python version check - must be first, before any vendor imports that use 3.10+ syntax
 import sys
+
+if sys.version_info < (3, 10):
+    raise ImportError(
+        f"AnkiMCP Server requires Python 3.10 or later (found {sys.version_info.major}.{sys.version_info.minor}). "
+        "Please upgrade to Anki 25.07 or later (ships Python 3.13). "
+        "See https://github.com/ankimcp/anki-mcp-server-addon/issues/8"
+    )
+
 from pathlib import Path
 
-__version__ = "0.1.1"
+__version__ = "0.3.3"
 
 # Packages we vendor that might conflict with other addons
 _VENDOR_PACKAGES = ['mcp', 'pydantic', 'pydantic_core', 'starlette', 'uvicorn', 'anyio', 'httpx', 'websockets']
