@@ -138,7 +138,8 @@ These tools interact with Anki's user interface:
 
 ## Requirements
 
-- Anki 25.x or later (Python 3.13)
+- **Anki 25.07 or later** (ships Python 3.13)
+- Anki 25.02 and earlier ship Python 3.9, which is **not supported** — the MCP SDK requires Python 3.10+ ([#8](https://github.com/ankimcp/anki-mcp-server-addon/issues/8))
 
 ## Architecture
 
