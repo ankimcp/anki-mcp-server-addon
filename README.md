@@ -93,10 +93,10 @@ The `cors_expose_headers` setting controls which response headers browsers can r
 | `find_notes` | Search for notes using Anki's search syntax |
 | `notes_info` | Get detailed information about notes |
 | `add_note` | Add a new note to a deck |
-| `card_management` | Manage cards: `reposition` (set learning order for new cards) or `changeDeck` (move cards between decks) |
+| `card_management` | Manage cards: `reposition` (set learning order), `changeDeck` (move between decks), `bury` (hide until tomorrow), `unbury` (restore buried cards in a deck) |
 | `update_note_fields` | Update fields of existing notes |
 | `delete_notes` | Delete notes from the collection |
-| `get_due_cards` | Get cards due for review |
+| `get_due_cards` | Get next due card for review (supports `skip_images`/`skip_audio` for voice mode) |
 | `present_card` | Get card content for review |
 | `rate_card` | Rate a card after review (Again/Hard/Good/Easy) |
 | `model_names` | List available note types |
@@ -134,7 +134,7 @@ These tools interact with Anki's user interface:
 
 | Prompt | Description |
 |--------|-------------|
-| `review_session` | Guided review session workflow |
+| `review_session` | Guided review session workflow (interactive, quick, or voice mode) |
 
 ## Requirements
 
@@ -182,7 +182,7 @@ make e2e-down   # Just stop container
 
 ### CI
 
-E2E tests run automatically on push to `main` and `feature/*` branches, and on PRs. See `.github/workflows/e2e.yml`.
+E2E tests run automatically on push to any branch and on PRs to `main`. See `.github/workflows/e2e.yml`.
 
 ## License
 
