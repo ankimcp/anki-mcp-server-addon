@@ -27,8 +27,9 @@ def review_session(
     Args:
         deck_name: Name of the deck to review (default: "Default")
         card_limit: Maximum number of cards to review in this session
-        review_style: Review approach - "interactive" for Q&A or
-                     "quick" for rapid-fire mode
+        review_style: Review approach - "interactive" for Q&A,
+                     "quick" for rapid-fire mode, or
+                     "voice" for voice-only mode (skips images/audio)
 
     Returns:
         A formatted prompt string with review session instructions
@@ -40,7 +41,25 @@ def review_session(
         ...     "review_style": "interactive"
         ... })
     """
-    if review_style == "quick":
+    if review_style == "voice":
+        style_instructions = """
+VOICE REVIEW MODE:
+- This is a voice-only session - the user cannot see the screen
+- Use skip_images=True and skip_audio=True when calling get_due_cards
+  (cards with media will be temporarily buried and skipped)
+- Read the card question aloud clearly
+- Wait for the user's verbal answer
+- Read the correct answer and evaluate their response
+- If a card contains text that references an image (e.g., "What is shown above?"),
+  skip it naturally - it will be buried automatically
+- Rate cards based on quality of verbal recall:
+  * Again (1): Completely forgot or major errors
+  * Hard (2): Struggled but got it eventually
+  * Good (3): Correct with reasonable effort
+  * Easy (4): Instant, effortless recall
+- CRITICAL: At the end of the session, call card_management with
+  action="unbury" and deck_name to restore all skipped media cards"""
+    elif review_style == "quick":
         style_instructions = """
 QUICK REVIEW MODE:
 - Present cards rapidly with minimal discussion
@@ -70,21 +89,25 @@ SESSION PARAMETERS:
 
 WORKFLOW:
 1. First, sync to get latest data: Use the sync tool
-2. Get due cards: Use get_due_cards with deck="{deck_name}" and limit={card_limit}
-3. For each card, use present_card to get card content
-4. Present the question to the user
-5. Wait for their response
-6. Show the answer and evaluate their response
-7. Use rate_card to record their performance
-8. Move to the next card
+2. Get the next due card: Use get_due_cards with deck_name="{deck_name}"
+   - get_due_cards returns ONE card at a time in true scheduler order{'''
+   - Use skip_images=True and skip_audio=True to filter out media cards''' if review_style == 'voice' else ''}
+3. Use present_card to show the question to the user
+4. Wait for their response
+5. Use present_card with show_answer=True to reveal the answer
+6. Evaluate their response and suggest a rating (1-4)
+7. Wait for user confirmation, then use rate_card to record their performance
+8. Repeat from step 2 to get the next card
+9. Continue until no more cards are due or {card_limit} cards reviewed
 
 IMPORTANT GUIDELINES:
 - Always sync before starting to ensure up-to-date card data
-- Never skip cards - review them in the order provided
 - Be encouraging but honest about mistakes
 - If the user wants to stop early, that's fine - sync before ending
 - Track progress: "Card X of Y completed"
-- At the end, summarize the session (cards reviewed, performance distribution)
+- At the end, summarize the session (cards reviewed, performance distribution){'''
+- CRITICAL: At session end, call card_management with action="unbury" and
+  deck_name="''' + deck_name + '''" to restore all skipped media cards''' if review_style == 'voice' else ''}
 
 RATING GUIDE:
 - Use the rating that best reflects the user's actual recall
@@ -92,4 +115,4 @@ RATING GUIDE:
 - Struggling learners benefit from honest ratings (it schedules more reviews)
 - If unsure, rate "Hard" rather than "Again" for partial knowledge
 
-Begin by syncing and fetching the due cards for the "{deck_name}" deck."""
+Begin by syncing and fetching the first due card for the "{deck_name}" deck."""

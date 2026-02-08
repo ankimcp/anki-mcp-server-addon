@@ -19,14 +19,14 @@ def _has_audio(fields: list[str]) -> bool:
 
 @Tool(
     "get_due_cards",
-    "Retrieve the next single card due for review from a specified deck in true scheduler order. IMPORTANT: Use sync tool FIRST before getting cards to ensure latest data. After getting the card, use present_card to show it to the user. Returns one card per call to ensure correct scheduler interleaving. The deck_name parameter is required - you must specify which deck to study. For voice-mode review, use skip_images=True and/or skip_audio=True to filter out cards with media.",
+    "Retrieve the next single card due for review from a specified deck in true scheduler order. IMPORTANT: Use sync tool FIRST before getting cards to ensure latest data. After getting the card, use present_card to show it to the user. Returns one card per call to ensure correct scheduler interleaving. The deck_name parameter is required - you must specify which deck to study. For voice-mode review, use skip_images=True and/or skip_audio=True to filter out cards with media. Cards with media are temporarily buried (removed from queue) and can be unburied later using the card_management tool. Response includes has_images and has_audio flags for each card.",
+    write=True,
 )
 def get_due_cards(
     deck_name: str,
     skip_images: bool = False,
     skip_audio: bool = False
 ) -> dict[str, Any]:
-    from aqt import mw
     from anki.consts import QUEUE_TYPE_NEW, QUEUE_TYPE_LRN, QUEUE_TYPE_REV
 
     col = get_col()
@@ -41,22 +41,6 @@ def get_due_cards(
         )
     col.decks.select(deck["id"])
 
-    # Use scheduler's queue (idempotent peek - doesn't modify state)
-    # When filtering is active, fetch all due cards to scan through
-    # Otherwise, fetch just 1 to ensure true scheduler order
-    if skip_images or skip_audio:
-        new_count, lrn_count, rev_count = col.sched.counts()
-        fetch_limit = new_count + lrn_count + rev_count
-    else:
-        fetch_limit = 1
-    try:
-        queued = col.sched.get_queued_cards(fetch_limit=fetch_limit)
-    except Exception as e:
-        raise HandlerError(
-            f"Failed to retrieve queued cards: {str(e)}",
-            hint="Ensure a profile is open and the deck has due cards"
-        )
-
     # Map queue type integers to human-readable names
     queue_names = {
         QUEUE_TYPE_NEW: "new",
@@ -64,30 +48,58 @@ def get_due_cards(
         QUEUE_TYPE_REV: "review"
     }
 
-    # If no cards are due, return early
-    if not queued.cards:
-        return {
-            "message": "No cards are due for review",
-            "cards": [],
-            "counts": {
-                "new": queued.new_count,
-                "learning": queued.learning_count,
-                "review": queued.review_count
-            },
-            "total": 0,
-            "returned": 0,
-        }
-
-    # Process each queued card
-    due_cards = []
+    # Track skipped cards when filtering
     skipped = {"images": 0, "audio": 0}
 
-    for qc in queued.cards:
+    # Safety limit to prevent infinite loops
+    MAX_ITERATIONS = 100
+    iteration = 0
+
+    # Loop: fetch 1 card, check if it should be skipped, bury if needed, repeat
+    found_card = None
+    queued = None
+
+    while iteration < MAX_ITERATIONS:
+        iteration += 1
+
+        # Fetch the next top card from the queue
+        try:
+            queued = col.sched.get_queued_cards(fetch_limit=1)
+        except Exception as e:
+            raise HandlerError(
+                f"Failed to retrieve queued cards: {str(e)}",
+                hint="Ensure a profile is open and the deck has due cards"
+            )
+
+        # If no cards are due, break
+        if not queued.cards:
+            break
+
+        qc = queued.cards[0]
+
         try:
             # Get full card and note objects
             card = col.get_card(qc.card.id)
             note = card.note()
 
+            # Check if card should be skipped
+            fields = list(note.fields)
+            should_skip = False
+
+            if skip_images and _has_images(fields):
+                skipped["images"] += 1
+                should_skip = True
+            if skip_audio and _has_audio(fields):
+                skipped["audio"] += 1
+                should_skip = True
+
+            if should_skip:
+                # Bury this card to remove it from the queue
+                col.sched.bury_cards([card.id], manual=True)
+                # Loop back to fetch the next card
+                continue
+
+            # Found a card that passes filters
             # Extract front/back from note fields
             fields_dict = dict(note.items())
             front = fields_dict.get("Front", "")
@@ -98,15 +110,6 @@ def get_due_cards(
                 field_values = list(fields_dict.values())
                 front = field_values[0] if len(field_values) > 0 else ""
                 back = field_values[1] if len(field_values) > 1 else ""
-
-            # Apply filters
-            fields = list(note.fields)
-            if skip_images and _has_images(fields):
-                skipped["images"] += 1
-                continue
-            if skip_audio and _has_audio(fields):
-                skipped["audio"] += 1
-                continue
 
             # Get deck name
             deck = col.decks.get(card.did)
@@ -119,7 +122,11 @@ def get_due_cards(
             # Get queue type name
             queue_type = queue_names.get(qc.queue, "unknown")
 
-            due_cards.append({
+            # Always include has_images and has_audio flags
+            has_images = _has_images(fields)
+            has_audio = _has_audio(fields)
+
+            found_card = {
                 "cardId": card.id,
                 "front": front,
                 "back": back,
@@ -129,15 +136,31 @@ def get_due_cards(
                 "due": card.due,
                 "interval": card.ivl,
                 "factor": card.factor,
-            })
-            # Only return ONE card - break after finding a match
+                "has_images": has_images,
+                "has_audio": has_audio,
+            }
             break
+
         except Exception as e:
             logger.warning(f"Could not retrieve card {qc.card.id}: {e}")
+            try:
+                col.sched.bury_cards([qc.card.id], manual=True)
+            except Exception:
+                pass  # if even burying fails, safety limit will catch us
             continue
+
+    # If queued is None, we never successfully called get_queued_cards
+    if queued is None:
+        raise HandlerError(
+            "Failed to retrieve any queued cards",
+            hint="Ensure a profile is open and the deck has due cards"
+        )
 
     # Calculate total cards available across all queues
     total_due = queued.new_count + queued.learning_count + queued.review_count
+
+    # Build the cards list
+    due_cards = [found_card] if found_card else []
 
     # Build response
     response = {
@@ -155,12 +178,15 @@ def get_due_cards(
     if skip_images or skip_audio:
         response["skipped"] = skipped
         if len(due_cards) == 0:
-            if total_due > 0:
-                response["message"] = "All cards contain media. Try without filters or review on desktop."
+            if sum(skipped.values()) > 0:
+                if iteration >= MAX_ITERATIONS:
+                    response["message"] = f"Reached safety limit ({MAX_ITERATIONS} cards checked). All checked cards contain media. Use card_management to unbury cards or try without filters."
+                else:
+                    response["message"] = "All cards contain media. Use card_management to unbury cards or try without filters."
             else:
                 response["message"] = "No cards are due for review."
         else:
-            response["message"] = f"Next card in scheduler order (total {total_due} due cards, skipped {sum(skipped.values())} with media)"
+            response["message"] = f"Next card in scheduler order (total {total_due} due cards, buried {sum(skipped.values())} cards with media)"
     else:
         if len(due_cards) == 0:
             response["message"] = "No cards are due for review."
