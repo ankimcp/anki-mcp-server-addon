@@ -3,6 +3,7 @@
 
 from typing import Any
 
+from .... import __version__
 from ....resource_decorator import Resource
 
 
@@ -60,7 +61,7 @@ def system_info() -> dict[str, Any]:
             "profile_name": profile_name,
             "collection_path": col_path,
             "scheduler_version": scheduler_version,
-            "mcp_server_version": "0.1.0",  # TODO: Read from manifest
+            "mcp_server_version": __version__,
             "python_version": sys.version.split()[0],
             "platform": platform.system(),
         }
@@ -73,7 +74,7 @@ def system_info() -> dict[str, Any]:
             "profile_name": mw.pm.name if mw.pm else "Unknown",
             "collection_path": str(mw.col.path) if mw.col.path else "Unknown",
             "scheduler_version": mw.col.sched_ver(),
-            "mcp_server_version": "0.1.0",
+            "mcp_server_version": __version__,
             "python_version": sys.version.split()[0],
             "platform": platform.system(),
         }
