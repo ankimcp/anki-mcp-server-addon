@@ -164,7 +164,9 @@ class McpServer:
         security_settings = TransportSecuritySettings(
             enable_dns_rebinding_protection=False
         )
-        mcp = FastMCP("anki-mcp", streamable_http_path="/", transport_security=security_settings)
+        # Use http_path if configured, otherwise default to root "/"
+        streamable_path = f"/{self._config.http_path.strip('/')}/" if self._config.http_path else "/"
+        mcp = FastMCP("anki-mcp", streamable_http_path=streamable_path, transport_security=security_settings)
 
         # Register all MCP primitives
         register_all_tools(mcp, self._call_main_thread)

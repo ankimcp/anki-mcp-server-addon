@@ -23,6 +23,7 @@ class Config:
     # HTTP settings
     http_port: int = 3141
     http_host: str = "127.0.0.1"
+    http_path: str = ""
 
     # CORS settings (list of allowed origins, empty = CORS disabled)
     # Example: ["https://inspector.example.com", "http://localhost:5173"]

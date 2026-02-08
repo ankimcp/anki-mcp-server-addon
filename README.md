@@ -61,11 +61,24 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "mode": "http",
   "http_port": 3141,
   "http_host": "127.0.0.1",
+  "http_path": "",
   "cors_origins": [],
   "cors_expose_headers": ["mcp-session-id", "mcp-protocol-version"],
   "auto_connect_on_startup": true
 }
 ```
+
+### Custom Path
+
+Set `http_path` to serve the MCP endpoint under a custom path. Useful when exposing Anki via a tunnel (Cloudflare, ngrok) to avoid a fully open endpoint:
+
+```json
+{
+  "http_path": "my-secret-path"
+}
+```
+
+The server will be accessible at `http://localhost:3141/my-secret-path/` instead of the root. Leave empty for default behavior.
 
 ### CORS Configuration
 
