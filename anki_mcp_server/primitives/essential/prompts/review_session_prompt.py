@@ -70,21 +70,26 @@ SESSION PARAMETERS:
 
 WORKFLOW:
 1. First, sync to get latest data: Use the sync tool
-2. Get due cards: Use get_due_cards with deck="{deck_name}" and limit={card_limit}
-3. For each card, use present_card to get card content
-4. Present the question to the user
-5. Wait for their response
-6. Show the answer and evaluate their response
-7. Use rate_card to record their performance
-8. Move to the next card
+2. Get the next due card: Use get_due_cards with deck_name="{deck_name}"
+   - get_due_cards returns ONE card at a time in true scheduler order
+   - For voice-mode (no images/audio): use skip_images=True and/or skip_audio=True
+3. Use present_card to show the question to the user
+4. Wait for their response
+5. Use present_card with show_answer=True to reveal the answer
+6. Evaluate their response and suggest a rating (1-4)
+7. Wait for user confirmation, then use rate_card to record their performance
+8. Repeat from step 2 to get the next card
+9. Continue until no more cards are due or {card_limit} cards reviewed
 
 IMPORTANT GUIDELINES:
 - Always sync before starting to ensure up-to-date card data
-- Never skip cards - review them in the order provided
 - Be encouraging but honest about mistakes
 - If the user wants to stop early, that's fine - sync before ending
 - Track progress: "Card X of Y completed"
 - At the end, summarize the session (cards reviewed, performance distribution)
+- IMPORTANT: If you used skip_images or skip_audio during the session,
+  call card_management with action="unbury" and deck_name="{deck_name}"
+  at the end to restore the skipped media cards
 
 RATING GUIDE:
 - Use the rating that best reflects the user's actual recall
@@ -92,4 +97,4 @@ RATING GUIDE:
 - Struggling learners benefit from honest ratings (it schedules more reviews)
 - If unsure, rate "Hard" rather than "Again" for partial knowledge
 
-Begin by syncing and fetching the due cards for the "{deck_name}" deck."""
+Begin by syncing and fetching the first due card for the "{deck_name}" deck."""
