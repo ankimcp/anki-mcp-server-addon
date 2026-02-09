@@ -79,7 +79,16 @@ This addon exposes Anki's collection to AI assistants via MCP.
 from typing import Optional
 
 from aqt import gui_hooks, mw
-from aqt.qt import QAction
+from aqt.qt import (
+    QAction,
+    QApplication,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+)
 from aqt.utils import showInfo
 
 from .config import Config, ConfigManager
@@ -141,28 +150,59 @@ def _setup_menu() -> None:
 
 
 def _show_settings() -> None:
-    """Show settings dialog."""
-    # TODO: Implement full settings dialog in ui/config_dialog.py
-    # For now, just show current status
+    """Show settings dialog with server info and Copy URL button."""
     if _connection_manager is None or _config_manager is None:
         showInfo("AnkiMCP Server: Not initialized. Please load a profile first.")
         return
 
-    status = (
-        "connected" if _connection_manager.is_running else "disconnected"
-    )
     config = _config_manager.load()
+    status = "connected" if _connection_manager.is_running else "disconnected"
 
-    info_parts = [
-        f"Status: {status}",
-        f"Server: http://{config.http_host}:{config.http_port}/",
-        f"Auto-connect: {config.auto_connect_on_startup}",
-        "",
-        "Website: https://ankimcp.ai",
-        "Created by Anatoly Tarnavsky",
-    ]
+    # Build full server URL including http_path
+    if config.http_path:
+        server_url = f"http://{config.http_host}:{config.http_port}/{config.http_path.strip('/')}/"
+    else:
+        server_url = f"http://{config.http_host}:{config.http_port}/"
 
-    showInfo(f"AnkiMCP Server v{__version__}\n\n" + "\n".join(info_parts))
+    # Create dialog
+    dialog = QDialog(mw)
+    dialog.setWindowTitle(f"AnkiMCP Server v{__version__}")
+    dialog.setMinimumWidth(400)
+
+    layout = QVBoxLayout()
+
+    # Info labels
+    layout.addWidget(QLabel(f"<b>Status:</b> {status}"))
+    layout.addWidget(QLabel(f"<b>Auto-connect:</b> {config.auto_connect_on_startup}"))
+    layout.addSpacing(10)
+
+    # Server URL section
+    layout.addWidget(QLabel("<b>Server URL:</b>"))
+
+    url_layout = QHBoxLayout()
+    url_field = QLineEdit(server_url)
+    url_field.setReadOnly(True)
+    url_layout.addWidget(url_field)
+
+    copy_button = QPushButton("Copy URL")
+    copy_button.clicked.connect(lambda: QApplication.clipboard().setText(server_url))
+    url_layout.addWidget(copy_button)
+
+    layout.addLayout(url_layout)
+    layout.addSpacing(10)
+
+    # Footer
+    layout.addWidget(QLabel("<b>Website:</b> https://ankimcp.ai"))
+    layout.addWidget(QLabel("<b>Created by</b> Anatoly Tarnavsky"))
+    layout.addSpacing(10)
+
+    # Close button
+    close_button = QPushButton("Close")
+    close_button.clicked.connect(dialog.accept)
+    layout.addWidget(close_button)
+
+    dialog.setLayout(layout)
+    dialog.exec()
 
 
 # Register lifecycle hooks
