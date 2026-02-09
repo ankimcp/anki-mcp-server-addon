@@ -17,7 +17,7 @@ if sys.version_info < (3, 10):
 
 from pathlib import Path
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 # Packages we vendor that might conflict with other addons
 _VENDOR_PACKAGES = ['mcp', 'pydantic', 'pydantic_core', 'starlette', 'uvicorn', 'anyio', 'httpx', 'websockets']
