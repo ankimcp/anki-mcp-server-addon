@@ -192,7 +192,12 @@ def _show_settings() -> None:
     layout.addSpacing(10)
 
     # Footer
-    layout.addWidget(QLabel("<b>Website:</b> https://ankimcp.ai"))
+    website_label = QLabel("<b>Website:</b> <a href='https://ankimcp.ai'>https://ankimcp.ai</a>")
+    website_label.setOpenExternalLinks(True)
+    layout.addWidget(website_label)
+    repo_label = QLabel("<b>GitHub:</b> <a href='https://github.com/ankimcp/anki-mcp-server-addon'>https://github.com/ankimcp/anki-mcp-server-addon</a>")
+    repo_label.setOpenExternalLinks(True)
+    layout.addWidget(repo_label)
     layout.addWidget(QLabel("<b>Created by</b> Anatoly Tarnavsky"))
     layout.addSpacing(10)
 
