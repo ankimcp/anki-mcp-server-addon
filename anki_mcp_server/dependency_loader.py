@@ -12,28 +12,20 @@ from pathlib import Path
 from aqt.qt import QProgressDialog, QMessageBox, QApplication
 
 CACHE_DIR = Path(__file__).parent / "_cache"
-PYPI_URL = "https://pypi.org/pypi/pydantic-core/json"
 
 
-def _get_platform_tag() -> str:
-    """Convert sysconfig.get_platform() to PyPI wheel tag."""
-    platform = sysconfig.get_platform()
+def _get_required_pydantic_core_version() -> str:
+    """Read the exact pydantic-core version required by vendored pydantic."""
+    version_file = Path(__file__).parent / "vendor" / "shared" / "pydantic" / "version.py"
+    if not version_file.exists():
+        raise RuntimeError("Vendored pydantic/version.py not found")
 
-    # Map to wheel platform tags
-    if platform.startswith("win-amd64"):
-        return "win_amd64"
-    elif platform.startswith("win-arm64"):
-        return "win_arm64"
-    elif "linux" in platform and "x86_64" in platform:
-        return "manylinux"  # Will match manylinux2014_x86_64 etc
-    elif "linux" in platform and ("aarch64" in platform or "arm64" in platform):
-        return "manylinux"  # Will match manylinux2014_aarch64
-    elif "macos" in platform and "arm64" in platform:
-        return "macosx"  # Will need to match macosx_*_arm64
-    elif "macos" in platform and "x86_64" in platform:
-        return "macosx"  # Will match macosx_*_x86_64
-    else:
-        raise RuntimeError(f"Unsupported platform: {platform}")
+    for line in version_file.read_text().splitlines():
+        stripped = line.strip()
+        if stripped.startswith("_COMPATIBLE_PYDANTIC_CORE_VERSION") and "=" in stripped:
+            return stripped.split("=", 1)[1].strip().strip("'\"")
+
+    raise RuntimeError("Could not find _COMPATIBLE_PYDANTIC_CORE_VERSION in pydantic/version.py")
 
 
 def _get_python_tag() -> str:
@@ -107,19 +99,29 @@ def ensure_pydantic_core() -> bool:
     Returns True if pydantic_core is ready, False if failed.
     Shows progress dialog during download.
     """
+    required_version = _get_required_pydantic_core_version()
+    pypi_url = f"https://pypi.org/pypi/pydantic-core/{required_version}/json"
+
     cache_dir = CACHE_DIR / "pydantic_core_pkg"
     marker_file = cache_dir / ".complete"
+    version_file = cache_dir / ".version"
 
-    # Already cached?
+    # Already cached? Check version matches.
     if marker_file.exists():
-        sys.path.insert(0, str(cache_dir))
-        return True
+        cached_version = version_file.read_text().strip() if version_file.exists() else None
+        if cached_version == required_version:
+            cache_str = str(cache_dir)
+            if cache_str not in sys.path:
+                sys.path.insert(0, cache_str)
+            return True
+        # Version mismatch (addon was upgraded) — re-download
+        shutil.rmtree(cache_dir, ignore_errors=True)
 
     # Need to download
     try:
         # Create progress dialog
         progress = QProgressDialog(
-            "Downloading pydantic_core (first run only)...",
+            f"Downloading pydantic_core {required_version} (first run only)...",
             "Cancel",
             0, 100
         )
@@ -129,12 +131,16 @@ def ensure_pydantic_core() -> bool:
         progress.show()
         QApplication.processEvents()
 
-        # Fetch PyPI metadata
+        # Fetch PyPI metadata for the exact required version
         progress.setLabelText("Fetching package info...")
         QApplication.processEvents()
 
-        with urllib.request.urlopen(PYPI_URL, timeout=30) as response:
+        with urllib.request.urlopen(pypi_url, timeout=30) as response:
             pypi_data = json.loads(response.read().decode())
+
+        served_version = pypi_data["info"]["version"]
+        if served_version != required_version:
+            raise RuntimeError(f"PyPI returned version {served_version}, expected {required_version}")
 
         if progress.wasCanceled():
             return False
@@ -186,7 +192,8 @@ def ensure_pydantic_core() -> bool:
         # Fix Windows .pyd naming
         _fix_windows_pyd(cache_dir)
 
-        # Mark complete
+        # Mark complete with version
+        version_file.write_text(required_version)
         marker_file.touch()
 
         progress.setValue(100)
@@ -195,7 +202,9 @@ def ensure_pydantic_core() -> bool:
         progress.close()
 
         # Add to path
-        sys.path.insert(0, str(cache_dir))
+        cache_str = str(cache_dir)
+        if cache_str not in sys.path:
+            sys.path.insert(0, cache_str)
         return True
 
     except InterruptedError:
