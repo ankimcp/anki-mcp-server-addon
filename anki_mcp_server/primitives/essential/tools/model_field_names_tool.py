@@ -6,7 +6,9 @@ from ....handler_wrappers import HandlerError, get_col
 
 @Tool(
     "modelFieldNames",
-    "Get the field names for a specific note type (model). Use this to know what fields are required when creating notes of this type.",
+    "Get the field names and descriptions for a specific note type (model). "
+    "Use this to know what fields are required when creating notes of this type. "
+    "Returns both field_names (list of strings) and fields (list of objects with name and description).",
 )
 def model_field_names(model_name: str) -> dict[str, Any]:
     col = get_col()
@@ -20,11 +22,16 @@ def model_field_names(model_name: str) -> dict[str, Any]:
         )
 
     field_names = [field["name"] for field in model["flds"]]
+    fields = [
+        {"name": field["name"], "description": field.get("description", "")}
+        for field in model["flds"]
+    ]
 
     if len(field_names) == 0:
         return {
             "model_name": model_name,
             "field_names": [],
+            "fields": [],
             "total": 0,
             "message": f'Model "{model_name}" has no fields',
         }
@@ -56,6 +63,7 @@ def model_field_names(model_name: str) -> dict[str, Any]:
     response: dict[str, Any] = {
         "model_name": model_name,
         "field_names": field_names,
+        "fields": fields,
         "total": len(field_names),
         "message": f'Model "{model_name}" has {len(field_names)} field{"s" if len(field_names) != 1 else ""}',
     }

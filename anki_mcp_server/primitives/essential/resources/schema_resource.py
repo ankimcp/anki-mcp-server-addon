@@ -233,7 +233,9 @@ def _get_entities() -> dict[str, Any]:
                 "flds": {
                     "type": "list[dict]",
                     "description": (
-                        "Field definitions: name, ord, sticky, rtl, font, size, etc. "
+                        "Field definitions: name, ord, sticky, rtl, font, size, description, etc. "
+                        "Each field has a 'description' attribute (string, empty by default) "
+                        "that provides a hint about the field's purpose. "
                         "Order determines how fields are stored in notes."
                     ),
                 },

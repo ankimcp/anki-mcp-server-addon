@@ -30,15 +30,29 @@ def notes_info(notes: list[int]) -> dict[str, Any]:
         try:
             note = col.get_note(note_id)
 
+            note_type = note.note_type()
+            if note_type is None:
+                logger.warning(f"Note {note_id} has no associated model (orphaned)")
+                continue
+
+            field_descriptions = {
+                fld["name"]: fld.get("description", "")
+                for fld in note_type["flds"]
+            }
+
             fields_dict = {}
             for i, (field_name, field_value) in enumerate(note.items()):
-                fields_dict[field_name] = {"value": field_value, "order": i}
+                fields_dict[field_name] = {
+                    "value": field_value,
+                    "order": i,
+                    "description": field_descriptions.get(field_name, ""),
+                }
 
             card_ids = [card.id for card in note.cards()]
 
             note_info = {
                 "noteId": note_id,
-                "modelName": note.note_type()["name"],
+                "modelName": note_type["name"],
                 "tags": note.tags,
                 "fields": fields_dict,
                 "cards": card_ids,
