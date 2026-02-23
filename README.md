@@ -113,13 +113,22 @@ The `cors_expose_headers` setting controls which response headers browsers can r
 | `present_card` | Get card content for review |
 | `rate_card` | Rate a card after review (Again/Hard/Good/Easy) |
 | `model_names` | List available note types |
-| `model_field_names` | Get field names for a note type |
+| `model_field_names` | Get field names and descriptions for a note type |
 | `model_styling` | Get CSS styling for a note type |
 | `update_model_styling` | Update CSS styling for a note type |
 | `create_model` | Create a new note type |
 | `store_media_file` | Store a media file (image/audio) |
 | `get_media_files_names` | List media files matching a pattern |
 | `delete_media_file` | Delete a media file |
+
+### FSRS Tools
+
+| Tool | Description |
+|------|-------------|
+| `get_fsrs_params` | Get FSRS scheduler parameters for deck presets |
+| `set_fsrs_params` | Update FSRS parameters (weights, desired retention, max interval) |
+| `get_card_memory_state` | Get FSRS memory state (stability, difficulty, retrievability) for cards |
+| `optimize_fsrs_params` | Run FSRS parameter optimization using Anki's built-in optimizer |
 
 ### GUI Tools
 
@@ -139,9 +148,15 @@ These tools interact with Anki's user interface:
 
 ### Resources
 
-| Resource | Description |
-|----------|-------------|
-| `system_info` | Anki version and system information |
+| Resource | URI | Description |
+|----------|-----|-------------|
+| `system_info` | `anki://system-info` | Anki version, profile, and scheduler info |
+| `query_syntax` | `anki://query-syntax` | Anki search query syntax reference |
+| `schema` | `anki://schema` | Data model documentation (entities, fields, relationships) |
+| `stats_today` | `anki://stats/today` | Today's study statistics |
+| `stats_forecast` | `anki://stats/forecast` | 30-day review forecast |
+| `stats_collection` | `anki://stats/collection` | Overall collection statistics |
+| `fsrs_config` | `anki://fsrs/config` | FSRS configuration summary and parameters |
 
 ### Prompts
 
