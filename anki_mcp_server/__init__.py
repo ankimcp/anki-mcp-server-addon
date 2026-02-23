@@ -198,7 +198,9 @@ def _show_settings() -> None:
     repo_label = QLabel("<b>GitHub:</b> <a href='https://github.com/ankimcp/anki-mcp-server-addon'>https://github.com/ankimcp/anki-mcp-server-addon</a>")
     repo_label.setOpenExternalLinks(True)
     layout.addWidget(repo_label)
-    layout.addWidget(QLabel("<b>Created by</b> Anatoly Tarnavsky"))
+    author_label = QLabel("<b>Created by</b> <a href='https://anatoly.dev'>Anatoly Tarnavsky</a>")
+    author_label.setOpenExternalLinks(True)
+    layout.addWidget(author_label)
     layout.addSpacing(10)
 
     # Close button
