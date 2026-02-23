@@ -6,8 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 ./package.sh                    # Build .ankiaddon package
-# Install: double-click anki_mcp_server.ankiaddon or Tools → Add-ons → Install from file
-# Restart Anki after installation
+make e2e                        # Full E2E cycle: build → Docker → test → teardown
+make e2e-up                     # Build addon + start headless Anki container
+make e2e-test                   # Run E2E tests (assumes container is running)
+make e2e-down                   # Stop container
+make e2e-debug                  # Start container and keep it running (VNC at localhost:5900)
+make e2e-logs                   # Tail container logs
+pytest tests/e2e/ -v            # Run tests directly (container must be up)
+pytest tests/e2e/test_note_tools.py -v  # Run a single test file
 ```
 
 ## Project Overview
@@ -201,27 +207,48 @@ Disabled in `mcp_server.py` to allow tunnel/proxy access (Cloudflare, ngrok).
 
 ## Development Workflow
 
-No test framework currently. To test changes:
-1. Run `./package.sh`
-2. Install the `.ankiaddon` in Anki (double-click or *Tools → Add-ons → Install from file...*)
-3. Restart Anki and check *Tools → AnkiMCP Server Settings...* for status
-4. Test with an MCP client (e.g., Claude Desktop)
+### E2E Tests
 
-### Viewing Debug Output
+Tests run against a real Anki instance in Docker using [headless-anki](https://github.com/ankimcp/headless-anki). The test client is `npx @modelcontextprotocol/inspector --cli` (MCP Inspector CLI), which means **Node.js is required** in addition to Python.
 
-Run Anki from terminal to see logs:
 ```bash
-# macOS
-/Applications/Anki.app/Contents/MacOS/anki
+# One-time setup
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
 
-# Linux
-anki
+# Full cycle (build → start Docker → wait for server → test → teardown)
+make e2e
 
-# Windows
-"C:\Program Files\Anki\anki.exe"
+# Or step by step:
+make e2e-up                     # Build + start container (waits 5s)
+make e2e-test                   # Run pytest
+make e2e-down                   # Stop container
 ```
 
-All `print()` statements and `logging` output appears in the terminal.
+**Environment variables:**
+- `MCP_SERVER_URL` — override server URL (default: `http://localhost:3141`)
+- `E2E_MAX_WAIT` — seconds to wait for server readiness (default: `60`)
+
+**Debugging failed tests:**
+- `make e2e-debug` — keeps container running after start; VNC available at `localhost:5900`
+- `make e2e-logs` — tail Docker container logs
+- Run Anki from terminal to see `print()`/`logging` output:
+  ```bash
+  # macOS
+  /Applications/Anki.app/Contents/MacOS/anki
+  ```
+
+### Manual Testing
+
+For changes that can't be tested via E2E (UI interactions, config dialog):
+1. Run `./package.sh`
+2. Install `.ankiaddon` in Anki (double-click or *Tools → Add-ons → Install from file...*)
+3. Restart Anki and check *Tools → AnkiMCP Server Settings...* for status
+
+### CI / Release
+
+- **E2E tests** run on every push and PR to `main` (`.github/workflows/e2e.yml`)
+- **Releases** trigger on `v*.*.*` tags — runs E2E first, then creates GitHub Release with the `.ankiaddon` artifact (`.github/workflows/release.yml`)
 
 ## Documentation
 

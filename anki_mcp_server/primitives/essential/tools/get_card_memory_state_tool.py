@@ -1,7 +1,6 @@
 """Get card memory state tool - read FSRS memory state for individual cards."""
 from typing import Any
 import logging
-import time
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -105,7 +104,7 @@ def _extract_card_state(col: Any, card: Any, recompute: bool) -> dict[str, Any]:
 
         stability = info.get("stability")
         if stability and stability > 0 and card.ivl > 0 and card.type == 2:
-            today = int(time.time() - card.col.crt) // 86400
+            today = col.sched.today
             elapsed_days = today - (card.due - card.ivl)
             info["elapsed_days"] = elapsed_days
             if elapsed_days >= 0:

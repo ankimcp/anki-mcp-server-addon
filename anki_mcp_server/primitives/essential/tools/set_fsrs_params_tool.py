@@ -25,7 +25,7 @@ _EXPECTED_PARAM_COUNTS = {
 )
 def set_fsrs_params(
     preset_name: str,
-    fsrs_params: list[float] = [],
+    fsrs_params: list[float] | None = None,
     desired_retention: float = -1.0,
     max_interval: int = -1,
 ) -> dict[str, Any]:
@@ -40,7 +40,7 @@ def set_fsrs_params(
             hint=f"Available presets: {', '.join(available)}",
         )
 
-    has_params = len(fsrs_params) > 0
+    has_params = fsrs_params is not None and len(fsrs_params) > 0
     has_retention = desired_retention >= 0
     has_max_interval = max_interval >= 0
 

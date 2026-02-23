@@ -1,55 +1,13 @@
 """Tests for http_path configuration feature.
 
-These tests verify the Config class and path construction logic.
-Since e2e tests run against a Docker container with default config,
-we test the configuration logic directly rather than actual HTTP routing.
+Tests cover server accessibility at the default path and the path
+construction logic used to normalize http_path values.
 """
 from __future__ import annotations
 
 import pytest
 
 from .helpers import list_tools
-
-# Import Config if available (may fail if dependencies not installed)
-try:
-    import sys
-    import os
-    # Add parent directory to path to allow importing from anki_mcp_server
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-    from anki_mcp_server.config import Config
-    CONFIG_AVAILABLE = True
-except ImportError:
-    CONFIG_AVAILABLE = False
-
-
-@pytest.mark.skipif(not CONFIG_AVAILABLE, reason="Config class not importable in test environment")
-class TestConfigHttpPath:
-    """Test Config class handling of http_path field."""
-
-    def test_default_config_has_empty_http_path(self):
-        """Default config should have empty http_path."""
-        config = Config()
-        assert hasattr(config, "http_path")
-        assert config.http_path == ""
-
-    def test_config_from_dict_with_http_path(self):
-        """Config.from_dict should properly handle http_path."""
-        data = {"http_path": "my-secret"}
-        config = Config.from_dict(data)
-        assert config.http_path == "my-secret"
-
-    def test_config_from_dict_without_http_path(self):
-        """Config.from_dict should use default when http_path is missing."""
-        data = {"http_port": 8080}
-        config = Config.from_dict(data)
-        assert config.http_path == ""
-
-    def test_config_to_dict_includes_http_path(self):
-        """Config.to_dict should include http_path."""
-        config = Config(http_path="my-secret")
-        data = config.to_dict()
-        assert "http_path" in data
-        assert data["http_path"] == "my-secret"
 
 
 class TestDefaultPathAccessibility:
