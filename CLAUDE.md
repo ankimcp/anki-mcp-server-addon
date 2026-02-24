@@ -76,13 +76,13 @@ anki_mcp_server/
 ├── prompt_decorator.py      # @Prompt decorator implementation
 ├── dependency_loader.py     # Runtime pydantic_core download from PyPI
 └── primitives/
-    ├── tools.py             # Imports all tool modules to trigger @Tool registration
-    ├── resources.py         # Imports all resource modules to trigger @Resource registration
-    ├── prompts.py           # Imports all prompt modules to trigger @Prompt registration
+    ├── tools.py             # Triggers auto-discovery of tool modules
+    ├── resources.py         # Triggers auto-discovery of resource modules
+    ├── prompts.py           # Explicit imports of prompt modules (no auto-discovery)
     ├── essential/
     │   ├── tools/           # Core tools: sync, notes, decks, models, media
     │   ├── resources/       # system_info, query_syntax, schema, stats
-    │   └── prompts/         # review_session
+    │   └── prompts/         # review_session, twenty_rules
     └── gui/tools/           # UI tools: browse, add_cards, edit_note, etc.
 ```
 
@@ -172,21 +172,19 @@ raise HandlerError(
 
 1. Create `primitives/essential/tools/my_tool.py` (or `gui/tools/` for UI tools)
 2. Use `@Tool` decorator with name, description, and optional `write=True`
-3. Import in the package's `__init__.py` (e.g., `primitives/essential/tools/__init__.py`)
-4. Rebuild: `./package.sh`
+3. Rebuild: `./package.sh` — auto-discovered via `pkgutil.walk_packages` in `__init__.py`
 
 ### Adding a Resource
 
 1. Create `primitives/essential/resources/my_resource.py`
 2. Use `@Resource` decorator with URI, description, and explicit `name`
-3. Import in `primitives/essential/resources/__init__.py`
-4. Rebuild: `./package.sh`
+3. Rebuild: `./package.sh` — auto-discovered via `pkgutil.walk_packages` in `__init__.py`
 
 ### Adding a Prompt
 
 1. Create `primitives/essential/prompts/my_prompt.py`
 2. Use `@Prompt` decorator with name and description
-3. Import in `primitives/essential/prompts/__init__.py`
+3. **Manually import** in `primitives/prompts.py` (prompts are NOT auto-discovered)
 4. Rebuild: `./package.sh`
 
 ## Key Implementation Details
@@ -237,6 +235,29 @@ make e2e-down                   # Stop container
   # macOS
   /Applications/Anki.app/Contents/MacOS/anki
   ```
+
+### Writing E2E Tests
+
+Tests use `tests/e2e/helpers.py` which wraps the MCP Inspector CLI. Available helpers:
+
+```python
+from .helpers import call_tool, list_tools, read_resource, list_resources, list_prompts, get_prompt
+
+# Call a tool
+result = call_tool("findNotes", {"query": "deck:*", "limit": "5"})
+
+# Read a resource
+info = read_resource("anki://system-info")
+
+# Get a prompt
+prompt = get_prompt("review_session", {"review_style": "quick"})
+```
+
+Test conventions:
+- One test file per feature area (e.g., `test_note_tools.py`, `test_fsrs_tools.py`)
+- Group related tests in classes (e.g., `class TestNoteTools`)
+- Tool args are always strings (MCP CLI serialization)
+- Check `result.get("isError") is True` for expected error responses
 
 ### Manual Testing
 

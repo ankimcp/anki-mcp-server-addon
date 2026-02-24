@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 SERVER_URL = os.environ.get("MCP_SERVER_URL", "http://localhost:3141")
 
@@ -42,6 +42,14 @@ def run_inspector(method: str, **kwargs) -> dict[str, Any]:
 
     if "uri" in kwargs:
         cmd.extend(["--uri", kwargs["uri"]])
+
+    # Add prompt-specific arguments
+    if "prompt_name" in kwargs:
+        cmd.extend(["--prompt-name", kwargs["prompt_name"]])
+
+    if "prompt_args" in kwargs:
+        for key, value in kwargs["prompt_args"].items():
+            cmd.extend(["--prompt-args", f"{key}={value}"])
 
     result = subprocess.run(
         cmd,
@@ -122,3 +130,29 @@ def list_resources() -> list[dict[str, Any]]:
     """
     result = run_inspector("resources/list")
     return result.get("resources", [])
+
+
+def list_prompts() -> list[dict[str, Any]]:
+    """List all available MCP prompts.
+
+    Returns:
+        List of prompt definitions.
+    """
+    result = run_inspector("prompts/list")
+    return result.get("prompts", [])
+
+
+def get_prompt(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Get an MCP prompt by name.
+
+    Args:
+        name: Prompt name (e.g., "twenty_rules")
+        args: Optional prompt arguments as dict
+
+    Returns:
+        Prompt result including messages list.
+    """
+    kwargs: dict[str, Any] = {"prompt_name": name}
+    if args:
+        kwargs["prompt_args"] = args
+    return run_inspector("prompts/get", **kwargs)

@@ -5,6 +5,7 @@ from ..prompt_decorator import register_prompts
 
 # Import triggers registration via @Prompt decorator
 from .essential.prompts import review_session_prompt  # noqa: F401
+from .essential.prompts import twenty_rules_prompt  # noqa: F401
 
 
 def register_all_prompts(mcp) -> None:
