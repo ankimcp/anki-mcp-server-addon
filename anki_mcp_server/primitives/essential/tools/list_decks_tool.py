@@ -24,6 +24,12 @@ def list_decks(include_stats: bool = False) -> dict[str, Any]:
             "total": 0,
         }
 
+    # Build set of filtered deck IDs for efficient lookup
+    filtered_ids: set[int] = set()
+    for d in col.decks.all():
+        if d.get("dyn"):
+            filtered_ids.add(d["id"])
+
     decks: list[dict[str, Any]] = []
 
     if include_stats:
@@ -60,9 +66,10 @@ def list_decks(include_stats: bool = False) -> dict[str, Any]:
                 total_in_deck = tree_node.total_in_deck  # Available in Anki 2.1.46+
 
                 deck_info: dict[str, Any] = {
+                    "deck_id": deck_id,
                     "name": deck_name,
+                    "is_filtered": deck_id in filtered_ids,
                     "stats": {
-                        "deck_id": deck_id,
                         "new_count": new_count,
                         "learn_count": learn_count,
                         "review_count": review_count,
@@ -76,7 +83,11 @@ def list_decks(include_stats: bool = False) -> dict[str, Any]:
                 summary["review_cards"] += review_count
             else:
                 logger.warning(f"Could not find stats for deck {deck_name}")
-                deck_info = {"name": deck_name}
+                deck_info = {
+                    "deck_id": deck_id,
+                    "name": deck_name,
+                    "is_filtered": deck_id in filtered_ids,
+                }
 
             decks.append(deck_info)
 
@@ -86,7 +97,14 @@ def list_decks(include_stats: bool = False) -> dict[str, Any]:
             "summary": summary,
         }
     else:
-        decks = [{"name": deck_pair.name} for deck_pair in deck_name_id_pairs]
+        decks = [
+            {
+                "deck_id": deck_pair.id,
+                "name": deck_pair.name,
+                "is_filtered": deck_pair.id in filtered_ids,
+            }
+            for deck_pair in deck_name_id_pairs
+        ]
         return {
             "decks": decks,
             "total": len(decks),
