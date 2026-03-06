@@ -81,6 +81,16 @@ anki_mcp_server/
     ├── prompts.py           # Explicit imports of prompt modules (no auto-discovery)
     ├── essential/
     │   ├── tools/           # Core tools: sync, notes, decks, models, media
+    │   │   ├── *_tool.py         # Single-file tools (auto-discovered)
+    │   │   ├── _fsrs_helpers.py  # _ prefix = helper, not auto-discovered
+    │   │   ├── card_management/  # Multi-action tool (subpackage)
+    │   │   │   ├── __init__.py          # Must import tool to trigger @Tool registration
+    │   │   │   ├── card_management_tool.py  # Dispatcher with Pydantic discriminated union
+    │   │   │   └── actions/             # One file per action
+    │   │   └── filtered_deck/   # Multi-action tool (subpackage)
+    │   │       ├── __init__.py
+    │   │       ├── filtered_deck_tool.py
+    │   │       └── actions/
     │   ├── resources/       # system_info, query_syntax, schema, stats
     │   └── prompts/         # review_session, twenty_rules
     └── gui/tools/           # UI tools: browse, add_cards, edit_note, etc.
@@ -152,6 +162,24 @@ def review_tips(deck_name: str = "Default") -> str:
 
 Prompts don't access `mw.col` - they just generate text templates.
 
+#### Multi-Action Tools (Subpackage Pattern)
+
+When a tool has multiple actions (like `card_management` or `filtered_deck`), use a subpackage instead of a single file:
+
+```
+primitives/essential/tools/my_multi_tool/
+├── __init__.py              # MUST import the tool: `from .my_tool import my_tool`
+├── my_tool.py               # Dispatcher with Pydantic discriminated union
+└── actions/
+    ├── _validate.py         # Shared helpers (_ prefix = not a tool)
+    ├── action_one.py        # action_one_impl()
+    └── action_two.py        # action_two_impl()
+```
+
+The dispatcher uses Pydantic `Annotated[Union[...], Field(discriminator="action")]` so MCP clients get a proper JSON schema with all action variants. Each action lives in its own file under `actions/` and exports an `_impl()` function. The dispatcher uses `match`/`case` to route.
+
+**Critical**: The `__init__.py` must import the tool module — `pkgutil.walk_packages` discovers subpackages but only triggers `@Tool` registration if the decorated function is actually imported.
+
 ### Error Handling
 
 Use `HandlerError` for structured errors with actionable hints:
@@ -170,9 +198,14 @@ raise HandlerError(
 
 ### Adding a Tool
 
+**Single-file tool:**
 1. Create `primitives/essential/tools/my_tool.py` (or `gui/tools/` for UI tools)
 2. Use `@Tool` decorator with name, description, and optional `write=True`
-3. Rebuild: `./package.sh` — auto-discovered via `pkgutil.walk_packages` in `__init__.py`
+3. Rebuild: `./package.sh` — auto-discovered via `pkgutil.walk_packages`
+
+**Multi-action tool:** Create a subpackage (see "Multi-Action Tools" pattern above)
+
+**Helper files:** Prefix with `_` (e.g., `_fsrs_helpers.py`) — they won't be treated as tool modules
 
 ### Adding a Resource
 

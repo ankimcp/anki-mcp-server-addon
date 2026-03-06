@@ -199,11 +199,9 @@ class TestUpdateNote:
         note_id = self.create_test_note()
 
         result = call_tool("updateNoteFields", {
-            "note": {
-                "id": note_id,
-                "fields": {
-                    "Front": f"Updated Question {unique_id()}"
-                }
+            "id": note_id,
+            "fields": {
+                "Front": f"Updated Question {unique_id()}"
             }
         })
         assert result["noteId"] == note_id
@@ -215,12 +213,10 @@ class TestUpdateNote:
         note_id = self.create_test_note()
 
         result = call_tool("updateNoteFields", {
-            "note": {
-                "id": note_id,
-                "fields": {
-                    "Front": f"New Front {unique_id()}",
-                    "Back": f"New Back {unique_id()}"
-                }
+            "id": note_id,
+            "fields": {
+                "Front": f"New Front {unique_id()}",
+                "Back": f"New Back {unique_id()}"
             }
         })
         assert result["fieldCount"] == 2
@@ -233,10 +229,8 @@ class TestUpdateNote:
 
         # Update
         call_tool("updateNoteFields", {
-            "note": {
-                "id": note_id,
-                "fields": {"Front": new_content}
-            }
+            "id": note_id,
+            "fields": {"Front": new_content}
         })
 
         # Verify
@@ -248,10 +242,8 @@ class TestUpdateNote:
     def test_update_invalid_note_id(self):
         """updateNoteFields should fail for non-existent note."""
         result = call_tool("updateNoteFields", {
-            "note": {
-                "id": 999999999999,
-                "fields": {"Front": "X"}
-            }
+            "id": 999999999999,
+            "fields": {"Front": "X"}
         })
         assert result.get("isError") is True
 
@@ -260,10 +252,17 @@ class TestUpdateNote:
         note_id = self.create_test_note()
 
         result = call_tool("updateNoteFields", {
-            "note": {
-                "id": note_id,
-                "fields": {"InvalidFieldName": "X"}
-            }
+            "id": note_id,
+            "fields": {"InvalidFieldName": "X"}
+        })
+        assert result.get("isError") is True
+
+    def test_update_empty_fields(self):
+        """updateNoteFields should fail with empty fields dict."""
+        note_id = self.create_test_note()
+        result = call_tool("updateNoteFields", {
+            "id": note_id,
+            "fields": {}
         })
         assert result.get("isError") is True
 
