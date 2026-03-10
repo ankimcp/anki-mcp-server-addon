@@ -80,7 +80,7 @@ anki_mcp_server/
     ├── resources.py         # Triggers auto-discovery of resource modules
     ├── prompts.py           # Explicit imports of prompt modules (no auto-discovery)
     ├── essential/
-    │   ├── tools/           # Core tools: sync, notes, decks, models, media
+    │   ├── tools/           # Core tools: sync, notes, decks, models, media, FSRS, cards
     │   │   ├── *_tool.py         # Single-file tools (auto-discovered)
     │   │   ├── _fsrs_helpers.py  # _ prefix = helper, not auto-discovered
     │   │   ├── card_management/  # Multi-action tool (subpackage)
@@ -96,7 +96,7 @@ anki_mcp_server/
     └── gui/tools/           # UI tools: browse, add_cards, edit_note, etc.
 ```
 
-**Vendored Dependencies**: Located in `vendor/shared/`. The `__init__.py` prepends vendor path to `sys.path` at startup.
+**Vendored Dependencies**: Located in `vendor/shared/`. The `__init__.py` prepends vendor path to `sys.path` at startup. On load, `_check_vendor_conflicts()` warns if any vendored packages (mcp, pydantic, starlette, uvicorn, etc.) are already in `sys.modules` from other addons — helps debug compatibility issues.
 
 ### Decorator Patterns
 
@@ -236,6 +236,10 @@ raise HandlerError(
 
 Disabled in `mcp_server.py` to allow tunnel/proxy access (Cloudflare, ngrok).
 
+### CORS Configuration
+
+Configured via addon settings (`cors_origins`, `cors_expose_headers`). Empty `cors_origins` = CORS disabled. The `mcp-session-id` and `mcp-protocol-version` headers must be exposed for browser-based MCP clients (Streamable HTTP protocol requirement). See `config.py` for the full `Config` dataclass.
+
 ## Development Workflow
 
 ### E2E Tests
@@ -259,6 +263,11 @@ make e2e-down                   # Stop container
 **Environment variables:**
 - `MCP_SERVER_URL` — override server URL (default: `http://localhost:3141`)
 - `E2E_MAX_WAIT` — seconds to wait for server readiness (default: `60`)
+- `E2E_KEEP_RUNNING` — set to `1` to keep container running after tests
+
+**Server readiness**: `conftest.py` has a `session`-scoped `wait_for_server` fixture that polls the server up to `E2E_MAX_WAIT` seconds before any tests run — no need to manually wait.
+
+**Docker setup** (`.docker/`): The `docker-compose.yml` mounts `config.json` that binds the MCP server to `0.0.0.0` inside the container (instead of the default `127.0.0.1`) so the host can reach port 3141. It also mounts a custom `entrypoint.sh` that installs the `.ankiaddon` and starts headless Anki.
 
 **Debugging failed tests:**
 - `make e2e-debug` — keeps container running after start; VNC available at `localhost:5900`
