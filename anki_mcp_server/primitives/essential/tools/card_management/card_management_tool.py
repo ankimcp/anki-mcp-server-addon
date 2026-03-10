@@ -11,6 +11,8 @@ from .actions.change_deck import change_deck_impl
 from .actions.bury import bury_impl
 from .actions.unbury import unbury_impl
 from .actions.set_flag import set_flag_impl
+from .actions.set_due_date import set_due_date_impl
+from .actions.forget import forget_impl
 
 
 class RepositionParams(BaseModel):
@@ -49,15 +51,30 @@ class SetFlagParams(BaseModel):
     flag: int = Field(description="Flag value: 0=none/remove, 1=red, 2=orange, 3=green, 4=blue, 5-7=custom user flags")
 
 
+class SetDueDateParams(BaseModel):
+    """Parameters for setDueDate action."""
+    action: Literal["setDueDate"]
+    card_ids: list[int] = Field(description="Card IDs to reschedule")
+    days: str = Field(description="Due date string: '5' = due in 5 days, '5-7' = random range, '0' = due now, '5!' = set due AND reset interval")
+
+
+class ForgetCardsParams(BaseModel):
+    """Parameters for forgetCards action."""
+    action: Literal["forgetCards"]
+    card_ids: list[int] = Field(description="Card IDs to reset to new state")
+    restore_position: bool = Field(default=True, description="Restore original new-card position")
+    reset_counts: bool = Field(default=False, description="Reset review and lapse counts")
+
+
 CardManagementParams = Annotated[
-    Union[RepositionParams, ChangeDeckParams, BuryParams, UnburyParams, SetFlagParams],
+    Union[RepositionParams, ChangeDeckParams, BuryParams, UnburyParams, SetFlagParams, SetDueDateParams, ForgetCardsParams],
     Field(discriminator="action")
 ]
 
 
 @Tool(
     "card_management",
-    """Manage card organization with five actions:
+    """Manage card organization with seven actions:
 
     - reposition: Reposition NEW cards in the review queue (set learning order).
       Note: Only works on NEW cards (queue=0). Non-new cards are silently skipped.
@@ -72,7 +89,13 @@ CardManagementParams = Annotated[
       Note: Unburies ALL buried cards in the specified deck.
 
     - setFlag: Set or remove a colored flag on cards.
-      flag values: 0=none/remove, 1=red, 2=orange, 3=green, 4=blue, 5-7=custom.""",
+      flag values: 0=none/remove, 1=red, 2=orange, 3=green, 4=blue, 5-7=custom.
+
+    - setDueDate: Set or change the due date for cards.
+      days: '0' = due now, '5' = due in 5 days, '5-7' = random range, '5!' = also reset interval.
+
+    - forgetCards: Reset cards back to new state (forget scheduling).
+      Options: restore_position (default true), reset_counts (default false).""",
     write=True,
 )
 def card_management(params: CardManagementParams) -> dict[str, Any]:
@@ -118,5 +141,25 @@ def card_management(params: CardManagementParams) -> dict[str, Any]:
                     action=params.action,
                 )
             return set_flag_impl(card_ids=params.card_ids, flag=params.flag)
+        case "setDueDate":
+            if not params.card_ids:
+                raise HandlerError(
+                    "card_ids is required and cannot be empty",
+                    hint="Provide at least one card ID",
+                    action=params.action,
+                )
+            return set_due_date_impl(card_ids=params.card_ids, days=params.days)
+        case "forgetCards":
+            if not params.card_ids:
+                raise HandlerError(
+                    "card_ids is required and cannot be empty",
+                    hint="Provide at least one card ID",
+                    action=params.action,
+                )
+            return forget_impl(
+                card_ids=params.card_ids,
+                restore_position=params.restore_position,
+                reset_counts=params.reset_counts,
+            )
         case _:
             raise HandlerError(f"Unknown action: {params.action}")
