@@ -87,6 +87,10 @@ anki_mcp_server/
     │   │   │   ├── __init__.py          # Must import tool to trigger @Tool registration
     │   │   │   ├── card_management_tool.py  # Dispatcher with Pydantic discriminated union
     │   │   │   └── actions/             # One file per action
+    │   │   ├── tag_management/  # Multi-action tool (subpackage)
+    │   │   │   ├── __init__.py
+    │   │   │   ├── tag_management_tool.py
+    │   │   │   └── actions/
     │   │   └── filtered_deck/   # Multi-action tool (subpackage)
     │   │       ├── __init__.py
     │   │       ├── filtered_deck_tool.py
@@ -164,7 +168,7 @@ Prompts don't access `mw.col` - they just generate text templates.
 
 #### Multi-Action Tools (Subpackage Pattern)
 
-When a tool has multiple actions (like `card_management` or `filtered_deck`), use a subpackage instead of a single file:
+When a tool has multiple actions (like `card_management`, `tag_management`, or `filtered_deck`), use a subpackage instead of a single file:
 
 ```
 primitives/essential/tools/my_multi_tool/
@@ -331,6 +335,8 @@ All imports in this addon use **relative imports** (e.g., `from ....tool_decorat
 - `col.sched.counts()` — returns (new, learning, review) for the **currently selected** deck
 - `col.sched.counts_for_deck_today()` — does **NOT** work in modern Anki, silently returns wrong values
 - Raw SQL (`col.db`) is acceptable for analytics/stats (revlog, card stats) — AnkiConnect does this too. For deck stats, always prefer `deck_due_tree()` over SQL.
+- `col.sched.suspend_cards(ids)` → `OpChangesWithCount` (has `.count`), but `col.sched.unsuspend_cards(ids)` → `OpChanges` (no `.count`). Similar asymmetry: `set_due_date` and `schedule_cards_as_new` return `OpChanges`, not `OpChangesWithCount`.
+- `col.tags.bulk_add(ids, tags)` and `col.tags.bulk_remove(ids, tags)` → `OpChangesWithCount`. `col.tags.clear_unused_tags()` → `OpChangesWithCount`. `col.tags.all()` → `list[str]`.
 
 ### Python Version Compatibility
 

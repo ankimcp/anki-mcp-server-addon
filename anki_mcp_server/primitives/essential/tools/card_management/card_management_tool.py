@@ -10,6 +10,8 @@ from .actions.reposition import reposition_impl
 from .actions.change_deck import change_deck_impl
 from .actions.bury import bury_impl
 from .actions.unbury import unbury_impl
+from .actions.suspend import suspend_impl
+from .actions.unsuspend import unsuspend_impl
 from .actions.set_flag import set_flag_impl
 from .actions.set_due_date import set_due_date_impl
 from .actions.forget import forget_impl
@@ -44,6 +46,18 @@ class UnburyParams(BaseModel):
     deck_name: str = Field(description="Deck name to unbury all cards from")
 
 
+class SuspendParams(BaseModel):
+    """Parameters for suspend action."""
+    action: Literal["suspend"]
+    card_ids: list[int] = Field(description="Card IDs to suspend")
+
+
+class UnsuspendParams(BaseModel):
+    """Parameters for unsuspend action."""
+    action: Literal["unsuspend"]
+    card_ids: list[int] = Field(description="Card IDs to unsuspend")
+
+
 class SetFlagParams(BaseModel):
     """Parameters for setFlag action."""
     action: Literal["setFlag"]
@@ -67,14 +81,14 @@ class ForgetCardsParams(BaseModel):
 
 
 CardManagementParams = Annotated[
-    Union[RepositionParams, ChangeDeckParams, BuryParams, UnburyParams, SetFlagParams, SetDueDateParams, ForgetCardsParams],
+    Union[RepositionParams, ChangeDeckParams, BuryParams, UnburyParams, SuspendParams, UnsuspendParams, SetFlagParams, SetDueDateParams, ForgetCardsParams],
     Field(discriminator="action")
 ]
 
 
 @Tool(
     "card_management",
-    """Manage card organization with seven actions:
+    """Manage card organization with nine actions:
 
     - reposition: Reposition NEW cards in the review queue (set learning order).
       Note: Only works on NEW cards (queue=0). Non-new cards are silently skipped.
@@ -87,6 +101,12 @@ CardManagementParams = Annotated[
 
     - unbury: Restore all buried cards in a specific deck.
       Note: Unburies ALL buried cards in the specified deck.
+
+    - suspend: Suspend cards (hide from review indefinitely until unsuspended).
+      Note: Works with ANY card type.
+
+    - unsuspend: Unsuspend cards (restore suspended cards to their previous queue).
+      Note: Only affects cards that are currently suspended.
 
     - setFlag: Set or remove a colored flag on cards.
       flag values: 0=none/remove, 1=red, 2=orange, 3=green, 4=blue, 5-7=custom.
@@ -133,6 +153,22 @@ def card_management(params: CardManagementParams) -> dict[str, Any]:
             return bury_impl(card_ids=params.card_ids)
         case "unbury":
             return unbury_impl(deck_name=params.deck_name)
+        case "suspend":
+            if not params.card_ids:
+                raise HandlerError(
+                    "card_ids is required and cannot be empty",
+                    hint="Provide at least one card ID",
+                    action=params.action,
+                )
+            return suspend_impl(card_ids=params.card_ids)
+        case "unsuspend":
+            if not params.card_ids:
+                raise HandlerError(
+                    "card_ids is required and cannot be empty",
+                    hint="Provide at least one card ID",
+                    action=params.action,
+                )
+            return unsuspend_impl(card_ids=params.card_ids)
         case "setFlag":
             if not params.card_ids:
                 raise HandlerError(
