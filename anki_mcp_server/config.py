@@ -36,6 +36,10 @@ class Config:
         default_factory=lambda: ["mcp-session-id", "mcp-protocol-version"]
     )
 
+    # Tool filtering (list of tool names or "tool:action" to disable)
+    # Example: ["get_fsrs_params", "card_management:bury", "card_management:unbury"]
+    disabled_tools: List[str] = field(default_factory=list)
+
     # General
     auto_connect_on_startup: bool = True
 

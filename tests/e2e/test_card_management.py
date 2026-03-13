@@ -23,7 +23,7 @@ class TestCardManagement:
         # Add 3 notes to create 3 cards
         card_ids = []
         for i in range(3):
-            result = call_tool("addNote", {
+            result = call_tool("add_note", {
                 "deck_name": deck_name,
                 "model_name": "Basic",
                 "fields": {
@@ -34,7 +34,7 @@ class TestCardManagement:
             # Note creates one card (for Basic model)
             note_id = result["note_id"]
             # Get cards for this note
-            notes_info = call_tool("notesInfo", {"notes": [note_id]})
+            notes_info = call_tool("notes_info", {"notes": [note_id]})
             if notes_info and notes_info.get("notes"):
                 cards = notes_info["notes"][0].get("cards", [])
                 if cards:
@@ -70,7 +70,7 @@ class TestCardManagement:
         # Add 2 notes
         card_ids = []
         for i in range(2):
-            result = call_tool("addNote", {
+            result = call_tool("add_note", {
                 "deck_name": deck_name,
                 "model_name": "Basic",
                 "fields": {
@@ -79,7 +79,7 @@ class TestCardManagement:
                 }
             })
             note_id = result["note_id"]
-            notes_info = call_tool("notesInfo", {"notes": [note_id]})
+            notes_info = call_tool("notes_info", {"notes": [note_id]})
             if notes_info and notes_info.get("notes"):
                 cards = notes_info["notes"][0].get("cards", [])
                 if cards:
@@ -117,13 +117,13 @@ class TestCardManagement:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add one note
-        note_result = call_tool("addNote", {
+        note_result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {"Front": f"Q {uid}", "Back": f"A {uid}"}
         })
         note_id = note_result["note_id"]
-        notes_info = call_tool("notesInfo", {"notes": [note_id]})
+        notes_info = call_tool("notes_info", {"notes": [note_id]})
         card_id = notes_info["notes"][0]["cards"][0]
 
         # Try reposition with negative starting_from
@@ -145,13 +145,13 @@ class TestCardManagement:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add one note
-        note_result = call_tool("addNote", {
+        note_result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {"Front": f"Q {uid}", "Back": f"A {uid}"}
         })
         note_id = note_result["note_id"]
-        notes_info = call_tool("notesInfo", {"notes": [note_id]})
+        notes_info = call_tool("notes_info", {"notes": [note_id]})
         card_id = notes_info["notes"][0]["cards"][0]
 
         # Try reposition with step_size = 0
@@ -167,7 +167,7 @@ class TestCardManagement:
         assert "step_size must be >= 1" in str(result)
 
     def test_change_deck_basic(self):
-        """changeDeck action should move cards to target deck."""
+        """change_deck action should move cards to target deck."""
         uid = unique_id()
         source_deck = f"E2E::Source{uid}"
         target_deck = f"E2E::Target{uid}"
@@ -178,7 +178,7 @@ class TestCardManagement:
         # Add 2 notes to source deck
         card_ids = []
         for i in range(2):
-            result = call_tool("addNote", {
+            result = call_tool("add_note", {
                 "deck_name": source_deck,
                 "model_name": "Basic",
                 "fields": {
@@ -187,7 +187,7 @@ class TestCardManagement:
                 }
             })
             note_id = result["note_id"]
-            notes_info = call_tool("notesInfo", {"notes": [note_id]})
+            notes_info = call_tool("notes_info", {"notes": [note_id]})
             if notes_info and notes_info.get("notes"):
                 cards = notes_info["notes"][0].get("cards", [])
                 if cards:
@@ -198,7 +198,7 @@ class TestCardManagement:
         # Move cards to target deck (will be created)
         result = call_tool("card_management", {
             "params": {
-                "action": "changeDeck",
+                "action": "change_deck",
                 "card_ids": card_ids,
                 "deck": target_deck
             }
@@ -221,7 +221,7 @@ class TestCardManagement:
         assert target_deck in deck_names
 
     def test_change_deck_nested(self):
-        """changeDeck action should handle nested deck names."""
+        """change_deck action should handle nested deck names."""
         uid = unique_id()
         source_deck = f"E2E::NestedSource{uid}"
         target_deck = f"E2E::Parent{uid}::Child{uid}"
@@ -229,19 +229,19 @@ class TestCardManagement:
         call_tool("create_deck", {"deck_name": source_deck})
 
         # Add one note
-        result = call_tool("addNote", {
+        result = call_tool("add_note", {
             "deck_name": source_deck,
             "model_name": "Basic",
             "fields": {"Front": f"Q {uid}", "Back": f"A {uid}"}
         })
         note_id = result["note_id"]
-        notes_info = call_tool("notesInfo", {"notes": [note_id]})
+        notes_info = call_tool("notes_info", {"notes": [note_id]})
         card_id = notes_info["notes"][0]["cards"][0]
 
         # Move to nested deck
         result = call_tool("card_management", {
             "params": {
-                "action": "changeDeck",
+                "action": "change_deck",
                 "card_ids": [card_id],
                 "deck": target_deck
             }
@@ -256,10 +256,10 @@ class TestCardManagement:
         assert target_deck in deck_names
 
     def test_change_deck_empty_card_ids(self):
-        """changeDeck action should error with empty card_ids."""
+        """change_deck action should error with empty card_ids."""
         result = call_tool("card_management", {
             "params": {
-                "action": "changeDeck",
+                "action": "change_deck",
                 "card_ids": [],
                 "deck": "SomeDeck"
             }
@@ -269,25 +269,25 @@ class TestCardManagement:
         assert "cannot be empty" in str(result)
 
     def test_change_deck_missing_deck_param(self):
-        """changeDeck action should error without deck parameter."""
+        """change_deck action should error without deck parameter."""
         uid = unique_id()
         deck_name = f"E2E::NoDeck{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add one note
-        note_result = call_tool("addNote", {
+        note_result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {"Front": f"Q {uid}", "Back": f"A {uid}"}
         })
         note_id = note_result["note_id"]
-        notes_info = call_tool("notesInfo", {"notes": [note_id]})
+        notes_info = call_tool("notes_info", {"notes": [note_id]})
         card_id = notes_info["notes"][0]["cards"][0]
 
-        # Try changeDeck without deck param - Pydantic validates this
+        # Try change_deck without deck param - Pydantic validates this
         result = call_tool("card_management", {
             "params": {
-                "action": "changeDeck",
+                "action": "change_deck",
                 "card_ids": [card_id]
                 # deck is missing - should fail validation
             }
@@ -298,25 +298,25 @@ class TestCardManagement:
         assert "deck" in str(result).lower() or "required" in str(result).lower()
 
     def test_change_deck_empty_deck_name(self):
-        """changeDeck action should error with empty deck name."""
+        """change_deck action should error with empty deck name."""
         uid = unique_id()
         deck_name = f"E2E::EmptyDeck{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add one note
-        note_result = call_tool("addNote", {
+        note_result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {"Front": f"Q {uid}", "Back": f"A {uid}"}
         })
         note_id = note_result["note_id"]
-        notes_info = call_tool("notesInfo", {"notes": [note_id]})
+        notes_info = call_tool("notes_info", {"notes": [note_id]})
         card_id = notes_info["notes"][0]["cards"][0]
 
-        # Try changeDeck with whitespace-only string
+        # Try change_deck with whitespace-only string
         result = call_tool("card_management", {
             "params": {
-                "action": "changeDeck",
+                "action": "change_deck",
                 "card_ids": [card_id],
                 "deck": "   "  # Whitespace only
             }
@@ -336,7 +336,7 @@ class TestBuryUnbury:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add a note
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -389,7 +389,7 @@ class TestBuryUnbury:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add a note
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -453,7 +453,7 @@ class TestBuryUnbury:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add a note (not buried)
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -476,12 +476,12 @@ class TestBuryUnbury:
 
 
 class TestSetFlag:
-    """Tests for setFlag action in card_management tool."""
+    """Tests for set_flag action in card_management tool."""
 
     def _create_card(self, uid: str, deck_name: str) -> int:
         """Helper to create a deck, add a note, and return the card ID."""
         call_tool("create_deck", {"deck_name": deck_name})
-        note_result = call_tool("addNote", {
+        note_result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -490,18 +490,18 @@ class TestSetFlag:
             }
         })
         note_id = note_result["note_id"]
-        notes_info = call_tool("notesInfo", {"notes": [note_id]})
+        notes_info = call_tool("notes_info", {"notes": [note_id]})
         return notes_info["notes"][0]["cards"][0]
 
     def test_set_flag_basic(self):
-        """setFlag action should set a red flag on a card."""
+        """set_flag action should set a red flag on a card."""
         uid = unique_id()
         deck_name = f"E2E::SetFlag{uid}"
         card_id = self._create_card(uid, deck_name)
 
         result = call_tool("card_management", {
             "params": {
-                "action": "setFlag",
+                "action": "set_flag",
                 "card_ids": [card_id],
                 "flag": 1,
             }
@@ -514,7 +514,7 @@ class TestSetFlag:
         assert "message" in result
 
     def test_remove_flag(self):
-        """setFlag with flag=0 should remove an existing flag."""
+        """set_flag with flag=0 should remove an existing flag."""
         uid = unique_id()
         deck_name = f"E2E::RemoveFlag{uid}"
         card_id = self._create_card(uid, deck_name)
@@ -522,7 +522,7 @@ class TestSetFlag:
         # First set a flag
         set_result = call_tool("card_management", {
             "params": {
-                "action": "setFlag",
+                "action": "set_flag",
                 "card_ids": [card_id],
                 "flag": 2,
             }
@@ -532,7 +532,7 @@ class TestSetFlag:
         # Now remove the flag
         result = call_tool("card_management", {
             "params": {
-                "action": "setFlag",
+                "action": "set_flag",
                 "card_ids": [card_id],
                 "flag": 0,
             }
@@ -544,14 +544,14 @@ class TestSetFlag:
         assert "message" in result
 
     def test_set_flag_invalid_value(self):
-        """setFlag should error when flag value is out of range."""
+        """set_flag should error when flag value is out of range."""
         uid = unique_id()
         deck_name = f"E2E::FlagInvalid{uid}"
         card_id = self._create_card(uid, deck_name)
 
         result = call_tool("card_management", {
             "params": {
-                "action": "setFlag",
+                "action": "set_flag",
                 "card_ids": [card_id],
                 "flag": 8,
             }
@@ -561,14 +561,14 @@ class TestSetFlag:
         assert "invalid flag" in str(result).lower() or "flag" in str(result).lower()
 
     def test_set_flag_negative_value(self):
-        """setFlag should error when flag value is negative."""
+        """set_flag should error when flag value is negative."""
         uid = unique_id()
         deck_name = f"E2E::FlagNeg{uid}"
         card_id = self._create_card(uid, deck_name)
 
         result = call_tool("card_management", {
             "params": {
-                "action": "setFlag",
+                "action": "set_flag",
                 "card_ids": [card_id],
                 "flag": -1,
             }
@@ -576,10 +576,10 @@ class TestSetFlag:
         assert result.get("isError") is True
 
     def test_set_flag_empty_card_ids(self):
-        """setFlag should error with empty card_ids."""
+        """set_flag should error with empty card_ids."""
         result = call_tool("card_management", {
             "params": {
-                "action": "setFlag",
+                "action": "set_flag",
                 "card_ids": [],
                 "flag": 1,
             }

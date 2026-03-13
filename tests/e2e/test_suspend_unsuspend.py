@@ -11,7 +11,7 @@ class TestSuspend:
     def _create_card(self, uid: str, deck_name: str) -> int:
         """Helper to create a deck, add a note, and return the card ID."""
         call_tool("create_deck", {"deck_name": deck_name})
-        note_result = call_tool("addNote", {
+        note_result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -20,7 +20,7 @@ class TestSuspend:
             }
         })
         note_id = note_result["note_id"]
-        notes_info = call_tool("notesInfo", {"notes": [note_id]})
+        notes_info = call_tool("notes_info", {"notes": [note_id]})
         return notes_info["notes"][0]["cards"][0]
 
     def test_suspend_card(self):
@@ -60,7 +60,7 @@ class TestUnsuspend:
     def _create_card(self, uid: str, deck_name: str) -> int:
         """Helper to create a deck, add a note, and return the card ID."""
         call_tool("create_deck", {"deck_name": deck_name})
-        note_result = call_tool("addNote", {
+        note_result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -69,7 +69,7 @@ class TestUnsuspend:
             }
         })
         note_id = note_result["note_id"]
-        notes_info = call_tool("notesInfo", {"notes": [note_id]})
+        notes_info = call_tool("notes_info", {"notes": [note_id]})
         return notes_info["notes"][0]["cards"][0]
 
     def test_unsuspend_card(self):

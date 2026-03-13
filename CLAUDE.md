@@ -290,7 +290,7 @@ Tests use `tests/e2e/helpers.py` which wraps the MCP Inspector CLI. Available he
 from .helpers import call_tool, list_tools, read_resource, list_resources, list_prompts, get_prompt
 
 # Call a tool
-result = call_tool("findNotes", {"query": "deck:*", "limit": "5"})
+result = call_tool("find_notes", {"query": "deck:*", "limit": "5"})
 
 # Read a resource
 info = read_resource("anki://system-info")

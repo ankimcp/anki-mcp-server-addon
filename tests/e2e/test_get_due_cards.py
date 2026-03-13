@@ -61,7 +61,7 @@ class TestGetDueCards:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add a note (creates a card)
-        note_result = call_tool("addNote", {
+        note_result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -106,7 +106,7 @@ class TestGetDueCards:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add a card to ensure non-empty response
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {"Front": "Q", "Back": "A"}
@@ -156,7 +156,7 @@ class TestGetDueCards:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add note WITH an image
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -166,7 +166,7 @@ class TestGetDueCards:
         })
 
         # Add note WITHOUT an image
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -201,7 +201,7 @@ class TestGetDueCards:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add note WITH audio
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -211,7 +211,7 @@ class TestGetDueCards:
         })
 
         # Add note WITHOUT audio
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -246,7 +246,7 @@ class TestGetDueCards:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add note with image
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -256,7 +256,7 @@ class TestGetDueCards:
         })
 
         # Add note with audio
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -266,7 +266,7 @@ class TestGetDueCards:
         })
 
         # Add text-only note
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -302,7 +302,7 @@ class TestGetDueCards:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add note with image in BACK field only
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -312,7 +312,7 @@ class TestGetDueCards:
         })
 
         # Add text-only note
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -338,7 +338,7 @@ class TestGetDueCards:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add note with UPPERCASE audio tag
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -348,7 +348,7 @@ class TestGetDueCards:
         })
 
         # Add text-only note
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -374,7 +374,7 @@ class TestGetDueCards:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add note with BOTH image and audio
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -384,7 +384,7 @@ class TestGetDueCards:
         })
 
         # Add text-only note
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -410,7 +410,7 @@ class TestGetDueCards:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add ONLY image cards
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -419,7 +419,7 @@ class TestGetDueCards:
             }
         })
 
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -456,7 +456,7 @@ class TestGetDueCards:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add a card (any type)
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {

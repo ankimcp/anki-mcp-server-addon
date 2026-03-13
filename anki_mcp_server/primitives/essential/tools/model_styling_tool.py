@@ -5,7 +5,7 @@ from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
-    "modelStyling",
+    "model_styling",
     "Get the CSS styling for a specific note type (model). This CSS is used when rendering cards of this type.",
 )
 def model_styling(model_name: str) -> dict[str, Any]:
@@ -15,7 +15,7 @@ def model_styling(model_name: str) -> dict[str, Any]:
     if model is None:
         raise HandlerError(
             f'Model "{model_name}" not found',
-            hint="Use modelNames tool to see available models",
+            hint="Use model_names tool to see available models",
             model_name=model_name,
         )
 

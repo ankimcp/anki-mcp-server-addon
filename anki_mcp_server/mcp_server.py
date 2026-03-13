@@ -168,8 +168,11 @@ class McpServer:
         streamable_path = f"/{self._config.http_path.strip('/')}/" if self._config.http_path else "/"
         mcp = FastMCP("anki-mcp", streamable_http_path=streamable_path, transport_security=security_settings)
 
-        # Register all MCP primitives
-        register_all_tools(mcp, self._call_main_thread)
+        # Register all MCP primitives (apply tool filtering from config)
+        register_all_tools(
+            mcp, self._call_main_thread,
+            disabled_tools=self._config.disabled_tools,
+        )
         register_all_resources(mcp, self._call_main_thread)
         register_all_prompts(mcp)
 

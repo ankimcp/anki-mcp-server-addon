@@ -106,8 +106,8 @@ The `cors_expose_headers` setting controls which response headers browsers can r
 | `find_notes` | Search for notes using Anki's search syntax |
 | `notes_info` | Get detailed information about notes |
 | `add_note` | Add a new note to a deck |
-| `card_management` | Manage cards with 9 actions: `reposition` (set learning order), `changeDeck` (move between decks), `bury`/`unbury` (hide until tomorrow), `suspend`/`unsuspend` (indefinitely exclude from review), `setFlag` (color flags 0-7), `setDueDate` (reschedule with days DSL), `forgetCards` (reset to new) |
-| `tag_management` | Manage tags with 5 actions: `addTags`/`removeTags` (bulk add/remove on notes), `replaceTags` (swap one tag for another), `getTags` (list all), `clearUnusedTags` (remove orphans) |
+| `card_management` | Manage cards with 9 actions: `reposition` (set learning order), `change_deck` (move between decks), `bury`/`unbury` (hide until tomorrow), `suspend`/`unsuspend` (indefinitely exclude from review), `set_flag` (color flags 0-7), `set_due_date` (reschedule with days DSL), `forget_cards` (reset to new) |
+| `tag_management` | Manage tags with 5 actions: `add_tags`/`remove_tags` (bulk add/remove on notes), `replace_tags` (swap one tag for another), `get_tags` (list all), `clear_unused_tags` (remove orphans) |
 | `filtered_deck` | Filtered deck lifecycle: `create_or_update` (create or modify filtered decks with search terms), `rebuild` (repopulate), `empty` (return cards to home decks), `delete` |
 | `update_note_fields` | Update fields of existing notes |
 | `delete_notes` | Delete notes from the collection |

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
     "Anki Browser, which provides full editing capabilities. "
     "IMPORTANT: Only use when user explicitly requests editing a note via GUI. "
     "This tool is for note editing workflows when user wants to manually edit in "
-    "the Anki interface. For programmatic editing, use updateNoteFields instead.",
+    "the Anki interface. For programmatic editing, use update_note_fields instead.",
     write=False,
 )
 def gui_edit_note(note_id: int) -> dict[str, Any]:
@@ -29,7 +29,7 @@ def gui_edit_note(note_id: int) -> dict[str, Any]:
         logger.error(f"Note {note_id} not found: {e}")
         raise HandlerError(
             f"Note {note_id} not found",
-            hint="Use findNotes to search for notes and get valid note IDs.",
+            hint="Use find_notes to search for notes and get valid note IDs.",
             noteId=note_id,
         )
 

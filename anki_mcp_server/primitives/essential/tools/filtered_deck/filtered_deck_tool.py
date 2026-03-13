@@ -1,5 +1,5 @@
 """Multi-action tool for filtered deck lifecycle management."""
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, ClassVar, Literal, Union
 
 from pydantic import BaseModel, Field
 
@@ -12,8 +12,16 @@ from .actions.rebuild import rebuild_impl
 from .actions.empty import empty_impl
 from .actions.delete import delete_impl
 
+_BASE_DESCRIPTION = "Manage filtered (cram) decks"
+
 
 class CreateOrUpdateParams(BaseModel):
+    _tool_description: ClassVar[str] = (
+        "create_or_update: Create a new filtered deck or update an existing one. "
+        "Filtered decks temporarily borrow cards from other decks based on search queries. "
+        "Cards are NOT duplicated -- they are moved temporarily. "
+        "Max 2 search terms per deck (Anki hard limit)."
+    )
     action: Literal["create_or_update"]
     deck_id: int = Field(
         default=0,
@@ -42,16 +50,28 @@ class CreateOrUpdateParams(BaseModel):
 
 
 class RebuildParams(BaseModel):
+    _tool_description: ClassVar[str] = (
+        "rebuild: Empty and re-pull cards matching the deck's search terms. "
+        "Rebuilding first returns all cards to home decks, then re-searches."
+    )
     action: Literal["rebuild"]
     deck_id: int = Field(description="Filtered deck ID")
 
 
 class EmptyParams(BaseModel):
+    _tool_description: ClassVar[str] = (
+        "empty: Return all cards to their original decks. "
+        "Card scheduling is preserved."
+    )
     action: Literal["empty"]
     deck_id: int = Field(description="Filtered deck ID")
 
 
 class DeleteParams(BaseModel):
+    _tool_description: ClassVar[str] = (
+        "delete: Return all cards to original decks and remove the deck. "
+        "Cards are NOT deleted -- they go back to their home decks with scheduling intact."
+    )
     action: Literal["delete"]
     deck_id: int = Field(description="Filtered deck ID")
 

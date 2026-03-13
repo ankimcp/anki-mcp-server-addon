@@ -1,5 +1,5 @@
 """Multi-action tool for card management operations."""
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, ClassVar, Literal, Union
 
 from pydantic import BaseModel, Field
 
@@ -16,9 +16,15 @@ from .actions.set_flag import set_flag_impl
 from .actions.set_due_date import set_due_date_impl
 from .actions.forget import forget_impl
 
+_BASE_DESCRIPTION = "Manage card organization"
+
 
 class RepositionParams(BaseModel):
     """Parameters for reposition action."""
+    _tool_description: ClassVar[str] = (
+        "reposition: Reposition NEW cards in the review queue (set learning order). "
+        "Only works on NEW cards (queue=0). Non-new cards are silently skipped."
+    )
     action: Literal["reposition"]
     card_ids: list[int] = Field(description="Card IDs to reposition")
     starting_from: int = Field(default=0, description="Starting position (0-based)")
@@ -28,53 +34,85 @@ class RepositionParams(BaseModel):
 
 
 class ChangeDeckParams(BaseModel):
-    """Parameters for changeDeck action."""
-    action: Literal["changeDeck"]
+    """Parameters for change_deck action."""
+    _tool_description: ClassVar[str] = (
+        "change_deck: Move cards to a different deck (creates deck if needed). "
+        "Works with ANY card type."
+    )
+    action: Literal["change_deck"]
     card_ids: list[int] = Field(description="Card IDs to move")
     deck: str = Field(description="Target deck name (use '::' for nested, e.g., 'Spanish::Verbs')")
 
 
 class BuryParams(BaseModel):
     """Parameters for bury action."""
+    _tool_description: ClassVar[str] = (
+        "bury: Manually bury cards to hide them until the next day. "
+        "Works with ANY card type."
+    )
     action: Literal["bury"]
     card_ids: list[int] = Field(description="Card IDs to bury")
 
 
 class UnburyParams(BaseModel):
     """Parameters for unbury action."""
+    _tool_description: ClassVar[str] = (
+        "unbury: Restore all buried cards in a specific deck. "
+        "Unburies ALL buried cards in the specified deck."
+    )
     action: Literal["unbury"]
     deck_name: str = Field(description="Deck name to unbury all cards from")
 
 
 class SuspendParams(BaseModel):
     """Parameters for suspend action."""
+    _tool_description: ClassVar[str] = (
+        "suspend: Suspend cards (hide from review indefinitely until unsuspended). "
+        "Works with ANY card type."
+    )
     action: Literal["suspend"]
     card_ids: list[int] = Field(description="Card IDs to suspend")
 
 
 class UnsuspendParams(BaseModel):
     """Parameters for unsuspend action."""
+    _tool_description: ClassVar[str] = (
+        "unsuspend: Unsuspend cards (restore suspended cards to their previous queue). "
+        "Only affects cards that are currently suspended."
+    )
     action: Literal["unsuspend"]
     card_ids: list[int] = Field(description="Card IDs to unsuspend")
 
 
 class SetFlagParams(BaseModel):
-    """Parameters for setFlag action."""
-    action: Literal["setFlag"]
+    """Parameters for set_flag action."""
+    _tool_description: ClassVar[str] = (
+        "set_flag: Set or remove a colored flag on cards. "
+        "Flag values: 0=none/remove, 1=red, 2=orange, 3=green, 4=blue, 5-7=custom."
+    )
+    action: Literal["set_flag"]
     card_ids: list[int] = Field(description="Card IDs to flag")
     flag: int = Field(description="Flag value: 0=none/remove, 1=red, 2=orange, 3=green, 4=blue, 5-7=custom user flags")
 
 
 class SetDueDateParams(BaseModel):
-    """Parameters for setDueDate action."""
-    action: Literal["setDueDate"]
+    """Parameters for set_due_date action."""
+    _tool_description: ClassVar[str] = (
+        "set_due_date: Set or change the due date for cards. "
+        "Days: '0' = due now, '5' = due in 5 days, '5-7' = random range, '5!' = also reset interval."
+    )
+    action: Literal["set_due_date"]
     card_ids: list[int] = Field(description="Card IDs to reschedule")
     days: str = Field(description="Due date string: '5' = due in 5 days, '5-7' = random range, '0' = due now, '5!' = set due AND reset interval")
 
 
 class ForgetCardsParams(BaseModel):
-    """Parameters for forgetCards action."""
-    action: Literal["forgetCards"]
+    """Parameters for forget_cards action."""
+    _tool_description: ClassVar[str] = (
+        "forget_cards: Reset cards back to new state (forget scheduling). "
+        "Options: restore_position (default true), reset_counts (default false)."
+    )
+    action: Literal["forget_cards"]
     card_ids: list[int] = Field(description="Card IDs to reset to new state")
     restore_position: bool = Field(default=True, description="Restore original new-card position")
     reset_counts: bool = Field(default=False, description="Reset review and lapse counts")
@@ -93,7 +131,7 @@ CardManagementParams = Annotated[
     - reposition: Reposition NEW cards in the review queue (set learning order).
       Note: Only works on NEW cards (queue=0). Non-new cards are silently skipped.
 
-    - changeDeck: Move cards to a different deck (creates deck if needed).
+    - change_deck: Move cards to a different deck (creates deck if needed).
       Note: Works with ANY card type.
 
     - bury: Manually bury cards to hide them until the next day.
@@ -108,13 +146,13 @@ CardManagementParams = Annotated[
     - unsuspend: Unsuspend cards (restore suspended cards to their previous queue).
       Note: Only affects cards that are currently suspended.
 
-    - setFlag: Set or remove a colored flag on cards.
+    - set_flag: Set or remove a colored flag on cards.
       flag values: 0=none/remove, 1=red, 2=orange, 3=green, 4=blue, 5-7=custom.
 
-    - setDueDate: Set or change the due date for cards.
+    - set_due_date: Set or change the due date for cards.
       days: '0' = due now, '5' = due in 5 days, '5-7' = random range, '5!' = also reset interval.
 
-    - forgetCards: Reset cards back to new state (forget scheduling).
+    - forget_cards: Reset cards back to new state (forget scheduling).
       Options: restore_position (default true), reset_counts (default false).""",
     write=True,
 )
@@ -135,7 +173,7 @@ def card_management(params: CardManagementParams) -> dict[str, Any]:
                 randomize=params.randomize,
                 shift_existing=params.shift_existing,
             )
-        case "changeDeck":
+        case "change_deck":
             if not params.card_ids:
                 raise HandlerError(
                     "card_ids is required and cannot be empty",
@@ -169,7 +207,7 @@ def card_management(params: CardManagementParams) -> dict[str, Any]:
                     action=params.action,
                 )
             return unsuspend_impl(card_ids=params.card_ids)
-        case "setFlag":
+        case "set_flag":
             if not params.card_ids:
                 raise HandlerError(
                     "card_ids is required and cannot be empty",
@@ -177,7 +215,7 @@ def card_management(params: CardManagementParams) -> dict[str, Any]:
                     action=params.action,
                 )
             return set_flag_impl(card_ids=params.card_ids, flag=params.flag)
-        case "setDueDate":
+        case "set_due_date":
             if not params.card_ids:
                 raise HandlerError(
                     "card_ids is required and cannot be empty",
@@ -185,7 +223,7 @@ def card_management(params: CardManagementParams) -> dict[str, Any]:
                     action=params.action,
                 )
             return set_due_date_impl(card_ids=params.card_ids, days=params.days)
-        case "forgetCards":
+        case "forget_cards":
             if not params.card_ids:
                 raise HandlerError(
                     "card_ids is required and cannot be empty",

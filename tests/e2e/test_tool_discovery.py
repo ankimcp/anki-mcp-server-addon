@@ -20,7 +20,7 @@ class TestToolDiscovery:
         assert "list_decks" in tool_names
 
     def test_find_notes_tool_exists(self):
-        """findNotes tool should be registered."""
+        """find_notes tool should be registered."""
         tools = list_tools()
         tool_names = [t["name"] for t in tools]
-        assert "findNotes" in tool_names
+        assert "find_notes" in tool_names
