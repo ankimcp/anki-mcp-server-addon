@@ -75,22 +75,7 @@ TagManagementParams = Annotated[
 
 @Tool(
     "tag_management",
-    """Manage tags on notes with five actions:
-
-    - add_tags: Add tags to notes by note IDs.
-      tags: Space-separated tag names (e.g., 'vocab grammar').
-
-    - remove_tags: Remove tags from notes by note IDs.
-      tags: Space-separated tag names to remove.
-
-    - replace_tags: Replace a tag with another on specific notes.
-      Adds new_tag then removes old_tag on the given notes.
-
-    - get_tags: List all tags in the collection.
-      No parameters needed.
-
-    - clear_unused_tags: Remove tags that are not used by any notes.
-      No parameters needed.""",
+    _BASE_DESCRIPTION,  # Rebuilt dynamically at MCP registration from _tool_description ClassVars
     write=True,
 )
 def tag_management(params: TagManagementParams) -> dict[str, Any]:

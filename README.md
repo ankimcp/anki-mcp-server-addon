@@ -64,9 +64,29 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "http_path": "",
   "cors_origins": [],
   "cors_expose_headers": ["mcp-session-id", "mcp-protocol-version"],
-  "auto_connect_on_startup": true
+  "auto_connect_on_startup": true,
+  "disabled_tools": []
 }
 ```
+
+### Disabling Tools
+
+Hide specific tools or actions from AI clients to reduce token usage:
+
+```json
+{
+  "disabled_tools": [
+    "sync",
+    "card_management:bury",
+    "card_management:unbury"
+  ]
+}
+```
+
+- `"tool_name"` — disables the entire tool
+- `"tool_name:action"` — disables a specific action within a multi-action tool
+
+Disabled tools are removed from the MCP schema entirely — AI clients never see them. Typos in tool/action names will produce console warnings.
 
 ### Custom Path
 

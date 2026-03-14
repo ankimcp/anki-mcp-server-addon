@@ -84,23 +84,7 @@ FilteredDeckParams = Annotated[
 
 @Tool(
     "filtered_deck",
-    """Manage filtered (cram) decks with four actions:
-
-    - create_or_update: Create a new filtered deck or update an existing one.
-      Filtered decks temporarily borrow cards from other decks based on search queries.
-      Cards are NOT duplicated -- they are moved temporarily.
-      Max 2 search terms per deck (Anki hard limit).
-      Name collisions are resolved by Anki appending '+' (case-insensitive).
-      Filtered decks can be children of normal decks but cannot have children.
-
-    - rebuild: Empty and re-pull cards matching the deck's search terms.
-      Rebuilding first returns all cards to home decks, then re-searches.
-
-    - empty: Return all cards to their original decks.
-      Card scheduling is preserved.
-
-    - delete: Return all cards to original decks and remove the deck.
-      Cards are NOT deleted -- they go back to their home decks with scheduling intact.""",
+    _BASE_DESCRIPTION,  # Rebuilt dynamically at MCP registration from _tool_description ClassVars
     write=True,
 )
 def filtered_deck(params: FilteredDeckParams) -> dict[str, Any]:

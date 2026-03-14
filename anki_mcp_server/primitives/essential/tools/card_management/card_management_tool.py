@@ -126,34 +126,7 @@ CardManagementParams = Annotated[
 
 @Tool(
     "card_management",
-    """Manage card organization with nine actions:
-
-    - reposition: Reposition NEW cards in the review queue (set learning order).
-      Note: Only works on NEW cards (queue=0). Non-new cards are silently skipped.
-
-    - change_deck: Move cards to a different deck (creates deck if needed).
-      Note: Works with ANY card type.
-
-    - bury: Manually bury cards to hide them until the next day.
-      Note: Works with ANY card type.
-
-    - unbury: Restore all buried cards in a specific deck.
-      Note: Unburies ALL buried cards in the specified deck.
-
-    - suspend: Suspend cards (hide from review indefinitely until unsuspended).
-      Note: Works with ANY card type.
-
-    - unsuspend: Unsuspend cards (restore suspended cards to their previous queue).
-      Note: Only affects cards that are currently suspended.
-
-    - set_flag: Set or remove a colored flag on cards.
-      flag values: 0=none/remove, 1=red, 2=orange, 3=green, 4=blue, 5-7=custom.
-
-    - set_due_date: Set or change the due date for cards.
-      days: '0' = due now, '5' = due in 5 days, '5-7' = random range, '5!' = also reset interval.
-
-    - forget_cards: Reset cards back to new state (forget scheduling).
-      Options: restore_position (default true), reset_counts (default false).""",
+    _BASE_DESCRIPTION,  # Rebuilt dynamically at MCP registration from _tool_description ClassVars
     write=True,
 )
 def card_management(params: CardManagementParams) -> dict[str, Any]:

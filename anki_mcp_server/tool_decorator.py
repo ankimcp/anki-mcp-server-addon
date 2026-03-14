@@ -205,6 +205,12 @@ def _filter_union_type(
         # Nothing was filtered, return original unchanged
         return original_annotation, list(enabled)
 
+    if len(enabled) == 1:
+        # Single member: Union[tuple([X])] collapses to X in Python's type
+        # system, so Annotated[X, Field(discriminator="action")] would apply a
+        # discriminator to a non-union type and break Pydantic schema generation.
+        return Annotated[enabled[0], Field()], enabled
+
     new_union = Union[tuple(enabled)]
     return Annotated[new_union, Field(discriminator="action")], enabled
 
@@ -228,8 +234,12 @@ def _build_dynamic_description(
     action_lines = []
     for model in enabled_models:
         desc = getattr(model, "_tool_description", None)
-        if desc:
-            action_lines.append(f"    - {desc}")
+        if not desc:
+            raise ValueError(
+                f"Params model '{model.__name__}' is missing _tool_description ClassVar. "
+                f"Add: _tool_description: ClassVar[str] = \"action_name: Description.\""
+            )
+        action_lines.append(f"    - {desc}")
 
     count = len(action_lines)
     header = f"{base_description} with {count} action{'s' if count != 1 else ''}:"
@@ -258,24 +268,30 @@ def _get_base_description(original: Any) -> str | None:
     return None
 
 
-def _warn_unknown_disabled(
+def _validate_disabled_entries(
     disabled_whole: set[str],
     disabled_actions: dict[str, set[str]],
-) -> None:
-    """Log warnings for disabled tool/action names that don't match any registered tool."""
+) -> list[str]:
+    """Validate disabled tool/action names against the registry.
+
+    Returns list of warning messages for entries that don't match any
+    registered tool or action. Pure logic -- no side effects.
+    """
+    warnings: list[str] = []
     registered = set(_registry.keys())
 
-    for name in disabled_whole:
+    for name in sorted(disabled_whole):
         if name not in registered:
-            logger.warning(
-                "disabled_tools: '%s' does not match any registered tool (typo?)", name
+            warnings.append(
+                f"disabled_tools: '{name}' does not match any registered tool (typo?)"
             )
 
-    for tool_name, actions in disabled_actions.items():
+    for tool_name in sorted(disabled_actions):
+        actions = disabled_actions[tool_name]
         if tool_name not in registered:
-            logger.warning(
-                "disabled_tools: '%s' (from action filter) does not match any registered tool (typo?)",
-                tool_name,
+            warnings.append(
+                f"disabled_tools: '{tool_name}' (from action filter) "
+                f"does not match any registered tool (typo?)"
             )
             continue
         # Check if the tool actually has a union-type param (multi-action)
@@ -289,10 +305,10 @@ def _warn_unknown_disabled(
                 union_ann = ann
                 break
         if union_ann is None:
-            for action in actions:
-                logger.warning(
-                    "disabled_tools: '%s:%s' -- tool '%s' is not a multi-action tool",
-                    tool_name, action, tool_name,
+            for action in sorted(actions):
+                warnings.append(
+                    f"disabled_tools: '{tool_name}:{action}' "
+                    f"-- tool '{tool_name}' is not a multi-action tool"
                 )
             continue
         # Check action names against actual union members
@@ -301,14 +317,48 @@ def _warn_unknown_disabled(
         known_actions = {
             _get_action_literal(m) for m in union_members
         }
-        for action in actions:
+        for action in sorted(actions):
             if action not in known_actions:
-                logger.warning(
-                    "disabled_tools: '%s:%s' -- action '%s' not found in tool '%s' "
-                    "(available: %s)",
-                    tool_name, action, action, tool_name,
-                    ", ".join(sorted(a for a in known_actions if a)),
+                available = ", ".join(sorted(a for a in known_actions if a))
+                warnings.append(
+                    f"disabled_tools: '{tool_name}:{action}' "
+                    f"-- action '{action}' not found in tool '{tool_name}' "
+                    f"(available: {available})"
                 )
+
+    return warnings
+
+
+def _warn_unknown_disabled(
+    disabled_whole: set[str],
+    disabled_actions: dict[str, set[str]],
+) -> None:
+    """Log warnings for disabled tool/action names that don't match any registered tool."""
+    for msg in _validate_disabled_entries(disabled_whole, disabled_actions):
+        print(f"AnkiMCP: {msg}")
+
+
+def validate_disabled_tools(disabled_list: list[str]) -> list[str]:
+    """Validate disabled_tools config entries against registered tools.
+
+    Parses the raw config list and checks each entry against the tool
+    registry. Returns warning messages for unrecognized entries.
+
+    This is meant to be called from the main thread at startup, before
+    the MCP server starts, so users get immediate feedback about typos.
+
+    Args:
+        disabled_list: Raw ``disabled_tools`` config entries
+            (e.g., ``["sync", "card_management:bury"]``).
+
+    Returns:
+        List of warning messages for unrecognized entries.
+        Empty list if everything is valid.
+    """
+    if not disabled_list:
+        return []
+    disabled_whole, disabled_actions = _parse_disabled(disabled_list)
+    return _validate_disabled_entries(disabled_whole, disabled_actions)
 
 
 # ------------------------------------------------------------------------------
@@ -364,10 +414,11 @@ def _make_mcp_tool(
     annotations = getattr(original, "__annotations__", {}).copy()
     tool_name = name  # Capture in closure for async wrapper
 
-    # Apply per-action filtering for multi-action tools
-    if disabled_actions:
-        for param_name, ann in annotations.items():
-            if _is_annotated_union(ann):
+    # Detect multi-action tools (union param) and optionally filter actions
+    for param_name, ann in annotations.items():
+        if _is_annotated_union(ann):
+            # Apply per-action filtering if any actions are disabled
+            if disabled_actions:
                 filtered_ann, enabled_models = _filter_union_type(ann, disabled_actions)
 
                 if filtered_ann is None:
@@ -389,19 +440,28 @@ def _make_mcp_tool(
                         params.append(p)
                 sig = sig.replace(parameters=params)
 
-                # Rebuild description from _BASE_DESCRIPTION + enabled models
-                base_desc = _get_base_description(original)
-                if base_desc is not None:
-                    description = _build_dynamic_description(
-                        base_desc, enabled_models,
-                    )
-
                 disabled_names = ", ".join(sorted(disabled_actions))
                 logger.info(
                     "Tool '%s': disabled actions [%s], %d action(s) remaining",
                     name, disabled_names, len(enabled_models),
                 )
-                break  # Only one union param per tool
+            else:
+                # No filtering -- all union members are enabled
+                union_args = get_args(ann)
+                enabled_models = list(get_args(union_args[0]))
+
+            # Always rebuild description from _BASE_DESCRIPTION + enabled models
+            base_desc = _get_base_description(original)
+            if base_desc is None:
+                raise ValueError(
+                    f"Multi-action tool '{name}' is missing _BASE_DESCRIPTION "
+                    f"in its module. Add a module-level _BASE_DESCRIPTION constant."
+                )
+            description = _build_dynamic_description(
+                base_desc, enabled_models,
+            )
+
+            break  # Only one union param per tool
 
     async def wrapper(**kwargs: Any) -> Any:
         return await call_main_thread(tool_name, kwargs)

@@ -16,7 +16,11 @@ from anki_mcp_server.tool_decorator import (
     _filter_union_type,
     _get_action_literal,
     _is_annotated_union,
+    _make_mcp_tool,
     _parse_disabled,
+    _registry,
+    _validate_disabled_entries,
+    validate_disabled_tools,
 )
 
 
@@ -242,6 +246,34 @@ class TestFilterUnionType:
         assert len(enabled) == 2
         assert {FooParams, BarParams} == set(enabled)
 
+    def test_single_member_no_discriminator(self):
+        """When filtering leaves exactly 1 member, no discriminator should be set.
+
+        Union[tuple([X])] collapses to just X in Python's type system, so
+        Annotated[X, Field(discriminator="action")] would break Pydantic
+        schema generation. The fix uses Field() without a discriminator.
+        """
+        from typing import get_args
+
+        result_ann, enabled = _filter_union_type(TestUnion, {"foo", "bar"})
+
+        # Should have exactly one enabled model
+        assert len(enabled) == 1
+        assert enabled[0] is BazParams
+
+        # The FieldInfo metadata should NOT have a discriminator
+        args = get_args(result_ann)
+        field_info = args[1]
+        assert field_info.discriminator is None
+
+        # The annotation should produce a valid Pydantic schema
+        class TempModel(BaseModel):
+            params: result_ann  # type: ignore[valid-type]
+
+        schema = TempModel.model_json_schema()
+        assert "properties" in schema
+        assert "params" in schema["properties"]
+
 
 # ===========================================================================
 # _build_dynamic_description
@@ -268,11 +300,9 @@ class TestBuildDynamicDescription:
         assert "Manage cards with 0 actions:" in desc
 
     def test_model_without_description(self):
-        """Models without _tool_description are silently skipped in the listing."""
-        desc = _build_dynamic_description("Test", [FooParams, NoDescriptionParams])
-        # NoDescriptionParams has no _tool_description, so only FooParams line appears
-        assert "with 1 action:" in desc
-        assert "foo: Do foo things." in desc
+        """Models without _tool_description raise ValueError."""
+        with pytest.raises(ValueError, match="missing _tool_description"):
+            _build_dynamic_description("Test", [FooParams, NoDescriptionParams])
 
     def test_description_format(self):
         """Each action line should be indented with '    - '."""
@@ -288,3 +318,256 @@ class TestBuildDynamicDescription:
         """The base description header text is preserved verbatim."""
         desc = _build_dynamic_description("Custom base text here", [BazParams])
         assert desc.startswith("Custom base text here with 1 action:")
+
+
+# ===========================================================================
+# _make_mcp_tool validation
+# ===========================================================================
+
+
+class TestMakeMcpToolValidation:
+    """Tests for _make_mcp_tool() error handling around _BASE_DESCRIPTION."""
+
+    def _make_multi_action_meta(self, func):
+        """Build a registry-style meta dict for a multi-action tool.
+
+        Sets __annotations__ explicitly on *func* so that the union type is
+        available at runtime (``from __future__ import annotations`` would
+        stringify it, which _is_annotated_union cannot introspect).
+        """
+        func.__annotations__ = {
+            "params": Annotated[
+                Union[FooParams, BarParams, BazParams],
+                Field(discriminator="action"),
+            ],
+        }
+        return {
+            "name": "test_multi",
+            "description": "placeholder",
+            "original": func,
+        }
+
+    def _make_mock_mcp(self):
+        """Return a minimal mock MCP object whose .tool() returns a decorator."""
+        class _MockMCP:
+            def tool(self, *, description):
+                def decorator(fn):
+                    return fn
+                return decorator
+        return _MockMCP()
+
+    def test_raises_when_base_description_missing(self):
+        """_make_mcp_tool raises ValueError when the module has no _BASE_DESCRIPTION."""
+        def handler(params):
+            return {}
+
+        meta = self._make_multi_action_meta(handler)
+        mcp = self._make_mock_mcp()
+
+        async def call_main_thread(name, kwargs):
+            return {}
+
+        with pytest.raises(ValueError, match="missing _BASE_DESCRIPTION"):
+            _make_mcp_tool(mcp, call_main_thread, "test_multi", meta)
+
+    def test_raises_when_tool_description_missing(self, monkeypatch):
+        """_make_mcp_tool raises ValueError when a Params model lacks _tool_description."""
+
+        class MissingDescParams(BaseModel):
+            action: Literal["missing_desc"]
+            value: int = 0
+
+        def handler(params):
+            return {}
+
+        handler.__annotations__ = {
+            "params": Annotated[
+                Union[FooParams, MissingDescParams],
+                Field(discriminator="action"),
+            ],
+        }
+
+        meta = {
+            "name": "test_missing_desc",
+            "description": "placeholder",
+            "original": handler,
+        }
+        mcp = self._make_mock_mcp()
+
+        async def call_main_thread(name, kwargs):
+            return {}
+
+        # Patch _BASE_DESCRIPTION so it doesn't fail on that check first
+        import tests.unit.test_tool_filtering as this_module
+        monkeypatch.setattr(this_module, "_BASE_DESCRIPTION", "Test base", raising=False)
+
+        with pytest.raises(ValueError, match="missing _tool_description"):
+            _make_mcp_tool(mcp, call_main_thread, "test_missing_desc", meta)
+
+    def test_no_error_when_base_description_present(self, monkeypatch):
+        """_make_mcp_tool succeeds when _BASE_DESCRIPTION exists in the module."""
+        def handler(params):
+            return {}
+
+        meta = self._make_multi_action_meta(handler)
+        mcp = self._make_mock_mcp()
+
+        async def call_main_thread(name, kwargs):
+            return {}
+
+        # handler is defined in this test file, so patch _BASE_DESCRIPTION
+        # onto this module.
+        import tests.unit.test_tool_filtering as this_module
+        monkeypatch.setattr(this_module, "_BASE_DESCRIPTION", "Manage test actions", raising=False)
+
+        # Should not raise
+        _make_mcp_tool(mcp, call_main_thread, "test_multi", meta)
+
+
+# ===========================================================================
+# _validate_disabled_entries
+# ===========================================================================
+
+
+@pytest.fixture(autouse=False)
+def fake_registry(monkeypatch):
+    """Populate _registry with fake tools for validation tests.
+
+    Creates:
+      - "sync": a simple single-action tool (no union param)
+      - "multi_tool": a multi-action tool with FooParams/BarParams/BazParams
+    """
+    saved = dict(_registry)
+    _registry.clear()
+
+    # Simple tool (no union annotation)
+    def simple_handler() -> dict:
+        return {}
+
+    _registry["sync"] = {
+        "name": "sync",
+        "description": "Sync collection",
+        "original": simple_handler,
+    }
+
+    # Multi-action tool with a union annotation.
+    # We must set __annotations__ explicitly because `from __future__ import
+    # annotations` turns them into strings, which _is_annotated_union can't
+    # introspect at runtime (same as real tool code which doesn't use the
+    # future import).
+    def multi_handler(params):  # type: ignore[no-untyped-def]
+        return {}
+
+    multi_handler.__annotations__ = {
+        "params": Annotated[
+            Union[FooParams, BarParams, BazParams],
+            Field(discriminator="action"),
+        ],
+    }
+
+    _registry["multi_tool"] = {
+        "name": "multi_tool",
+        "description": "Multi-action tool",
+        "original": multi_handler,
+    }
+
+    yield
+
+    _registry.clear()
+    _registry.update(saved)
+
+
+class TestValidateDisabledEntries:
+    """Tests for _validate_disabled_entries()."""
+
+    def test_empty_sets_return_no_warnings(self, fake_registry):
+        assert _validate_disabled_entries(set(), {}) == []
+
+    def test_valid_whole_tool_returns_no_warnings(self, fake_registry):
+        assert _validate_disabled_entries({"sync"}, {}) == []
+
+    def test_unknown_whole_tool_returns_warning(self, fake_registry):
+        warnings = _validate_disabled_entries({"nonexistent"}, {})
+        assert len(warnings) == 1
+        assert "'nonexistent'" in warnings[0]
+        assert "typo" in warnings[0]
+
+    def test_unknown_tool_in_action_filter_returns_warning(self, fake_registry):
+        warnings = _validate_disabled_entries(set(), {"unknown_tool": {"some_action"}})
+        assert len(warnings) == 1
+        assert "'unknown_tool'" in warnings[0]
+
+    def test_action_on_non_multi_tool_returns_warning(self, fake_registry):
+        """Trying to disable an action on a tool that has no union param."""
+        warnings = _validate_disabled_entries(set(), {"sync": {"rebuild"}})
+        assert len(warnings) == 1
+        assert "not a multi-action tool" in warnings[0]
+        assert "'sync:rebuild'" in warnings[0]
+
+    def test_valid_action_returns_no_warnings(self, fake_registry):
+        warnings = _validate_disabled_entries(set(), {"multi_tool": {"foo"}})
+        assert warnings == []
+
+    def test_unknown_action_returns_warning_with_available(self, fake_registry):
+        warnings = _validate_disabled_entries(set(), {"multi_tool": {"nonexistent"}})
+        assert len(warnings) == 1
+        assert "'nonexistent'" in warnings[0]
+        assert "not found" in warnings[0]
+        # Should list available actions
+        assert "bar" in warnings[0]
+        assert "baz" in warnings[0]
+        assert "foo" in warnings[0]
+
+    def test_multiple_issues_return_multiple_warnings(self, fake_registry):
+        warnings = _validate_disabled_entries(
+            {"bad_tool"},
+            {"multi_tool": {"bad_action"}},
+        )
+        assert len(warnings) == 2
+
+    def test_warnings_are_sorted(self, fake_registry):
+        """Warnings for whole tools should come in sorted order."""
+        warnings = _validate_disabled_entries({"zzz", "aaa"}, {})
+        assert len(warnings) == 2
+        assert "'aaa'" in warnings[0]
+        assert "'zzz'" in warnings[1]
+
+
+# ===========================================================================
+# validate_disabled_tools (public API)
+# ===========================================================================
+
+
+class TestValidateDisabledTools:
+    """Tests for validate_disabled_tools()."""
+
+    def test_empty_list_returns_no_warnings(self, fake_registry):
+        assert validate_disabled_tools([]) == []
+
+    def test_valid_entries_return_no_warnings(self, fake_registry):
+        assert validate_disabled_tools(["sync", "multi_tool:foo"]) == []
+
+    def test_typo_in_tool_name(self, fake_registry):
+        warnings = validate_disabled_tools(["syncc"])
+        assert len(warnings) == 1
+        assert "'syncc'" in warnings[0]
+
+    def test_typo_in_action_name(self, fake_registry):
+        warnings = validate_disabled_tools(["multi_tool:fooo"])
+        assert len(warnings) == 1
+        assert "'fooo'" in warnings[0]
+
+    def test_mixed_valid_and_invalid(self, fake_registry):
+        """Valid entries produce no warnings, invalid ones do."""
+        warnings = validate_disabled_tools([
+            "sync",                    # valid whole tool
+            "multi_tool:foo",          # valid action
+            "nonexistent",             # invalid whole tool
+            "multi_tool:bad_action",   # invalid action
+        ])
+        assert len(warnings) == 2
+
+    def test_action_on_simple_tool(self, fake_registry):
+        warnings = validate_disabled_tools(["sync:something"])
+        assert len(warnings) == 1
+        assert "not a multi-action tool" in warnings[0]

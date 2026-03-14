@@ -51,9 +51,9 @@ def _get_schema_action_names(tool: dict) -> set[str]:
         .get("params", {})
     )
 
-    # oneOf at the params level
-    one_of = params_schema.get("oneOf", [])
-    for variant in one_of:
+    # Pydantic may produce oneOf or anyOf depending on version
+    variants = params_schema.get("oneOf", []) or params_schema.get("anyOf", [])
+    for variant in variants:
         action_prop = variant.get("properties", {}).get("action", {})
         # Pydantic uses "const" for Literal with single value
         if "const" in action_prop:
@@ -102,6 +102,7 @@ class TestDisabledActions:
         assert cm_tool is not None, "card_management tool should exist"
 
         schema_actions = _get_schema_action_names(cm_tool)
+        assert len(schema_actions) > 0, "Could not extract action names from schema"
         assert "bury" not in schema_actions, (
             f"bury should be filtered out, but found in schema actions: {schema_actions}"
         )
@@ -147,8 +148,13 @@ class TestDisabledActions:
             }
         })
 
-        # Should error because bury is disabled
+        # Should error because bury is no longer a valid action in the schema
         assert result.get("isError") is True
+        # Verify the error is about the invalid action, not some unrelated failure
+        error_text = str(result)
+        assert "bury" in error_text, (
+            f"Expected error to mention 'bury', got: {error_text}"
+        )
 
     def test_enabled_action_still_works(self):
         """Calling card_management with action=suspend should succeed."""
