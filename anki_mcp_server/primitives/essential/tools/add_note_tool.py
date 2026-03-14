@@ -1,5 +1,5 @@
 """Add note tool - add a new note to Anki."""
-from typing import Any, Optional
+from typing import Any
 import logging
 
 from ....tool_decorator import Tool
@@ -19,10 +19,8 @@ def add_note(
     deck_name: str,
     model_name: str,
     fields: dict[str, str],
-    tags: Optional[list[str]] = None,
+    tags: list[str] | None = None,
     allow_duplicate: bool = False,
-    duplicate_scope: Optional[str] = None,
-    duplicate_scope_options: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     from anki.notes import Note
 
@@ -133,6 +131,5 @@ def add_note(
         "details": {
             "fields_added": field_count,
             "tags_added": tag_count,
-            "duplicate_check_scope": duplicate_scope or "default",
         },
     }

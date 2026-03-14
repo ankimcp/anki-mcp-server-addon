@@ -345,6 +345,7 @@ All imports in this addon use **relative imports** (e.g., `from ....tool_decorat
 - Raw SQL (`col.db`) is acceptable for analytics/stats (revlog, card stats) — AnkiConnect does this too. For deck stats, always prefer `deck_due_tree()` over SQL.
 - `col.sched.suspend_cards(ids)` → `OpChangesWithCount` (has `.count`), but `col.sched.unsuspend_cards(ids)` → `OpChanges` (no `.count`). Similar asymmetry: `set_due_date` and `schedule_cards_as_new` return `OpChanges`, not `OpChangesWithCount`.
 - `col.tags.bulk_add(ids, tags)` and `col.tags.bulk_remove(ids, tags)` → `OpChangesWithCount`. `col.tags.clear_unused_tags()` → `OpChangesWithCount`. `col.tags.all()` → `list[str]`.
+- `col.add_notes(requests: Iterable[AddNoteRequest])` → `OpChanges` — native batch API, single Rust backend call, atomic undo. Use `from anki.collection import AddNoteRequest`. Note IDs are assigned in-place on each `Note` object after the call. All-or-nothing at the backend level — pre-validate and filter before calling.
 
 ### Python Version Compatibility
 
