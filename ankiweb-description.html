@@ -1,7 +1,8 @@
 <p><b>Note:</b> On first run, this addon downloads <code>pydantic_core</code> (~2MB) from PyPI. This is required because pydantic_core contains platform-specific binaries (Windows/macOS/Linux) that cannot be bundled in a single addon file.</p>
 
 <h2>What is this?</h2>
-<p>AnkiMCP Server runs a local MCP server inside Anki, allowing AI assistants like Claude to interact with your flashcard collection. This enables AI-powered study sessions, card creation, and collection management.</p>
+<p>AnkiMCP Server runs a local MCP server inside Anki, allowing AI assistants like Claude to interact with your flashcard collection. This enables
+AI-powered study sessions, card creation, and collection management.</p>
 
 <p>Part of the <a href="https://ankimcp.ai">ankimcp.ai</a> project.</p>
 
@@ -11,7 +12,23 @@
 <li><b>MCP protocol</b> - Compatible with any MCP client (Claude Desktop, etc.)</li>
 <li><b>Auto-start</b> - Server starts automatically when Anki opens</li>
 <li><b>Tunnel-friendly</b> - Works with Cloudflare Tunnel, ngrok, etc.</li>
-<li><b>Cross-platform</b> - Works on macOS, Windows, and Linux</li>
+<li><b>Cross-platform</b> - Works on macOS, Windows, and Linux (x64 and ARM)</li>
+<li><b>Tool filtering</b> - Disable specific tools or actions to reduce token usage</li>
+<li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
+</ul>
+
+<h2>What's New in v0.9</h2>
+<ul>
+<li><b>Batch note creation</b> - <code>add_notes</code> tool adds up to 100 notes in a single call with atomic undo and partial success support</li>
+<li><b>Tool filtering</b> - <code>disabled_tools</code> config hides tools or individual actions from AI clients. Supports whole-tool (<code>"sync"</code>) and per-action (<code>"card_management:bury"</code>) granularity</li>
+<li><b>FSRS tools</b> - Get/set FSRS parameters, inspect card memory state, and run parameter optimization</li>
+<li><b>Filtered decks</b> - Create, rebuild, empty, and delete filtered decks</li>
+<li><b>Tag management</b> - Bulk add/remove tags, replace tags, list all tags, clear unused</li>
+<li><b>Card management</b> - 9 actions: reposition, change_deck, bury, unbury, suspend, unsuspend, set_flag, set_due_date, forget_cards</li>
+<li><b>Rich resources</b> - Query syntax reference, data schema docs, today's stats, 30-day forecast, collection stats, FSRS config</li>
+<li><b>Voice-mode review</b> - Skip cards with images/audio for voice-only study sessions</li>
+<li><b>Custom HTTP path</b> - Serve MCP endpoint under a custom URL path for tunnel security</li>
+<li><b>CORS configuration</b> - Allow browser-based MCP clients with configurable origins</li>
 </ul>
 
 <h2>Installation</h2>
@@ -47,14 +64,15 @@
 <h3>Essential Tools</h3>
 <ul>
 <li><b>sync</b> - Synchronize collection with AnkiWeb</li>
-<li><b>list_decks</b> - List all decks in the collection</li>
+<li><b>list_decks</b> - List all decks with review counts</li>
 <li><b>create_deck</b> - Create a new deck</li>
 <li><b>find_notes</b> - Search for notes using Anki's search syntax</li>
 <li><b>notes_info</b> - Get detailed information about notes</li>
 <li><b>add_note</b> - Add a new note to a deck</li>
+<li><b>add_notes</b> - Batch-add up to 100 notes with atomic undo and partial success</li>
 <li><b>update_note_fields</b> - Update fields of existing notes</li>
 <li><b>delete_notes</b> - Delete notes from the collection</li>
-<li><b>get_due_cards</b> - Get cards due for review</li>
+<li><b>get_due_cards</b> - Get cards due for review (supports voice mode)</li>
 <li><b>present_card</b> - Get card content for review</li>
 <li><b>rate_card</b> - Rate a card after review (Again/Hard/Good/Easy)</li>
 <li><b>model_names</b> - List available note types</li>
@@ -65,6 +83,21 @@
 <li><b>store_media_file</b> - Store a media file (image/audio)</li>
 <li><b>get_media_files_names</b> - List media files matching a pattern</li>
 <li><b>delete_media_file</b> - Delete a media file</li>
+</ul>
+
+<h3>Multi-Action Tools</h3>
+<ul>
+<li><b>card_management</b> - 9 actions: reposition, change_deck, bury, unbury, suspend, unsuspend, set_flag, set_due_date, forget_cards</li>
+<li><b>tag_management</b> - 5 actions: add_tags, remove_tags, replace_tags, get_tags, clear_unused_tags</li>
+<li><b>filtered_deck</b> - 4 actions: create_or_update, rebuild, empty, delete</li>
+</ul>
+
+<h3>FSRS Tools</h3>
+<ul>
+<li><b>get_fsrs_params</b> - Get FSRS scheduler parameters for deck presets</li>
+<li><b>set_fsrs_params</b> - Update FSRS parameters (weights, retention, max interval)</li>
+<li><b>get_card_memory_state</b> - Get FSRS memory state (stability, difficulty, retrievability)</li>
+<li><b>optimize_fsrs_params</b> - Run FSRS parameter optimization</li>
 </ul>
 
 <h3>GUI Tools</h3>
@@ -82,16 +115,42 @@
 
 <h3>Resources</h3>
 <ul>
-<li><b>system_info</b> - Anki version and system information</li>
+<li><b>system_info</b> - Anki version, profile, and scheduler info</li>
+<li><b>query_syntax</b> - Anki search query syntax reference</li>
+<li><b>schema</b> - Data model documentation (entities, fields, relationships)</li>
+<li><b>stats_today</b> - Today's study statistics</li>
+<li><b>stats_forecast</b> - 30-day review forecast</li>
+<li><b>stats_collection</b> - Overall collection statistics</li>
+<li><b>fsrs_config</b> - FSRS configuration and parameters</li>
 </ul>
 
 <h3>Prompts</h3>
 <ul>
-<li><b>review_session</b> - Guided review session workflow</li>
+<li><b>review_session</b> - Guided review session (interactive, quick, or voice mode)</li>
+</ul>
+
+<h2>Configuration</h2>
+<p>Edit via Anki's Tools → Add-ons → AnkiMCP Server → Config:</p>
+<pre>
+{
+  "mode": "http",
+  "http_port": 3141,
+  "http_host": "127.0.0.1",
+  "http_path": "",
+  "cors_origins": [],
+  "auto_connect_on_startup": true,
+  "disabled_tools": []
+}
+</pre>
+
+<p>Use <code>disabled_tools</code> to hide tools or actions from AI clients:</p>
+<ul>
+<li><code>"sync"</code> — disables the entire tool</li>
+<li><code>"card_management:bury"</code> — disables a specific action</li>
 </ul>
 
 <h2>Requirements</h2>
-<p>Anki 25.x or later (Python 3.13)</p>
+<p>Anki 25.07 or later (Python 3.13). Earlier versions ship Python 3.9 which is not supported.</p>
 
 <h2>Architecture</h2>
 <p>The addon runs an MCP server in a background thread with HTTP transport (FastMCP + uvicorn). All Anki operations are bridged to the main Qt thread via a queue system, following the same proven pattern as AnkiConnect.</p>
