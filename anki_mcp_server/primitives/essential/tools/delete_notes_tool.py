@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 @Tool(
-    "deleteNotes",
+    "delete_notes",
     "Delete notes by their IDs. This will permanently remove the notes and ALL associated cards. This action cannot be undone unless you have a backup. CRITICAL: This is destructive and permanent - only delete notes the user explicitly confirmed for deletion.",
     write=True,
 )

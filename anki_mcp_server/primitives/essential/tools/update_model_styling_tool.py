@@ -5,7 +5,7 @@ from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
-    "updateModelStyling",
+    "update_model_styling",
     "Update the CSS styling for an existing note type (model). This changes how cards of this type are rendered in Anki. Useful for adding RTL (Right-to-Left) support, changing fonts, colors, or layout. Changes apply to all cards using this model.",
     write=True,
 )
@@ -16,7 +16,7 @@ def update_model_styling(model_name: str, css: str) -> dict[str, Any]:
     if model is None:
         raise HandlerError(
             f'Model "{model_name}" not found',
-            hint="Model not found. Use modelNames tool to see available models.",
+            hint="Model not found. Use model_names tool to see available models.",
             model_name=model_name,
         )
 

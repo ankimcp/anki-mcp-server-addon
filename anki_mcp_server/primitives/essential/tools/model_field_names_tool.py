@@ -5,7 +5,7 @@ from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
-    "modelFieldNames",
+    "model_field_names",
     "Get the field names and descriptions for a specific note type (model). "
     "Use this to know what fields are required when creating notes of this type. "
     "Returns both field_names (list of strings) and fields (list of objects with name and description).",
@@ -17,7 +17,7 @@ def model_field_names(model_name: str) -> dict[str, Any]:
     if model is None:
         raise HandlerError(
             f'Model "{model_name}" not found',
-            hint="Use modelNames tool to see available models",
+            hint="Use model_names tool to see available models",
             model_name=model_name,
         )
 
@@ -46,19 +46,19 @@ def model_field_names(model_name: str) -> dict[str, Any]:
             "Front": "Question or prompt text",
             "Back": "Answer or response text",
         }
-        hint = "Use these field names as keys when creating notes with addNote tool"
+        hint = "Use these field names as keys when creating notes with add_note tool"
     elif "basic" in lower_model_name and "reversed" in lower_model_name:
         example_fields = {
             "Front": "First side of the card",
             "Back": "Second side of the card",
         }
-        hint = "Use these field names as keys when creating notes with addNote tool"
+        hint = "Use these field names as keys when creating notes with add_note tool"
     elif "cloze" in lower_model_name:
         example_fields = {
             "Text": "The {{c1::hidden}} text will be replaced with [...] on the card",
             "Extra": "Additional information or hints",
         }
-        hint = "Use these field names as keys when creating notes with addNote tool"
+        hint = "Use these field names as keys when creating notes with add_note tool"
 
     response: dict[str, Any] = {
         "model_name": model_name,

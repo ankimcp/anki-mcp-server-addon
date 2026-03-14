@@ -12,7 +12,7 @@ def _create_notes_in_deck(deck_name: str, count: int, uid: str) -> list[int]:
     call_tool("create_deck", {"deck_name": deck_name})
     note_ids: list[int] = []
     for i in range(count):
-        result = call_tool("addNote", {
+        result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {

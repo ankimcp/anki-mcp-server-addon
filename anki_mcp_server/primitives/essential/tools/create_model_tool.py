@@ -6,7 +6,7 @@ from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
-    "createModel",
+    "create_model",
     "Create a new note type (model) in Anki with custom fields, card templates, and styling. Useful for creating specialized models like RTL (Right-to-Left) language models for Hebrew, Arabic, etc. Each model defines the structure of notes and how cards are generated from them.",
     write=True,
 )
@@ -32,7 +32,7 @@ def create_model(
     if existing_model is not None:
         raise HandlerError(
             f'Model "{model_name}" already exists',
-            hint="A model with this name already exists. Use a different name or use modelNames tool to see existing models.",
+            hint="A model with this name already exists. Use a different name or use model_names tool to see existing models.",
             model_name=model_name,
         )
 

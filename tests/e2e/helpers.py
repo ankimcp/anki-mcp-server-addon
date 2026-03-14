@@ -71,7 +71,7 @@ def call_tool(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     """Call an MCP tool and return the result.
 
     Args:
-        name: Tool name (e.g., "list_decks", "findNotes")
+        name: Tool name (e.g., "list_decks", "find_notes")
         args: Tool arguments as dict
 
     Returns:

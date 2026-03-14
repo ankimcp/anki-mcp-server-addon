@@ -11,7 +11,7 @@ def _create_note_with_card(deck_name: str, uid: str) -> tuple[int, int]:
     Helper used by tests that need a real card ID to exercise card-level tools.
     """
     call_tool("create_deck", {"deck_name": deck_name})
-    result = call_tool("addNote", {
+    result = call_tool("add_note", {
         "deck_name": deck_name,
         "model_name": "Basic",
         "fields": {
@@ -22,7 +22,7 @@ def _create_note_with_card(deck_name: str, uid: str) -> tuple[int, int]:
     assert "note_id" in result, f"Failed to create test note: {result}"
     note_id = result["note_id"]
 
-    notes_info = call_tool("notesInfo", {"notes": [note_id]})
+    notes_info = call_tool("notes_info", {"notes": [note_id]})
     card_id = notes_info["notes"][0]["cards"][0]
     return note_id, card_id
 

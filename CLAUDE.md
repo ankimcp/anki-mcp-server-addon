@@ -182,6 +182,10 @@ primitives/essential/tools/my_multi_tool/
 
 The dispatcher uses Pydantic `Annotated[Union[...], Field(discriminator="action")]` so MCP clients get a proper JSON schema with all action variants. Each action lives in its own file under `actions/` and exports an `_impl()` function. The dispatcher uses `match`/`case` to route.
 
+**Description metadata**: Each Params model has a `_tool_description: ClassVar[str]` with the action's description line, and each tool module has a `_BASE_DESCRIPTION` constant. Descriptions are **always** built dynamically from these — the static string in `@Tool()` is dead code for multi-action tools. This ensures a single source of truth.
+
+**Tool filtering**: The `disabled_tools` config can hide entire tools or specific actions. Per-action filtering rebuilds the Pydantic discriminated union at registration time, removing disabled actions from the JSON schema entirely. See `tool_decorator.py` for the filtering helpers.
+
 **Critical**: The `__init__.py` must import the tool module — `pkgutil.walk_packages` discovers subpackages but only triggers `@Tool` registration if the decorated function is actually imported.
 
 ### Error Handling
@@ -244,6 +248,10 @@ Disabled in `mcp_server.py` to allow tunnel/proxy access (Cloudflare, ngrok).
 
 Configured via addon settings (`cors_origins`, `cors_expose_headers`). Empty `cors_origins` = CORS disabled. The `mcp-session-id` and `mcp-protocol-version` headers must be exposed for browser-based MCP clients (Streamable HTTP protocol requirement). See `config.py` for the full `Config` dataclass.
 
+### Tool Filtering
+
+`disabled_tools` config hides tools/actions from AI clients. Supports whole-tool (`"sync"`) and per-action (`"card_management:bury"`) granularity. Typos produce `print()` warnings visible in Anki's console. See `tool_decorator.py` for implementation.
+
 ## Development Workflow
 
 ### E2E Tests
@@ -290,7 +298,7 @@ Tests use `tests/e2e/helpers.py` which wraps the MCP Inspector CLI. Available he
 from .helpers import call_tool, list_tools, read_resource, list_resources, list_prompts, get_prompt
 
 # Call a tool
-result = call_tool("findNotes", {"query": "deck:*", "limit": "5"})
+result = call_tool("find_notes", {"query": "deck:*", "limit": "5"})
 
 # Read a resource
 info = read_resource("anki://system-info")

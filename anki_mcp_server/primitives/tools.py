@@ -10,12 +10,14 @@ from .gui import tools as _gui_tools  # noqa: F401
 
 def register_all_tools(
     mcp,
-    call_main_thread: Callable[[str, dict], Coroutine[Any, Any, Any]]
+    call_main_thread: Callable[[str, dict], Coroutine[Any, Any, Any]],
+    disabled_tools: list[str] | None = None,
 ) -> None:
     """Register all MCP tools with the server.
 
     Args:
         mcp: FastMCP server instance
         call_main_thread: Async function to bridge calls to Anki's main thread
+        disabled_tools: List of tool names or "tool:action" entries to skip
     """
-    register_tools(mcp, call_main_thread)
+    register_tools(mcp, call_main_thread, disabled_tools=disabled_tools)

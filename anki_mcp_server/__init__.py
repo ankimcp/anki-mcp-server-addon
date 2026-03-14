@@ -89,14 +89,34 @@ from aqt.qt import (
     QPushButton,
     QVBoxLayout,
 )
-from aqt.utils import showInfo
+from aqt.utils import showInfo, showWarning
 
 from .config import Config, ConfigManager
 from .connection_manager import ConnectionManager
+from .tool_decorator import validate_disabled_tools
 
 # Global instances
 _config_manager: Optional[ConfigManager] = None
 _connection_manager: Optional[ConnectionManager] = None
+
+
+def _show_startup_warnings(warnings: list[str]) -> None:
+    """Show accumulated startup warnings to the user via Anki dialog.
+
+    Takes a generic list of warning strings and displays them in a single
+    dialog. The function is intentionally decoupled from any specific
+    warning source -- callers just append strings to the list.
+
+    Args:
+        warnings: List of human-readable warning messages. If empty,
+            no dialog is shown.
+    """
+    if not warnings:
+        return
+    header = "<b>AnkiMCP Server detected configuration issues:</b><br>"
+    from html import escape
+    body = "<br>".join(f"&bull; {escape(w)}" for w in warnings)
+    showWarning(f"{header}<br>{body}", title="AnkiMCP Server")
 
 
 def _on_profile_opened() -> None:
@@ -109,6 +129,11 @@ def _on_profile_opened() -> None:
 
     _config_manager = ConfigManager(addon_package)
     config = _config_manager.load()
+
+    # Validate config and collect warnings for the user
+    warnings: list[str] = []
+    warnings.extend(validate_disabled_tools(config.disabled_tools))
+    _show_startup_warnings(warnings)
 
     _connection_manager = ConnectionManager(config)
 

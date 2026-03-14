@@ -1,0 +1,11 @@
+{
+  "mode": "http",
+  "http_port": 3141,
+  "http_host": "0.0.0.0",
+  "auto_connect_on_startup": true,
+  "disabled_tools": [
+    "sync",
+    "card_management:bury",
+    "card_management:unbury"
+  ]
+}

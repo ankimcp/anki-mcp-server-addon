@@ -9,9 +9,9 @@ logger = logging.getLogger(__name__)
 
 
 @Tool(
-    "addNote",
-    "Add a new note to Anki. Use modelNames to see available note types and "
-    "modelFieldNames to see required fields. Returns the note ID on success. "
+    "add_note",
+    "Add a new note to Anki. Use model_names to see available note types and "
+    "model_field_names to see required fields. Returns the note ID on success. "
     "IMPORTANT: Only create notes that were explicitly requested by the user.",
     write=True,
 )
@@ -32,7 +32,7 @@ def add_note(
     if deck is None:
         raise HandlerError(
             f"Deck not found: {deck_name}",
-            hint="Use list_decks tool to see available decks or createDeck to create a new one.",
+            hint="Use list_decks tool to see available decks or create_deck to create a new one.",
             deck_name=deck_name,
             model_name=model_name,
         )
@@ -42,7 +42,7 @@ def add_note(
     if model is None:
         raise HandlerError(
             f"Model not found: {model_name}",
-            hint="Use modelNames tool to see available models.",
+            hint="Use model_names tool to see available models.",
             deck_name=deck_name,
             model_name=model_name,
         )
@@ -67,7 +67,7 @@ def add_note(
     if missing_fields:
         raise HandlerError(
             f"Missing required fields: {', '.join(missing_fields)}",
-            hint="Use modelFieldNames tool to see required fields for this model.",
+            hint="Use model_field_names tool to see required fields for this model.",
             deck_name=deck_name,
             model_name=model_name,
             provided_fields=provided_fields,
@@ -78,7 +78,7 @@ def add_note(
     if extra_fields:
         raise HandlerError(
             f"Unknown fields for this model: {', '.join(extra_fields)}",
-            hint="Use modelFieldNames tool to see valid fields for this model.",
+            hint="Use model_field_names tool to see valid fields for this model.",
             deck_name=deck_name,
             model_name=model_name,
             provided_fields=provided_fields,

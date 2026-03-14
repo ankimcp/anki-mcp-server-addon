@@ -6,11 +6,11 @@ from .helpers import call_tool
 
 
 class TestModelFieldNamesDescriptions:
-    """Tests for field descriptions returned by modelFieldNames."""
+    """Tests for field descriptions returned by model_field_names."""
 
     def test_model_field_names_returns_fields_with_descriptions(self):
-        """modelFieldNames should return both field_names and fields with descriptions."""
-        result = call_tool("modelFieldNames", {"model_name": "Basic"})
+        """model_field_names should return both field_names and fields with descriptions."""
+        result = call_tool("model_field_names", {"model_name": "Basic"})
 
         assert "field_names" in result, f"Expected field_names in result, got: {result}"
         assert "fields" in result, f"Expected fields in result, got: {result}"
@@ -29,7 +29,7 @@ class TestModelFieldNamesDescriptions:
 
     def test_model_field_names_field_descriptions_are_strings(self):
         """Field descriptions should be strings (even when empty)."""
-        result = call_tool("modelFieldNames", {"model_name": "Basic"})
+        result = call_tool("model_field_names", {"model_name": "Basic"})
 
         assert "fields" in result
         for field_obj in result["fields"]:
@@ -40,7 +40,7 @@ class TestModelFieldNamesDescriptions:
 
     def test_model_field_names_field_names_match_fields(self):
         """field_names list should match names in fields list (same order)."""
-        result = call_tool("modelFieldNames", {"model_name": "Basic"})
+        result = call_tool("model_field_names", {"model_name": "Basic"})
 
         assert "field_names" in result
         assert "fields" in result
@@ -51,7 +51,7 @@ class TestModelFieldNamesDescriptions:
 
     def test_basic_model_descriptions_default_to_empty_string(self):
         """Built-in Basic model has no custom descriptions — they should all be empty strings."""
-        result = call_tool("modelFieldNames", {"model_name": "Basic"})
+        result = call_tool("model_field_names", {"model_name": "Basic"})
 
         assert "fields" in result
         for field_obj in result["fields"]:
@@ -62,14 +62,14 @@ class TestModelFieldNamesDescriptions:
 
 
 class TestNotesInfoFieldDescriptions:
-    """Tests for field descriptions returned by notesInfo."""
+    """Tests for field descriptions returned by notes_info."""
 
     def _create_test_note(self, suffix: str = "Desc") -> int:
         """Create a Basic note and return its ID."""
         uid = unique_id()
         deck_name = f"E2E::{suffix}{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
-        result = call_tool("addNote", {
+        result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -81,10 +81,10 @@ class TestNotesInfoFieldDescriptions:
         return result["note_id"]
 
     def test_notes_info_includes_field_descriptions(self):
-        """notesInfo should include description in each field entry."""
+        """notes_info should include description in each field entry."""
         note_id = self._create_test_note("FldDesc")
 
-        result = call_tool("notesInfo", {"notes": [note_id]})
+        result = call_tool("notes_info", {"notes": [note_id]})
         assert result["count"] == 1
 
         note = result["notes"][0]
@@ -98,10 +98,10 @@ class TestNotesInfoFieldDescriptions:
             )
 
     def test_notes_info_field_descriptions_are_strings(self):
-        """notesInfo field descriptions should be strings."""
+        """notes_info field descriptions should be strings."""
         note_id = self._create_test_note("FldStr")
 
-        result = call_tool("notesInfo", {"notes": [note_id]})
+        result = call_tool("notes_info", {"notes": [note_id]})
         assert result["count"] == 1
 
         note = result["notes"][0]
@@ -112,10 +112,10 @@ class TestNotesInfoFieldDescriptions:
             )
 
     def test_notes_info_basic_model_descriptions_default_to_empty(self):
-        """Basic model field descriptions should default to empty string in notesInfo."""
+        """Basic model field descriptions should default to empty string in notes_info."""
         note_id = self._create_test_note("FldEmpty")
 
-        result = call_tool("notesInfo", {"notes": [note_id]})
+        result = call_tool("notes_info", {"notes": [note_id]})
         assert result["count"] == 1
 
         note = result["notes"][0]

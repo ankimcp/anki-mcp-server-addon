@@ -38,7 +38,7 @@ class TestSkipMediaRateCard:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add image card FIRST (will be at top of scheduler queue)
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -48,7 +48,7 @@ class TestSkipMediaRateCard:
         })
 
         # Add text card SECOND
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -94,7 +94,7 @@ class TestSkipMediaRateCard:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add audio card FIRST (will be at top of scheduler queue)
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -104,7 +104,7 @@ class TestSkipMediaRateCard:
         })
 
         # Add text card SECOND
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -149,7 +149,7 @@ class TestSkipMediaRateCard:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add a simple text card
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -189,7 +189,7 @@ class TestSkipMediaRateCard:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add image card FIRST
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -199,7 +199,7 @@ class TestSkipMediaRateCard:
         })
 
         # Add audio card SECOND
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -209,7 +209,7 @@ class TestSkipMediaRateCard:
         })
 
         # Add text card THIRD
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -269,7 +269,7 @@ class TestSkipMediaFullWorkflow:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add 2 image cards FIRST (will be at top of queue)
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -277,7 +277,7 @@ class TestSkipMediaFullWorkflow:
                 "Back": f"Image Answer 1 {uid}"
             }
         })
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -287,7 +287,7 @@ class TestSkipMediaFullWorkflow:
         })
 
         # Add 2 text cards
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -295,7 +295,7 @@ class TestSkipMediaFullWorkflow:
                 "Back": f"Text Answer 1 {uid}"
             }
         })
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -387,7 +387,7 @@ class TestSkipMediaFullWorkflow:
         call_tool("create_deck", {"deck_name": deck_name})
 
         # Add an image card
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -397,7 +397,7 @@ class TestSkipMediaFullWorkflow:
         })
 
         # Add a text card
-        call_tool("addNote", {
+        call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {

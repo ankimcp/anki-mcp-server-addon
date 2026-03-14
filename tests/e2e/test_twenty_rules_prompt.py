@@ -68,6 +68,6 @@ class TestTwentyRulesContent:
         assert "mediaActions" not in text
 
     def test_references_add_note_tool(self, twenty_rules_result):
-        """Content should reference the addNote tool name (AnkiConnect convention)."""
+        """Content should reference the add_note tool name."""
         text = twenty_rules_result["messages"][0]["content"]["text"]
-        assert "addNote" in text
+        assert "add_note" in text

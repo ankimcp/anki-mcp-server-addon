@@ -6,7 +6,7 @@ from ....handler_wrappers import HandlerError, get_col
 
 
 @Tool(
-    "findNotes",
+    "find_notes",
     "Search for notes using Anki query syntax. Returns an array of note IDs matching the query. "
     "Supports pagination with limit/offset parameters. "
     'Examples: "deck:Spanish", "tag:verb", "is:due", "front:hello", "added:1" (cards added today), '
@@ -70,10 +70,10 @@ def find_notes(query: str, limit: int = 100, offset: int = 0) -> dict[str, Any]:
         }
 
     hint = (
-        "Use notesInfo tool to get detailed information about these notes. "
+        "Use notes_info tool to get detailed information about these notes. "
         "Use offset parameter to fetch more results."
         if offset + limit < total
-        else "Use notesInfo tool to get detailed information about these notes"
+        else "Use notes_info tool to get detailed information about these notes"
     )
 
     return {

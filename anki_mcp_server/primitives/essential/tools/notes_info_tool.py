@@ -9,9 +9,9 @@ logger = logging.getLogger(__name__)
 
 
 @Tool(
-    "notesInfo",
+    "notes_info",
     "Get detailed information about specific notes including all fields, tags, model info, and CSS styling. "
-    "Use this after findNotes to get complete note data. Includes CSS for proper rendering awareness.",
+    "Use this after find_notes to get complete note data. Includes CSS for proper rendering awareness.",
 )
 def notes_info(notes: list[int]) -> dict[str, Any]:
     if not notes:
@@ -81,7 +81,7 @@ def notes_info(notes: list[int]) -> dict[str, Any]:
 
     if valid_count > 0:
         hint = (
-            "Fields may contain HTML. Use updateNoteFields to modify content. "
+            "Fields may contain HTML. Use update_note_fields to modify content. "
             "Do not view notes in Anki browser while updating."
         )
     else:
@@ -96,7 +96,7 @@ def notes_info(notes: list[int]) -> dict[str, Any]:
         "models": unique_models,
         "cssNote": (
             "Each note model has its own CSS styling. "
-            "Use modelStyling tool to get CSS for specific models."
+            "Use model_styling tool to get CSS for specific models."
         ),
         "hint": hint,
     }

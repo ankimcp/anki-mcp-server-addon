@@ -147,7 +147,7 @@ You are helping a user create effective Anki flashcards based on Dr. Piotr Wozni
 3. Show examples of proposed cards
 4. Wait for approval before creating
 5. Apply these rules to make cards effective
-6. Use addNote tool only after user confirms
+6. Use add_note tool only after user confirms
 
 ## Example Transformations
 

@@ -10,7 +10,7 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout code
@@ -30,49 +30,28 @@ jobs:
         run: |
           pip install pytest
 
-      - name: Build addon package
-        run: |
-          chmod +x ./package.sh
-          ./package.sh
-
       - name: Pull headless-anki image
         run: |
           docker pull ghcr.io/ankimcp/headless-anki:qt-vnc-v1.0.0
 
-      - name: Start Anki container
-        working-directory: .docker
+      - name: Run E2E tests (regular)
         run: |
-          docker compose up -d
-          echo "Waiting for container to start..."
-          sleep 5
+          make e2e-full
 
-      - name: Wait for MCP server
+      - name: Run E2E tests (filtered)
         run: |
-          echo "Waiting for MCP server to be ready..."
-          for i in {1..60}; do
-            if npx @modelcontextprotocol/inspector --cli http://localhost:3141 --transport http --method tools/list 2>/dev/null; then
-              echo "Server is ready!"
-              exit 0
-            fi
-            echo "Attempt $i/60 - waiting..."
-            sleep 1
-          done
-          echo "Server failed to start"
-          docker compose -f .docker/docker-compose.yml logs
-          exit 1
-
-      - name: Run E2E tests
-        run: |
-          pytest tests/e2e/ -v --tb=short
+          make e2e-filtered
 
       - name: Show container logs on failure
         if: failure()
         working-directory: .docker
         run: |
-          docker compose logs
+          docker compose logs 2>/dev/null || true
+          docker compose -f docker-compose.filtered.yml logs 2>/dev/null || true
 
-      - name: Stop Anki container
+      - name: Stop all containers
         if: always()
         working-directory: .docker
         run: |
-          docker compose down
+          docker compose down 2>/dev/null || true
+          docker compose -f docker-compose.filtered.yml down 2>/dev/null || true

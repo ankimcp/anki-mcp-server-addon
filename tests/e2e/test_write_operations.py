@@ -41,12 +41,12 @@ class TestAddNote:
     """Tests for note creation."""
 
     def test_add_basic_note(self):
-        """addNote should create a note with Basic model."""
+        """add_note should create a note with Basic model."""
         uid = unique_id()
         deck_name = f"E2E::Notes{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
 
-        result = call_tool("addNote", {
+        result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -59,12 +59,12 @@ class TestAddNote:
         assert result["model_name"] == "Basic"
 
     def test_add_note_with_tags(self):
-        """addNote should support tags."""
+        """add_note should support tags."""
         uid = unique_id()
         deck_name = f"E2E::Tags{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
 
-        result = call_tool("addNote", {
+        result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -77,7 +77,7 @@ class TestAddNote:
         assert result["details"]["tags_added"] == 2
 
     def test_add_duplicate_note_fails(self):
-        """addNote should reject duplicates by default."""
+        """add_note should reject duplicates by default."""
         uid = unique_id()
         deck_name = f"E2E::Dup{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
@@ -87,7 +87,7 @@ class TestAddNote:
             "Back": "Answer"
         }
         # Create first note
-        result1 = call_tool("addNote", {
+        result1 = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": fields
@@ -95,7 +95,7 @@ class TestAddNote:
         assert result1["note_id"] > 0
 
         # Try to create duplicate
-        result2 = call_tool("addNote", {
+        result2 = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": fields
@@ -103,7 +103,7 @@ class TestAddNote:
         assert result2.get("isError") is True
 
     def test_add_duplicate_with_allow_flag(self):
-        """addNote should allow duplicates when allow_duplicate=true."""
+        """add_note should allow duplicates when allow_duplicate=true."""
         uid = unique_id()
         deck_name = f"E2E::Allow{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
@@ -113,7 +113,7 @@ class TestAddNote:
             "Back": "Answer"
         }
         # Create first
-        result1 = call_tool("addNote", {
+        result1 = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": fields
@@ -121,7 +121,7 @@ class TestAddNote:
         assert result1["note_id"] > 0
 
         # Create duplicate with flag
-        result2 = call_tool("addNote", {
+        result2 = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": fields,
@@ -131,12 +131,12 @@ class TestAddNote:
         assert result2["note_id"] > 0
 
     def test_add_note_missing_fields(self):
-        """addNote should fail when required fields are missing."""
+        """add_note should fail when required fields are missing."""
         uid = unique_id()
         deck_name = f"E2E::Miss{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
 
-        result = call_tool("addNote", {
+        result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -147,8 +147,8 @@ class TestAddNote:
         assert result.get("isError") is True
 
     def test_add_note_invalid_deck(self):
-        """addNote should fail for non-existent deck."""
-        result = call_tool("addNote", {
+        """add_note should fail for non-existent deck."""
+        result = call_tool("add_note", {
             "deck_name": f"NonExist{unique_id()}",
             "model_name": "Basic",
             "fields": {
@@ -159,12 +159,12 @@ class TestAddNote:
         assert result.get("isError") is True
 
     def test_add_note_invalid_model(self):
-        """addNote should fail for non-existent model."""
+        """add_note should fail for non-existent model."""
         uid = unique_id()
         deck_name = f"E2E::BadMod{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
 
-        result = call_tool("addNote", {
+        result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "NonExistentModel12345",
             "fields": {
@@ -183,7 +183,7 @@ class TestUpdateNote:
         uid = unique_id()
         deck_name = f"E2E::Upd{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
-        result = call_tool("addNote", {
+        result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -195,10 +195,10 @@ class TestUpdateNote:
         return result["note_id"]
 
     def test_update_single_field(self):
-        """updateNoteFields should update a single field."""
+        """update_note_fields should update a single field."""
         note_id = self.create_test_note()
 
-        result = call_tool("updateNoteFields", {
+        result = call_tool("update_note_fields", {
             "id": note_id,
             "fields": {
                 "Front": f"Updated Question {unique_id()}"
@@ -209,10 +209,10 @@ class TestUpdateNote:
         assert result["fieldCount"] == 1
 
     def test_update_multiple_fields(self):
-        """updateNoteFields should update multiple fields."""
+        """update_note_fields should update multiple fields."""
         note_id = self.create_test_note()
 
-        result = call_tool("updateNoteFields", {
+        result = call_tool("update_note_fields", {
             "id": note_id,
             "fields": {
                 "Front": f"New Front {unique_id()}",
@@ -223,44 +223,44 @@ class TestUpdateNote:
         assert set(result["updatedFields"]) == {"Front", "Back"}
 
     def test_update_verifies_with_notes_info(self):
-        """Updated fields should be visible via notesInfo."""
+        """Updated fields should be visible via notes_info."""
         note_id = self.create_test_note()
         new_content = f"Verified Updated Content {unique_id()}"
 
         # Update
-        call_tool("updateNoteFields", {
+        call_tool("update_note_fields", {
             "id": note_id,
             "fields": {"Front": new_content}
         })
 
         # Verify
-        info = call_tool("notesInfo", {"notes": [note_id]})
+        info = call_tool("notes_info", {"notes": [note_id]})
         assert info["count"] == 1
         note = info["notes"][0]
         assert note["fields"]["Front"]["value"] == new_content
 
     def test_update_invalid_note_id(self):
-        """updateNoteFields should fail for non-existent note."""
-        result = call_tool("updateNoteFields", {
+        """update_note_fields should fail for non-existent note."""
+        result = call_tool("update_note_fields", {
             "id": 999999999999,
             "fields": {"Front": "X"}
         })
         assert result.get("isError") is True
 
     def test_update_invalid_field_name(self):
-        """updateNoteFields should fail for invalid field name."""
+        """update_note_fields should fail for invalid field name."""
         note_id = self.create_test_note()
 
-        result = call_tool("updateNoteFields", {
+        result = call_tool("update_note_fields", {
             "id": note_id,
             "fields": {"InvalidFieldName": "X"}
         })
         assert result.get("isError") is True
 
     def test_update_empty_fields(self):
-        """updateNoteFields should fail with empty fields dict."""
+        """update_note_fields should fail with empty fields dict."""
         note_id = self.create_test_note()
-        result = call_tool("updateNoteFields", {
+        result = call_tool("update_note_fields", {
             "id": note_id,
             "fields": {}
         })
@@ -275,7 +275,7 @@ class TestDeleteNotes:
         uid = unique_id()
         deck_name = f"E2E::{suffix}{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
-        result = call_tool("addNote", {
+        result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -287,10 +287,10 @@ class TestDeleteNotes:
         return result["note_id"]
 
     def test_delete_single_note(self):
-        """deleteNotes should delete a single note."""
+        """delete_notes should delete a single note."""
         note_id = self.create_test_note("Sgl")
 
-        result = call_tool("deleteNotes", {
+        result = call_tool("delete_notes", {
             "notes": [note_id],
             "confirmDeletion": True
         })
@@ -298,28 +298,28 @@ class TestDeleteNotes:
         assert note_id in result["deletedNoteIds"]
 
     def test_delete_multiple_notes(self):
-        """deleteNotes should delete multiple notes."""
+        """delete_notes should delete multiple notes."""
         note_ids = [self.create_test_note(f"M{i}") for i in range(3)]
 
-        result = call_tool("deleteNotes", {
+        result = call_tool("delete_notes", {
             "notes": note_ids,
             "confirmDeletion": True
         })
         assert result["deletedCount"] == 3
 
     def test_delete_requires_confirmation(self):
-        """deleteNotes should fail without confirmation."""
+        """delete_notes should fail without confirmation."""
         note_id = self.create_test_note("NoCnf")
 
-        result = call_tool("deleteNotes", {
+        result = call_tool("delete_notes", {
             "notes": [note_id],
             "confirmDeletion": False
         })
         assert result.get("isError") is True
 
     def test_delete_nonexistent_note(self):
-        """deleteNotes should handle non-existent notes gracefully."""
-        result = call_tool("deleteNotes", {
+        """delete_notes should handle non-existent notes gracefully."""
+        result = call_tool("delete_notes", {
             "notes": [999999999999],
             "confirmDeletion": True
         })
@@ -328,21 +328,21 @@ class TestDeleteNotes:
         assert result["notFoundCount"] == 1
 
     def test_delete_verifies_note_gone(self):
-        """Deleted notes should not appear in notesInfo."""
+        """Deleted notes should not appear in notes_info."""
         note_id = self.create_test_note("Vrf")
 
         # Verify exists
-        info1 = call_tool("notesInfo", {"notes": [note_id]})
+        info1 = call_tool("notes_info", {"notes": [note_id]})
         assert info1["count"] == 1
 
         # Delete
-        call_tool("deleteNotes", {
+        call_tool("delete_notes", {
             "notes": [note_id],
             "confirmDeletion": True
         })
 
         # Verify gone
-        info2 = call_tool("notesInfo", {"notes": [note_id]})
+        info2 = call_tool("notes_info", {"notes": [note_id]})
         assert info2["count"] == 0
         assert info2["notFound"] == 1
 
@@ -355,7 +355,7 @@ class TestNotesInfo:
         uid = unique_id()
         deck_name = f"E2E::{suffix}{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
-        result = call_tool("addNote", {
+        result = call_tool("add_note", {
             "deck_name": deck_name,
             "model_name": "Basic",
             "fields": {
@@ -368,10 +368,10 @@ class TestNotesInfo:
         return result["note_id"]
 
     def test_get_note_info(self):
-        """notesInfo should return detailed note information."""
+        """notes_info should return detailed note information."""
         note_id = self.create_test_note("Get")
 
-        result = call_tool("notesInfo", {"notes": [note_id]})
+        result = call_tool("notes_info", {"notes": [note_id]})
         assert result["count"] == 1
 
         note = result["notes"][0]
@@ -382,21 +382,21 @@ class TestNotesInfo:
         assert "Back" in note["fields"]
 
     def test_get_multiple_notes_info(self):
-        """notesInfo should handle multiple notes."""
+        """notes_info should handle multiple notes."""
         note_ids = [self.create_test_note(f"Mlt{i}") for i in range(3)]
 
-        info = call_tool("notesInfo", {"notes": note_ids})
+        info = call_tool("notes_info", {"notes": note_ids})
         assert info["count"] == 3
 
     def test_notes_info_mixed_valid_invalid(self):
-        """notesInfo should handle mix of valid and invalid IDs."""
+        """notes_info should handle mix of valid and invalid IDs."""
         valid_id = self.create_test_note("Mix")
 
-        info = call_tool("notesInfo", {"notes": [valid_id, 999999999999]})
+        info = call_tool("notes_info", {"notes": [valid_id, 999999999999]})
         assert info["count"] == 1
         assert info["notFound"] == 1
 
     def test_notes_info_empty_list_fails(self):
-        """notesInfo should fail with empty list."""
-        result = call_tool("notesInfo", {"notes": []})
+        """notes_info should fail with empty list."""
+        result = call_tool("notes_info", {"notes": []})
         assert result.get("isError") is True
