@@ -6,13 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 ./package.sh                    # Build .ankiaddon package
-make e2e                        # Full E2E cycle: build → Docker → test → teardown
-make e2e-up                     # Build addon + start headless Anki container
-make e2e-test                   # Run E2E tests (assumes container is running)
+make e2e                        # Full E2E cycle: regular (port 3141) + filtered (port 3142)
+make e2e-full                   # Regular tests only: build → Docker → test → teardown
+make e2e-up                     # Build addon + start headless Anki container (port 3141)
+make e2e-test                   # Run E2E tests (excludes test_tool_filtering_e2e.py)
 make e2e-down                   # Stop container
 make e2e-debug                  # Start container and keep it running (VNC at localhost:5900)
 make e2e-logs                   # Tail container logs
-pytest tests/e2e/ -v            # Run tests directly (container must be up)
+make e2e-filtered               # Filtered tests only: build → Docker (port 3142) → test → teardown
+make e2e-filtered-up            # Start filtered container (docker-compose.filtered.yml)
+make e2e-filtered-test          # Run test_tool_filtering_e2e.py against port 3142
+make e2e-filtered-down          # Stop filtered container
+pytest tests/e2e/ -v --ignore=tests/e2e/test_tool_filtering_e2e.py  # Run tests directly
 pytest tests/e2e/test_note_tools.py -v  # Run a single test file
 ```
 
@@ -264,13 +269,15 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 
 # Full cycle (build → start Docker → wait for server → test → teardown)
-make e2e
+make e2e                        # Runs BOTH regular and filtered suites
 
 # Or step by step:
 make e2e-up                     # Build + start container (waits 5s)
-make e2e-test                   # Run pytest
+make e2e-test                   # Run pytest (excludes tool filtering tests)
 make e2e-down                   # Stop container
 ```
+
+**Two test suites**: `make e2e` runs both the regular suite (port 3141, all tools enabled) and the filtered suite (port 3142, `docker-compose.filtered.yml` with `disabled_tools` config). The filtering tests live in `test_tool_filtering_e2e.py` and are excluded from `make e2e-test` — they have their own `make e2e-filtered-*` targets.
 
 **Environment variables:**
 - `MCP_SERVER_URL` — override server URL (default: `http://localhost:3141`)

@@ -102,6 +102,11 @@ class ConnectionManager:
         if self.is_running:
             return
 
+        # Create a fresh bridge for this lifecycle.
+        # A previous stop() marks the old bridge as shut down, so reusing it
+        # would reject all new requests.
+        self._bridge = QueueBridge()
+
         # Start request processor on main thread
         # This begins polling the request_queue every 25ms
         self._processor = RequestProcessor(self._bridge)
