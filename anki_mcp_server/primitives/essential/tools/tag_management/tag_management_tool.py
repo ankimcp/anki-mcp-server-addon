@@ -11,6 +11,7 @@ from .actions.remove_tags import remove_tags_impl
 from .actions.replace_tags import replace_tags_impl
 from .actions.get_tags import get_tags_impl
 from .actions.clear_unused_tags import clear_unused_tags_impl
+from .actions.batch_tags import batch_tags_impl, _MAX_OPERATIONS
 
 _BASE_DESCRIPTION = "Manage tags on notes"
 
@@ -67,8 +68,37 @@ class ClearUnusedTagsParams(BaseModel):
     action: Literal["clear_unused_tags"]
 
 
+class TagOperation(BaseModel):
+    """A single tag operation within a batch."""
+    type: Literal["add", "remove"] = Field(
+        description="Operation type: 'add' to add tags, 'remove' to remove tags"
+    )
+    note_ids: list[int] = Field(description="Note IDs to apply this operation to")
+    tags: str = Field(
+        description="Space-separated tag names (e.g., 'vocab grammar')"
+    )
+
+
+class BatchTagsParams(BaseModel):
+    """Parameters for batch_tags action."""
+    _tool_description: ClassVar[str] = (
+        "batch_tags: Apply multiple add/remove tag operations in a single call. "
+        "Each operation specifies type ('add' or 'remove'), note_ids, and tags. "
+        "Operations execute in order with partial success support. Max 50 operations."
+    )
+    action: Literal["batch_tags"]
+    operations: list[TagOperation] = Field(
+        description="List of tag operations. Each has: "
+        "type ('add'/'remove'), note_ids (list of ints), tags (space-separated string). "
+        "Executed in order."
+    )
+
+
 TagManagementParams = Annotated[
-    Union[AddTagsParams, RemoveTagsParams, ReplaceTagsParams, GetTagsParams, ClearUnusedTagsParams],
+    Union[
+        AddTagsParams, RemoveTagsParams, ReplaceTagsParams,
+        GetTagsParams, ClearUnusedTagsParams, BatchTagsParams,
+    ],
     Field(discriminator="action")
 ]
 
@@ -143,5 +173,24 @@ def tag_management(params: TagManagementParams) -> dict[str, Any]:
             return get_tags_impl()
         case "clear_unused_tags":
             return clear_unused_tags_impl()
+        case "batch_tags":
+            if not params.operations:
+                raise HandlerError(
+                    "operations is required and cannot be empty",
+                    hint="Provide at least one operation with type, note_ids, and tags",
+                    action=params.action,
+                )
+            if len(params.operations) > _MAX_OPERATIONS:
+                raise HandlerError(
+                    f"Too many operations: {len(params.operations)} "
+                    f"(maximum is {_MAX_OPERATIONS})",
+                    hint=f"Split into batches of {_MAX_OPERATIONS} or fewer.",
+                    action=params.action,
+                    requested=len(params.operations),
+                    maximum=_MAX_OPERATIONS,
+                )
+            return batch_tags_impl(
+                operations=[op.model_dump() for op in params.operations]
+            )
         case _:
             raise HandlerError(f"Unknown action: {params.action}")
