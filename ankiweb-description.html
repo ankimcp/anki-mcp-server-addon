@@ -17,18 +17,23 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
 </ul>
 
-<h2>What's New in v0.9</h2>
+<h2>What's New in v0.10</h2>
+<ul>
+<li><b>Multi-session support</b> - Multiple AI clients can now connect simultaneously (e.g., Claude Code + Claude Desktop, or multi-agent workflows). Tested with 29 concurrent sessions</li>
+<li><b>Batch tag operations</b> - New <code>batch_tags</code> action applies up to 50 mixed add/remove tag operations in a single call with partial success support</li>
+<li><b>Field filtering on notes_info</b> - New <code>include_fields</code> / <code>exclude_fields</code> parameters reduce response size for bulk queries by returning only the fields you need</li>
+</ul>
+
+<h2>v0.9 Highlights</h2>
 <ul>
 <li><b>Batch note creation</b> - <code>add_notes</code> tool adds up to 100 notes in a single call with atomic undo and partial success support</li>
-<li><b>Tool filtering</b> - <code>disabled_tools</code> config hides tools or individual actions from AI clients. Supports whole-tool (<code>"sync"</code>) and per-action (<code>"card_management:bury"</code>) granularity</li>
+<li><b>Tool filtering</b> - <code>disabled_tools</code> config hides tools or individual actions from AI clients</li>
 <li><b>FSRS tools</b> - Get/set FSRS parameters, inspect card memory state, and run parameter optimization</li>
 <li><b>Filtered decks</b> - Create, rebuild, empty, and delete filtered decks</li>
 <li><b>Tag management</b> - Bulk add/remove tags, replace tags, list all tags, clear unused</li>
 <li><b>Card management</b> - 9 actions: reposition, change_deck, bury, unbury, suspend, unsuspend, set_flag, set_due_date, forget_cards</li>
 <li><b>Rich resources</b> - Query syntax reference, data schema docs, today's stats, 30-day forecast, collection stats, FSRS config</li>
 <li><b>Voice-mode review</b> - Skip cards with images/audio for voice-only study sessions</li>
-<li><b>Custom HTTP path</b> - Serve MCP endpoint under a custom URL path for tunnel security</li>
-<li><b>CORS configuration</b> - Allow browser-based MCP clients with configurable origins</li>
 </ul>
 
 <h2>Installation</h2>
@@ -67,7 +72,7 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>list_decks</b> - List all decks with review counts</li>
 <li><b>create_deck</b> - Create a new deck</li>
 <li><b>find_notes</b> - Search for notes using Anki's search syntax</li>
-<li><b>notes_info</b> - Get detailed information about notes</li>
+<li><b>notes_info</b> - Get detailed information about notes (supports <code>include_fields</code> / <code>exclude_fields</code> for response filtering)</li>
 <li><b>add_note</b> - Add a new note to a deck</li>
 <li><b>add_notes</b> - Batch-add up to 100 notes with atomic undo and partial success</li>
 <li><b>update_note_fields</b> - Update fields of existing notes</li>
@@ -88,7 +93,7 @@ AI-powered study sessions, card creation, and collection management.</p>
 <h3>Multi-Action Tools</h3>
 <ul>
 <li><b>card_management</b> - 9 actions: reposition, change_deck, bury, unbury, suspend, unsuspend, set_flag, set_due_date, forget_cards</li>
-<li><b>tag_management</b> - 5 actions: add_tags, remove_tags, replace_tags, get_tags, clear_unused_tags</li>
+<li><b>tag_management</b> - 6 actions: add_tags, remove_tags, replace_tags, get_tags, clear_unused_tags, batch_tags</li>
 <li><b>filtered_deck</b> - 4 actions: create_or_update, rebuild, empty, delete</li>
 </ul>
 
