@@ -11,9 +11,15 @@ logger = logging.getLogger(__name__)
 @Tool(
     "notes_info",
     "Get detailed information about specific notes including all fields, tags, model info, and CSS styling. "
-    "Use this after find_notes to get complete note data. Includes CSS for proper rendering awareness.",
+    "Use this after find_notes to get complete note data. Includes CSS for proper rendering awareness. "
+    "Use include_fields to return only specific fields, or exclude_fields to omit fields - "
+    "useful for reducing response size in bulk queries. If both are provided, include_fields takes priority.",
 )
-def notes_info(notes: list[int]) -> dict[str, Any]:
+def notes_info(
+    notes: list[int],
+    include_fields: list[str] | None = None,
+    exclude_fields: list[str] | None = None,
+) -> dict[str, Any]:
     if not notes:
         raise HandlerError("notes parameter cannot be empty")
 
@@ -24,6 +30,9 @@ def notes_info(notes: list[int]) -> dict[str, Any]:
         )
 
     col = get_col()
+
+    include_set = set(include_fields) if include_fields is not None else None
+    exclude_set = set(exclude_fields) if exclude_fields is not None else None
 
     notes_data = []
     for note_id in notes:
@@ -47,6 +56,12 @@ def notes_info(notes: list[int]) -> dict[str, Any]:
                     "order": i,
                     "description": field_descriptions.get(field_name, ""),
                 }
+
+            # Apply field filtering: include_fields takes priority over exclude_fields
+            if include_set is not None:
+                fields_dict = {k: v for k, v in fields_dict.items() if k in include_set}
+            elif exclude_set is not None:
+                fields_dict = {k: v for k, v in fields_dict.items() if k not in exclude_set}
 
             card_ids = [card.id for card in note.cards()]
 
