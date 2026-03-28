@@ -17,11 +17,18 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
 </ul>
 
-<h2>What's New in v0.10</h2>
+<h2>What's New in v0.11</h2>
 <ul>
-<li><b>Multi-session support</b> - Multiple AI clients can now connect simultaneously (e.g., Claude Code + Claude Desktop, or multi-agent workflows). Tested with 29 concurrent sessions</li>
-<li><b>Batch tag operations</b> - New <code>batch_tags</code> action applies up to 50 mixed add/remove tag operations in a single call with partial success support</li>
-<li><b>Field filtering on notes_info</b> - New <code>include_fields</code> / <code>exclude_fields</code> parameters reduce response size for bulk queries by returning only the fields you need</li>
+<li><b>Dry-run deletions</b> - <code>delete_notes</code> now supports <code>dry_run=true</code> to preview what would be deleted without actually deleting anything</li>
+<li><b>Structured error codes</b> - Errors include machine-readable codes like <code>[not_found]</code>, <code>[validation_error]</code>, <code>[limit_exceeded]</code> for programmatic handling</li>
+<li><b>Improved tool descriptions</b> - All tools now document their response fields, helping AI clients chain tools more effectively</li>
+</ul>
+
+<h2>v0.10 Highlights</h2>
+<ul>
+<li><b>Multi-session support</b> - Multiple AI clients can connect simultaneously. Tested with 29 concurrent sessions</li>
+<li><b>Batch tag operations</b> - <code>batch_tags</code> action: up to 50 mixed add/remove tag operations in a single call</li>
+<li><b>Field filtering on notes_info</b> - <code>include_fields</code> / <code>exclude_fields</code> parameters reduce response size for bulk queries</li>
 </ul>
 
 <h2>v0.9 Highlights</h2>
