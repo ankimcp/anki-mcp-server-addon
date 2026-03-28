@@ -53,12 +53,14 @@ def add_notes(
         raise HandlerError(
             "Notes array is empty",
             hint="Provide at least one note in the notes array.",
+            code="validation_error",
         )
 
     if len(notes) > _MAX_NOTES:
         raise HandlerError(
             f"Too many notes: {len(notes)} (maximum is {_MAX_NOTES})",
             hint=f"Split your request into batches of {_MAX_NOTES} or fewer.",
+            code="limit_exceeded",
             requested=len(notes),
             maximum=_MAX_NOTES,
         )
@@ -69,6 +71,7 @@ def add_notes(
         raise HandlerError(
             f"Deck not found: {deck_name}",
             hint="Use list_decks tool to see available decks or create_deck to create a new one.",
+            code="not_found",
             deck_name=deck_name,
             model_name=model_name,
         )
@@ -80,6 +83,7 @@ def add_notes(
         raise HandlerError(
             f"Model not found: {model_name}",
             hint="Use model_names tool to see available models.",
+            code="not_found",
             deck_name=deck_name,
             model_name=model_name,
         )
