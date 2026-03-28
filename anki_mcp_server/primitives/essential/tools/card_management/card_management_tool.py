@@ -62,7 +62,7 @@ class UnburyParams(BaseModel):
     _tool_description: ClassVar[str] = (
         "unbury: Restore all buried cards in a specific deck. "
         "Unburies ALL buried cards in the specified deck. "
-        "Returns unburied count."
+        "Returns deck_name."
     )
     action: Literal["unbury"]
     deck_name: str = Field(description="Deck name to unbury all cards from")
@@ -84,7 +84,7 @@ class UnsuspendParams(BaseModel):
     _tool_description: ClassVar[str] = (
         "unsuspend: Unsuspend cards (restore suspended cards to their previous queue). "
         "Only affects cards that are currently suspended. "
-        "Returns unsuspended count."
+        "Returns unsuspended_count and card_ids."
     )
     action: Literal["unsuspend"]
     card_ids: list[int] = Field(description="Card IDs to unsuspend")
@@ -107,7 +107,7 @@ class SetDueDateParams(BaseModel):
     _tool_description: ClassVar[str] = (
         "set_due_date: Set or change the due date for cards. "
         "Days: '0' = due now, '5' = due in 5 days, '5-7' = random range, '5!' = also reset interval. "
-        "Returns rescheduled count."
+        "Returns affected_count and card_ids."
     )
     action: Literal["set_due_date"]
     card_ids: list[int] = Field(description="Card IDs to reschedule")
@@ -119,7 +119,7 @@ class ForgetCardsParams(BaseModel):
     _tool_description: ClassVar[str] = (
         "forget_cards: Reset cards back to new state (forget scheduling). "
         "Options: restore_position (default true), reset_counts (default false). "
-        "Returns reset count."
+        "Returns affected_count and card_ids."
     )
     action: Literal["forget_cards"]
     card_ids: list[int] = Field(description="Card IDs to reset to new state")
