@@ -21,12 +21,16 @@ def notes_info(
     exclude_fields: list[str] | None = None,
 ) -> dict[str, Any]:
     if not notes:
-        raise HandlerError("notes parameter cannot be empty")
+        raise HandlerError(
+            "notes parameter cannot be empty",
+            code="validation_error",
+        )
 
     if len(notes) > 100:
         raise HandlerError(
             f"Maximum 100 notes at once (requested: {len(notes)})",
             hint="Split your request into smaller batches",
+            code="limit_exceeded",
         )
 
     col = get_col()

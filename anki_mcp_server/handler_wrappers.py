@@ -36,26 +36,34 @@ class HandlerError(Exception):
     """Structured error for tool and resource handlers.
 
     Raise this exception to signal an error to the AI client with optional
-    hints and additional context data. The error message will be formatted
-    with hints and context, then re-raised as a plain Exception for
-    request_processor to catch and serialize.
+    hints, error code, and additional context data. The error message will be
+    formatted with code, hints and context, then re-raised as a plain Exception
+    for request_processor to catch and serialize.
 
     Args:
         message: Description of what went wrong
         hint: Actionable suggestion for the AI (optional)
+        code: Machine-readable error code (optional). Standard codes:
+            - "not_found" -- deck/note/card/model not found
+            - "validation_error" -- invalid parameters
+            - "collection_unavailable" -- collection not open
+            - "limit_exceeded" -- too many items requested
+            - "duplicate" -- duplicate detected
         **data: Extra context like filename, query, etc. (optional)
 
     Example:
         raise HandlerError(
             "Deck not found",
             hint="Check spelling or use list_decks to see available decks",
+            code="not_found",
             deck_name="Spansh"
         )
     """
-    def __init__(self, message: str, hint: Optional[str] = None, **data: Any):
+    def __init__(self, message: str, hint: Optional[str] = None, *, code: Optional[str] = None, **data: Any):
         super().__init__(message)
         self.message = message
         self.hint = hint
+        self.code = code
         self.data = data
 
 
@@ -87,9 +95,11 @@ def _error_handler(func: Callable[..., Any]) -> Callable[..., Any]:
             return func(*args, **kwargs)
         except HandlerError as e:
             # Log for debugging
-            logger.warning("Handler error: %s (hint: %s)", e.message, e.hint)
-            # Format message with hint and context for AI client
+            logger.warning("Handler error: %s (hint: %s, code: %s)", e.message, e.hint, e.code)
+            # Format message with code, hint and context for AI client
             msg = e.message
+            if e.code:
+                msg = f"[{e.code}] {msg}"
             if e.hint:
                 msg += f" (hint: {e.hint})"
             if e.data:
@@ -125,7 +135,11 @@ def _require_col(func: Callable[..., Any]) -> Callable[..., Any]:
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         mw = _get_mw()
         if mw is None or mw.col is None:
-            raise HandlerError("Collection not available", hint="Open a profile in Anki first")
+            raise HandlerError(
+                "Collection not available",
+                hint="Open a profile in Anki first",
+                code="collection_unavailable",
+            )
         return func(*args, **kwargs)
 
     return wrapper
@@ -188,5 +202,9 @@ def get_col() -> Any:
     """
     mw = _get_mw()
     if mw is None or mw.col is None:
-        raise HandlerError("Collection not available", hint="Open a profile in Anki first")
+        raise HandlerError(
+            "Collection not available",
+            hint="Open a profile in Anki first",
+            code="collection_unavailable",
+        )
     return mw.col

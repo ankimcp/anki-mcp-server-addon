@@ -4,11 +4,13 @@ from typing import Any
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
 
+_MAX_LIMIT = 500
+
 
 @Tool(
     "find_notes",
     "Search for notes using Anki query syntax. Returns an array of note IDs matching the query. "
-    "Supports pagination with limit/offset parameters. "
+    "Supports pagination with limit/offset parameters. Maximum limit is 500 per request. "
     'Examples: "deck:Spanish", "tag:verb", "is:due", "front:hello", "added:1" (cards added today), '
     '"prop:due<=2" (cards due within 2 days), "flag:1" (red flag), "is:suspended"',
 )
@@ -17,7 +19,7 @@ def find_notes(query: str, limit: int = 100, offset: int = 0) -> dict[str, Any]:
 
     Args:
         query: Anki search query string.
-        limit: Maximum number of note IDs to return (default 100).
+        limit: Maximum number of note IDs to return (default 100, max 500).
         offset: Number of results to skip for pagination (default 0).
 
     Returns:
@@ -27,12 +29,22 @@ def find_notes(query: str, limit: int = 100, offset: int = 0) -> dict[str, Any]:
         raise HandlerError(
             "limit must be positive",
             hint="Use a value >= 1",
+            code="validation_error",
             provided_value=limit,
+        )
+    if limit > _MAX_LIMIT:
+        raise HandlerError(
+            f"limit exceeds maximum of {_MAX_LIMIT} (requested: {limit})",
+            hint=f"Use a limit <= {_MAX_LIMIT} and paginate with offset",
+            code="limit_exceeded",
+            provided_value=limit,
+            maximum=_MAX_LIMIT,
         )
     if offset < 0:
         raise HandlerError(
             "offset cannot be negative",
             hint="Use a value >= 0",
+            code="validation_error",
             provided_value=offset,
         )
 
