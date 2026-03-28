@@ -23,7 +23,8 @@ class RepositionParams(BaseModel):
     """Parameters for reposition action."""
     _tool_description: ClassVar[str] = (
         "reposition: Reposition NEW cards in the review queue (set learning order). "
-        "Only works on NEW cards (queue=0). Non-new cards are silently skipped."
+        "Only works on NEW cards (queue=0). Non-new cards are silently skipped. "
+        "Returns repositioned count."
     )
     action: Literal["reposition"]
     card_ids: list[int] = Field(description="Card IDs to reposition")
@@ -37,7 +38,8 @@ class ChangeDeckParams(BaseModel):
     """Parameters for change_deck action."""
     _tool_description: ClassVar[str] = (
         "change_deck: Move cards to a different deck (creates deck if needed). "
-        "Works with ANY card type."
+        "Works with ANY card type. "
+        "Returns moved count and deck_id."
     )
     action: Literal["change_deck"]
     card_ids: list[int] = Field(description="Card IDs to move")
@@ -48,7 +50,8 @@ class BuryParams(BaseModel):
     """Parameters for bury action."""
     _tool_description: ClassVar[str] = (
         "bury: Manually bury cards to hide them until the next day. "
-        "Works with ANY card type."
+        "Works with ANY card type. "
+        "Returns buried count."
     )
     action: Literal["bury"]
     card_ids: list[int] = Field(description="Card IDs to bury")
@@ -58,7 +61,8 @@ class UnburyParams(BaseModel):
     """Parameters for unbury action."""
     _tool_description: ClassVar[str] = (
         "unbury: Restore all buried cards in a specific deck. "
-        "Unburies ALL buried cards in the specified deck."
+        "Unburies ALL buried cards in the specified deck. "
+        "Returns unburied count."
     )
     action: Literal["unbury"]
     deck_name: str = Field(description="Deck name to unbury all cards from")
@@ -68,7 +72,8 @@ class SuspendParams(BaseModel):
     """Parameters for suspend action."""
     _tool_description: ClassVar[str] = (
         "suspend: Suspend cards (hide from review indefinitely until unsuspended). "
-        "Works with ANY card type."
+        "Works with ANY card type. "
+        "Returns suspended_count."
     )
     action: Literal["suspend"]
     card_ids: list[int] = Field(description="Card IDs to suspend")
@@ -78,7 +83,8 @@ class UnsuspendParams(BaseModel):
     """Parameters for unsuspend action."""
     _tool_description: ClassVar[str] = (
         "unsuspend: Unsuspend cards (restore suspended cards to their previous queue). "
-        "Only affects cards that are currently suspended."
+        "Only affects cards that are currently suspended. "
+        "Returns unsuspended count."
     )
     action: Literal["unsuspend"]
     card_ids: list[int] = Field(description="Card IDs to unsuspend")
@@ -88,7 +94,8 @@ class SetFlagParams(BaseModel):
     """Parameters for set_flag action."""
     _tool_description: ClassVar[str] = (
         "set_flag: Set or remove a colored flag on cards. "
-        "Flag values: 0=none/remove, 1=red, 2=orange, 3=green, 4=blue, 5-7=custom."
+        "Flag values: 0=none/remove, 1=red, 2=orange, 3=green, 4=blue, 5-7=custom. "
+        "Returns flagged count."
     )
     action: Literal["set_flag"]
     card_ids: list[int] = Field(description="Card IDs to flag")
@@ -99,7 +106,8 @@ class SetDueDateParams(BaseModel):
     """Parameters for set_due_date action."""
     _tool_description: ClassVar[str] = (
         "set_due_date: Set or change the due date for cards. "
-        "Days: '0' = due now, '5' = due in 5 days, '5-7' = random range, '5!' = also reset interval."
+        "Days: '0' = due now, '5' = due in 5 days, '5-7' = random range, '5!' = also reset interval. "
+        "Returns rescheduled count."
     )
     action: Literal["set_due_date"]
     card_ids: list[int] = Field(description="Card IDs to reschedule")
@@ -110,7 +118,8 @@ class ForgetCardsParams(BaseModel):
     """Parameters for forget_cards action."""
     _tool_description: ClassVar[str] = (
         "forget_cards: Reset cards back to new state (forget scheduling). "
-        "Options: restore_position (default true), reset_counts (default false)."
+        "Options: restore_position (default true), reset_counts (default false). "
+        "Returns reset count."
     )
     action: Literal["forget_cards"]
     card_ids: list[int] = Field(description="Card IDs to reset to new state")

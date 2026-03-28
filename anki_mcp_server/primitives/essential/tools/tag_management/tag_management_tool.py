@@ -20,7 +20,8 @@ class AddTagsParams(BaseModel):
     """Parameters for add_tags action."""
     _tool_description: ClassVar[str] = (
         "add_tags: Add tags to notes by note IDs. "
-        "Tags: space-separated tag names (e.g., 'vocab grammar')."
+        "Tags: space-separated tag names (e.g., 'vocab grammar'). "
+        "Returns added_count."
     )
     action: Literal["add_tags"]
     note_ids: list[int] = Field(description="Note IDs to add tags to")
@@ -31,7 +32,8 @@ class RemoveTagsParams(BaseModel):
     """Parameters for remove_tags action."""
     _tool_description: ClassVar[str] = (
         "remove_tags: Remove tags from notes by note IDs. "
-        "Tags: space-separated tag names to remove."
+        "Tags: space-separated tag names to remove. "
+        "Returns removed_count."
     )
     action: Literal["remove_tags"]
     note_ids: list[int] = Field(description="Note IDs to remove tags from")
@@ -42,7 +44,8 @@ class ReplaceTagsParams(BaseModel):
     """Parameters for replace_tags action."""
     _tool_description: ClassVar[str] = (
         "replace_tags: Replace a tag with another on specific notes. "
-        "Adds new_tag then removes old_tag on the given notes."
+        "Adds new_tag then removes old_tag on the given notes. "
+        "Returns added_count and removed_count."
     )
     action: Literal["replace_tags"]
     note_ids: list[int] = Field(description="Note IDs to replace tags on")
@@ -54,7 +57,8 @@ class GetTagsParams(BaseModel):
     """Parameters for get_tags action."""
     _tool_description: ClassVar[str] = (
         "get_tags: List all tags in the collection. "
-        "No parameters needed."
+        "No parameters needed. "
+        "Returns tags array and count."
     )
     action: Literal["get_tags"]
 
@@ -63,7 +67,8 @@ class ClearUnusedTagsParams(BaseModel):
     """Parameters for clear_unused_tags action."""
     _tool_description: ClassVar[str] = (
         "clear_unused_tags: Remove tags that are not used by any notes. "
-        "No parameters needed."
+        "No parameters needed. "
+        "Returns cleared_count."
     )
     action: Literal["clear_unused_tags"]
 
@@ -84,7 +89,8 @@ class BatchTagsParams(BaseModel):
     _tool_description: ClassVar[str] = (
         "batch_tags: Apply multiple add/remove tag operations in a single call. "
         "Each operation specifies type ('add' or 'remove'), note_ids, and tags. "
-        "Operations execute in order with partial success support. Max 50 operations."
+        "Operations execute in order with partial success support. Max 50 operations. "
+        "Returns per-operation results with affected_count, plus succeeded/failed totals."
     )
     action: Literal["batch_tags"]
     operations: list[TagOperation] = Field(

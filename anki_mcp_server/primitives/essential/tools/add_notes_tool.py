@@ -31,7 +31,8 @@ class NoteEntry(BaseModel):
     "Add multiple notes to Anki in a single batch. Up to 100 notes sharing the same deck and model. "
     "Uses Anki's native batch API for atomic undo support. Supports partial success - "
     "individual failures don't affect others. "
-    "IMPORTANT: Only create notes that were explicitly requested by the user.",
+    "IMPORTANT: Only create notes that were explicitly requested by the user. "
+    "Returns summary counts (created, skipped, failed) and a per-note results array with status and note_id.",
     write=True,
 )
 def add_notes(

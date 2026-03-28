@@ -12,7 +12,8 @@ from ....handler_wrappers import HandlerError, get_col
     'Maximum 2 levels of nesting allowed. Will not overwrite existing decks. '
     'IMPORTANT: This tool ONLY creates an empty deck. DO NOT add cards or notes after '
     'creating a deck unless the user EXPLICITLY asks to add them. Wait for user instructions '
-    'before adding any content.',
+    'before adding any content. '
+    'Returns deckId and created flag (false if deck already existed).',
     write=True,
 )
 def create_deck(deck_name: str) -> dict[str, Any]:

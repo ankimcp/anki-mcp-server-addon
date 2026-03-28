@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 
 @Tool(
     "list_decks",
-    "List all available Anki decks, optionally with statistics. Remember to sync first at the start of a review session for latest data.",
+    "List all available Anki decks, optionally with statistics. Remember to sync first at the start of a review session for latest data. "
+    "Returns deck objects with deck_id, name, and is_filtered. With include_stats=true, adds per-deck card counts (new, learn, review, total).",
 )
 def list_decks(include_stats: bool = False) -> dict[str, Any]:
     col = get_col()

@@ -20,7 +20,8 @@ class CreateOrUpdateParams(BaseModel):
         "create_or_update: Create a new filtered deck or update an existing one. "
         "Filtered decks temporarily borrow cards from other decks based on search queries. "
         "Cards are NOT duplicated -- they are moved temporarily. "
-        "Max 2 search terms per deck (Anki hard limit)."
+        "Max 2 search terms per deck (Anki hard limit). "
+        "Returns deck_id and card_count. Note: Anki may modify the deck name if it conflicts."
     )
     action: Literal["create_or_update"]
     deck_id: int = Field(
@@ -52,7 +53,8 @@ class CreateOrUpdateParams(BaseModel):
 class RebuildParams(BaseModel):
     _tool_description: ClassVar[str] = (
         "rebuild: Empty and re-pull cards matching the deck's search terms. "
-        "Rebuilding first returns all cards to home decks, then re-searches."
+        "Rebuilding first returns all cards to home decks, then re-searches. "
+        "Returns card_count after rebuild."
     )
     action: Literal["rebuild"]
     deck_id: int = Field(description="Filtered deck ID")

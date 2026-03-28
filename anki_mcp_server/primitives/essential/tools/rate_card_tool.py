@@ -9,7 +9,8 @@ from ....handler_wrappers import HandlerError, get_col
     "rate_card",
     "Submit a rating for a card to update Anki's spaced repetition scheduling. "
     "Use this ONLY after the user confirms or modifies your suggested rating. "
-    "Do not rate automatically without user input.",
+    "Do not rate automatically without user input. "
+    "Returns next_review date, new_interval (days for review cards), and card_type.",
     write=True,
 )
 def rate_card(card_id: int, rating: int) -> dict[str, Any]:

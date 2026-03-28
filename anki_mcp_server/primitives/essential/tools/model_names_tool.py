@@ -7,7 +7,8 @@ from ....handler_wrappers import get_col
 
 @Tool(
     "model_names",
-    "Get a list of all available note type (model) names in Anki. Use this to see what note types are available before creating notes.",
+    "Get a list of all available note type (model) names in Anki. Use this to see what note types are available before creating notes. "
+    "Returns modelNames list and commonTypes shortcuts (basic, basicReversed, cloze).",
 )
 def model_names() -> dict[str, Any]:
     col = get_col()

@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 
 @Tool(
     "delete_notes",
-    "Delete notes by their IDs. This will permanently remove the notes and ALL associated cards. This action cannot be undone unless you have a backup. CRITICAL: This is destructive and permanent - only delete notes the user explicitly confirmed for deletion.",
+    "Delete notes by their IDs. This will permanently remove the notes and ALL associated cards. This action cannot be undone unless you have a backup. CRITICAL: This is destructive and permanent - only delete notes the user explicitly confirmed for deletion. "
+    "Returns deletedCount, cardsDeleted, and notFoundCount.",
     write=True,
 )
 def delete_notes(notes: list[int], confirmDeletion: bool) -> dict[str, Any]:

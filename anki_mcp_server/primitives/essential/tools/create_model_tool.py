@@ -7,7 +7,8 @@ from ....handler_wrappers import HandlerError, get_col
 
 @Tool(
     "create_model",
-    "Create a new note type (model) in Anki with custom fields, card templates, and styling. Useful for creating specialized models like RTL (Right-to-Left) language models for Hebrew, Arabic, etc. Each model defines the structure of notes and how cards are generated from them.",
+    "Create a new note type (model) in Anki with custom fields, card templates, and styling. Useful for creating specialized models like RTL (Right-to-Left) language models for Hebrew, Arabic, etc. Each model defines the structure of notes and how cards are generated from them. "
+    "Returns model_id, fields list, template_count, and any template warnings.",
     write=True,
 )
 def create_model(

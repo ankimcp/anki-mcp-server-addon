@@ -54,7 +54,8 @@ def _fsrs_params_equal(params1: list[float], params2: list[float]) -> bool:
     "This analyzes review history to find optimal FSRS weights. "
     "Set apply_results=False (default) for a dry run that shows what the optimized params would be. "
     "Set apply_results=True to save the optimized parameters. "
-    "This operation runs synchronously and typically takes 5-30 seconds depending on review history size.",
+    "This operation runs synchronously and typically takes 5-30 seconds depending on review history size. "
+    "Returns current_params vs optimized_params comparison, already_optimal flag, and applied flag.",
     write=True,
 )
 def optimize_fsrs_params(preset_name: str, apply_results: bool = False) -> dict[str, Any]:
