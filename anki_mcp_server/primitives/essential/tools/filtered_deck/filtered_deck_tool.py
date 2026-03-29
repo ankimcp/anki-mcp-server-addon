@@ -11,6 +11,7 @@ from .actions.create_or_update import create_or_update_impl
 from .actions.rebuild import rebuild_impl
 from .actions.empty import empty_impl
 from .actions.delete import delete_impl
+from .actions.get_info import get_info_impl
 
 _BASE_DESCRIPTION = "Manage filtered (cram) decks"
 
@@ -78,8 +79,24 @@ class DeleteParams(BaseModel):
     deck_id: int = Field(description="Filtered deck ID")
 
 
+class GetInfoParams(BaseModel):
+    _tool_description: ClassVar[str] = (
+        "get_info: Inspect filtered deck configuration. "
+        "Returns search terms, limits, order, reschedule setting, and card count for each deck. "
+        "Non-filtered decks are included with is_filtered=false. "
+        "Non-existent deck IDs are silently skipped (see not_found count). "
+        "Max 50 deck IDs per request."
+    )
+    action: Literal["get_info"]
+    deck_ids: list[int] = Field(
+        description="Deck IDs to inspect (max 50)",
+        min_length=1,
+        max_length=50,
+    )
+
+
 FilteredDeckParams = Annotated[
-    Union[CreateOrUpdateParams, RebuildParams, EmptyParams, DeleteParams],
+    Union[CreateOrUpdateParams, RebuildParams, EmptyParams, DeleteParams, GetInfoParams],
     Field(discriminator="action"),
 ]
 
@@ -105,5 +122,7 @@ def filtered_deck(params: FilteredDeckParams) -> dict[str, Any]:
             return empty_impl(deck_id=params.deck_id)
         case "delete":
             return delete_impl(deck_id=params.deck_id)
+        case "get_info":
+            return get_info_impl(deck_ids=params.deck_ids)
         case _:
             raise HandlerError(f"Unknown action: {params.action}")
