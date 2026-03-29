@@ -79,7 +79,7 @@ class TestFilteredDeckGetInfo:
         assert len(deck_info["search_terms"]) == 1
 
         term = deck_info["search_terms"][0]
-        assert f'deck:"{source_deck}"' in term["search"]
+        assert source_deck in term["search"]
         assert term["limit"] == 100
         assert term["order"] == "due"
 

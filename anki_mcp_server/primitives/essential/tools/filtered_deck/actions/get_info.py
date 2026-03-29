@@ -30,7 +30,7 @@ def get_info_impl(deck_ids: list[int]) -> dict[str, Any]:
 
     for deck_id in deck_ids:
         deck = col.decks.get(deck_id)
-        if not deck:
+        if not deck or deck["id"] != deck_id:
             not_found += 1
             continue
 
