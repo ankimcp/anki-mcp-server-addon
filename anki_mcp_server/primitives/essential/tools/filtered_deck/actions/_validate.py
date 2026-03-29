@@ -6,7 +6,7 @@ from ......handler_wrappers import HandlerError
 
 def validate_filtered_deck(col: Any, deck_id: int) -> dict[str, Any]:
     deck = col.decks.get(deck_id)
-    if not deck:
+    if not deck or deck["id"] != deck_id:
         raise HandlerError(
             "Deck not found",
             hint="Check deck_id. Use list_decks to see available decks.",
