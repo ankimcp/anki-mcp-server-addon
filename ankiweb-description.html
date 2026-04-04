@@ -17,11 +17,17 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
 </ul>
 
-<h2>What's New in v0.11</h2>
+<h2>What's New in v0.12</h2>
 <ul>
-<li><b>Dry-run deletions</b> - <code>delete_notes</code> now supports <code>dry_run=true</code> to preview what would be deleted without actually deleting anything</li>
-<li><b>Structured error codes</b> - Errors include machine-readable codes like <code>[not_found]</code>, <code>[validation_error]</code>, <code>[limit_exceeded]</code> for programmatic handling</li>
-<li><b>Improved tool descriptions</b> - All tools now document their response fields, helping AI clients chain tools more effectively</li>
+<li><b>Filtered deck inspection</b> - New <code>get_info</code> action for <code>filtered_deck</code> retrieves search terms, order, card count, and reschedule settings for up to 50 decks at once. Works on both filtered and regular decks</li>
+<li><b>Fix: Invalid deck ID handling</b> - Anki's <code>col.decks.get()</code> silently returns the Default deck for non-existent IDs. All filtered deck actions now correctly report "Deck not found" instead of misleading errors</li>
+</ul>
+
+<h2>v0.11 Highlights</h2>
+<ul>
+<li><b>Dry-run deletions</b> - <code>delete_notes</code> supports <code>dry_run=true</code> to preview deletions</li>
+<li><b>Structured error codes</b> - Machine-readable codes like <code>[not_found]</code>, <code>[validation_error]</code>, <code>[limit_exceeded]</code></li>
+<li><b>Improved tool descriptions</b> - All tools document their response fields for better AI chaining</li>
 </ul>
 
 <h2>v0.10 Highlights</h2>
@@ -29,18 +35,6 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>Multi-session support</b> - Multiple AI clients can connect simultaneously. Tested with 29 concurrent sessions</li>
 <li><b>Batch tag operations</b> - <code>batch_tags</code> action: up to 50 mixed add/remove tag operations in a single call</li>
 <li><b>Field filtering on notes_info</b> - <code>include_fields</code> / <code>exclude_fields</code> parameters reduce response size for bulk queries</li>
-</ul>
-
-<h2>v0.9 Highlights</h2>
-<ul>
-<li><b>Batch note creation</b> - <code>add_notes</code> tool adds up to 100 notes in a single call with atomic undo and partial success support</li>
-<li><b>Tool filtering</b> - <code>disabled_tools</code> config hides tools or individual actions from AI clients</li>
-<li><b>FSRS tools</b> - Get/set FSRS parameters, inspect card memory state, and run parameter optimization</li>
-<li><b>Filtered decks</b> - Create, rebuild, empty, and delete filtered decks</li>
-<li><b>Tag management</b> - Bulk add/remove tags, replace tags, list all tags, clear unused</li>
-<li><b>Card management</b> - 9 actions: reposition, change_deck, bury, unbury, suspend, unsuspend, set_flag, set_due_date, forget_cards</li>
-<li><b>Rich resources</b> - Query syntax reference, data schema docs, today's stats, 30-day forecast, collection stats, FSRS config</li>
-<li><b>Voice-mode review</b> - Skip cards with images/audio for voice-only study sessions</li>
 </ul>
 
 <h2>Installation</h2>
@@ -101,7 +95,7 @@ AI-powered study sessions, card creation, and collection management.</p>
 <ul>
 <li><b>card_management</b> - 9 actions: reposition, change_deck, bury, unbury, suspend, unsuspend, set_flag, set_due_date, forget_cards</li>
 <li><b>tag_management</b> - 6 actions: add_tags, remove_tags, replace_tags, get_tags, clear_unused_tags, batch_tags</li>
-<li><b>filtered_deck</b> - 4 actions: create_or_update, rebuild, empty, delete</li>
+<li><b>filtered_deck</b> - 5 actions: create_or_update, rebuild, empty, delete, get_info</li>
 </ul>
 
 <h3>FSRS Tools</h3>
