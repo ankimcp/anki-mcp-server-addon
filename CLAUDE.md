@@ -107,6 +107,8 @@ anki_mcp_server/
 
 **Vendored Dependencies**: Located in `vendor/shared/`. The `__init__.py` prepends vendor path to `sys.path` at startup. On load, `_check_vendor_conflicts()` warns if any vendored packages (mcp, pydantic, starlette, uvicorn, etc.) are already in `sys.modules` from other addons — helps debug compatibility issues.
 
+**Build (`package.sh`)**: Downloads wheels pinned to `--python-version 313` (Anki 25.07's Python). Deliberately **excludes `pydantic_core`** from the bundle — it has platform-specific binaries and is instead lazy-loaded at runtime via `dependency_loader.py`. If modifying the build, keep this exclusion intact.
+
 ### Decorator Patterns
 
 All MCP primitives use decorator-based registration. At import time, decorators automatically:
@@ -329,14 +331,8 @@ For changes that can't be tested via E2E (UI interactions, config dialog):
 
 ### CI / Release
 
-- **E2E tests** run on every push and PR to `main` (`.github/workflows/e2e.yml`)
+- **E2E tests** run on every push and PR to `main` (`.github/workflows/e2e.yml`). Uses `concurrency: cancel-in-progress: true` — pushing again auto-cancels any in-progress E2E run for the same branch.
 - **Releases** trigger on `v*.*.*` tags — runs E2E first, then creates GitHub Release with the `.ankiaddon` artifact (`.github/workflows/release.yml`)
-
-## Documentation
-
-- [Anki Add-on Docs](https://addon-docs.ankiweb.net/) - Official addon development documentation
-- [MCP Protocol](https://modelcontextprotocol.io/) - Model Context Protocol specification
-- [FastMCP](https://github.com/jlowin/fastmcp) - MCP SDK used by this addon
 
 ## Known Gotchas
 

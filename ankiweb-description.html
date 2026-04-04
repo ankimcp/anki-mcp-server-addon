@@ -54,16 +54,20 @@ AI-powered study sessions, card creation, and collection management.</p>
 </ol>
 
 <h2>Connect with Claude Desktop</h2>
-<p>Add to your Claude Desktop config (<code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS):</p>
+<p>Requires <a href="https://nodejs.org/">Node.js</a>. Add to your Claude Desktop config (<code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS):</p>
 <pre>
 {
   "mcpServers": {
     "anki": {
-      "url": "http://127.0.0.1:3141/"
+      "command": "npx",
+      "args": ["mcp-remote", "http://127.0.0.1:3141"]
     }
   }
 }
 </pre>
+
+<h2>Connect with Claude Code</h2>
+<pre>claude mcp add anki --transport http http://127.0.0.1:3141/</pre>
 
 <h2>Available Tools</h2>
 

@@ -40,16 +40,25 @@ The server starts automatically when you open Anki. Check status via *Tools → 
 
 ### Connect with Claude Desktop
 
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+Requires [Node.js](https://nodejs.org/) installed. Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
 ```json
 {
   "mcpServers": {
     "anki": {
-      "url": "http://127.0.0.1:3141/"
+      "command": "npx",
+      "args": ["mcp-remote", "http://127.0.0.1:3141"]
     }
   }
 }
+```
+
+> **Note:** Claude Desktop doesn't natively support HTTP servers in its JSON config — `mcp-remote` bridges the connection via stdio.
+
+### Connect with Claude Code
+
+```bash
+claude mcp add anki --transport http http://127.0.0.1:3141/
 ```
 
 ## Configuration
