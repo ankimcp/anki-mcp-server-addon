@@ -109,6 +109,8 @@ anki_mcp_server/
 
 **Build (`package.sh`)**: Downloads wheels pinned to `--python-version 313` (Anki 25.07's Python). Deliberately **excludes `pydantic_core`** from the bundle — it has platform-specific binaries and is instead lazy-loaded at runtime via `dependency_loader.py`. If modifying the build, keep this exclusion intact.
 
+**Keeping vendor lists in sync**: When adding or removing a vendored dependency, update **both** `PURE_PACKAGES` in `package.sh` (controls what gets downloaded/bundled) **and** `_VENDOR_PACKAGES` in `__init__.py` (controls conflict detection at startup). They must stay in sync.
+
 ### Decorator Patterns
 
 All MCP primitives use decorator-based registration. At import time, decorators automatically:
@@ -263,6 +265,8 @@ Configured via addon settings (`cors_origins`, `cors_expose_headers`). Empty `co
 
 ### E2E Tests
 
+All tests are E2E — there are no unit tests. This is by design: the addon runs inside Anki's Qt event loop and most code touches `mw.col`, making unit testing impractical without a full Anki environment.
+
 Tests run against a real Anki instance in Docker using [headless-anki](https://github.com/ankimcp/headless-anki). The test client is `npx @modelcontextprotocol/inspector --cli` (MCP Inspector CLI), which means **Node.js is required** in addition to Python.
 
 ```bash
@@ -329,10 +333,15 @@ For changes that can't be tested via E2E (UI interactions, config dialog):
 2. Install `.ankiaddon` in Anki (double-click or *Tools → Add-ons → Install from file...*)
 3. Restart Anki and check *Tools → AnkiMCP Server Settings...* for status
 
+### No Linters or Type Checkers
+
+This project has **no configured linters, formatters, or type checkers** (no ruff, flake8, mypy, black, etc.). The only dev dependency is `pytest`. Don't try to run linting commands or add linting configuration.
+
 ### CI / Release
 
 - **E2E tests** run on every push and PR to `main` (`.github/workflows/e2e.yml`). Uses `concurrency: cancel-in-progress: true` — pushing again auto-cancels any in-progress E2E run for the same branch.
 - **Releases** trigger on `v*.*.*` tags — runs E2E first, then creates GitHub Release with the `.ankiaddon` artifact (`.github/workflows/release.yml`)
+- **Version** lives in `__init__.py` as `__version__`. Bump it there before tagging a release.
 
 ## Known Gotchas
 

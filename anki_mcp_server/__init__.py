@@ -83,6 +83,7 @@ from aqt.qt import (
     QAction,
     QApplication,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -94,6 +95,7 @@ from aqt.utils import showInfo, showWarning
 from .config import Config, ConfigManager
 from .connection_manager import ConnectionManager
 from .tool_decorator import validate_disabled_tools
+from .tunnel.ui.settings_section import TunnelSettingsSection
 
 # Global instances
 _config_manager: Optional[ConfigManager] = None
@@ -175,7 +177,7 @@ def _setup_menu() -> None:
 
 
 def _show_settings() -> None:
-    """Show settings dialog with server info and Copy URL button."""
+    """Show settings dialog with HTTP server info, tunnel controls, and footer."""
     if _connection_manager is None or _config_manager is None:
         showInfo("AnkiMCP Server: Not initialized. Please load a profile first.")
         return
@@ -192,16 +194,15 @@ def _show_settings() -> None:
     # Create dialog
     dialog = QDialog(mw)
     dialog.setWindowTitle(f"AnkiMCP Server v{__version__}")
-    dialog.setMinimumWidth(400)
+    dialog.setMinimumWidth(450)
 
     layout = QVBoxLayout()
 
-    # Info labels
+    # -- HTTP Server section --
     layout.addWidget(QLabel(f"<b>Status:</b> {status}"))
     layout.addWidget(QLabel(f"<b>Auto-connect:</b> {config.auto_connect_on_startup}"))
     layout.addSpacing(10)
 
-    # Server URL section
     layout.addWidget(QLabel("<b>Server URL:</b>"))
 
     url_layout = QHBoxLayout()
@@ -216,7 +217,24 @@ def _show_settings() -> None:
     layout.addLayout(url_layout)
     layout.addSpacing(10)
 
-    # Footer
+    # -- Separator --
+    sep1 = QFrame(frameShape=QFrame.Shape.HLine)
+    sep1.setFrameShadow(QFrame.Shadow.Sunken)
+    layout.addWidget(sep1)
+    layout.addSpacing(6)
+
+    # -- Tunnel section --
+    tunnel_section = TunnelSettingsSection(_connection_manager, config, parent=dialog)
+    layout.addWidget(tunnel_section)
+    layout.addSpacing(6)
+
+    # -- Separator --
+    sep2 = QFrame(frameShape=QFrame.Shape.HLine)
+    sep2.setFrameShadow(QFrame.Shadow.Sunken)
+    layout.addWidget(sep2)
+    layout.addSpacing(6)
+
+    # -- Footer --
     website_label = QLabel("<b>Website:</b> <a href='https://ankimcp.ai'>https://ankimcp.ai</a>")
     website_label.setOpenExternalLinks(True)
     layout.addWidget(website_label)
@@ -228,7 +246,7 @@ def _show_settings() -> None:
     layout.addWidget(author_label)
     layout.addSpacing(10)
 
-    # Close button
+    # -- Close button --
     close_button = QPushButton("Close")
     close_button.clicked.connect(dialog.accept)
     layout.addWidget(close_button)

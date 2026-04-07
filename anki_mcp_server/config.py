@@ -43,6 +43,10 @@ class Config:
     # General
     auto_connect_on_startup: bool = True
 
+    # Tunnel settings
+    tunnel_server_url: str = "ws://localhost:3004"
+    tunnel_client_id: str = "ankimcp-cli"
+
     def is_valid_for_mode(self) -> tuple[bool, str]:
         """
         Check if config is valid for current mode.

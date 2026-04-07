@@ -5,8 +5,9 @@ thread with its own asyncio event loop. It uses the official MCP SDK (FastMCP) t
 handle the protocol and exposes Anki operations as MCP tools.
 
 Architecture:
-    - Background thread: Runs asyncio event loop with MCP server
+    - Background thread: Runs asyncio event loop with MCP server and optional tunnel
     - HTTP transport: Uses FastMCP's built-in streamable HTTP (starlette + uvicorn)
+    - Tunnel transport: TunnelReconnectManager runs as an asyncio task alongside HTTP
     - Queue bridge: Tool handlers bridge calls to main thread via QueueBridge
     - Async I/O: All tool handlers use asyncio.to_thread to bridge blocking queue ops
 
@@ -14,12 +15,14 @@ Thread Safety:
     - This module runs entirely in a background thread
     - Never accesses mw.col directly - all Anki operations go through QueueBridge
     - Uses asyncio.to_thread to safely call blocking queue.Queue operations
+    - Qt thread signals tunnel start/stop via asyncio.run_coroutine_threadsafe()
 """
 
 import asyncio
+import logging
 import threading
 import uuid
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import uvicorn
 from mcp.server.fastmcp import FastMCP
@@ -28,6 +31,8 @@ from mcp.server.transport_security import TransportSecuritySettings
 from .config import Config
 from .queue_bridge import QueueBridge, ToolRequest
 from .primitives import register_all_tools, register_all_resources, register_all_prompts
+
+logger = logging.getLogger(__name__)
 
 
 class McpServer:
@@ -44,11 +49,21 @@ class McpServer:
     4. Main thread processes request and returns result via queue
     5. Handler returns result to AI client
 
+    Tunnel support:
+    The tunnel runs as an asyncio task alongside the HTTP server on the same
+    event loop. The Qt main thread can start/stop the tunnel dynamically via
+    start_tunnel()/stop_tunnel(), which use asyncio.run_coroutine_threadsafe()
+    to schedule operations on the background loop.
+
     Attributes:
         _bridge: Queue bridge for thread-safe communication with main thread
         _config: Server configuration (HTTP host/port, mode, etc.)
         _thread: Background thread running the asyncio event loop
         _shutdown_event: Event to signal server shutdown
+        _loop: Reference to the background asyncio event loop (set once running)
+        _tunnel_task: The asyncio task running TunnelReconnectManager.run()
+        _tunnel_manager: The active TunnelReconnectManager instance
+        _tunnel_running: Thread-safe flag indicating tunnel status
     """
 
     def __init__(self, bridge: QueueBridge, config: Config) -> None:
@@ -62,6 +77,17 @@ class McpServer:
         self._config = config
         self._thread: Optional[threading.Thread] = None
         self._shutdown_event = threading.Event()
+
+        # Asyncio loop reference — set in _async_main(), used by
+        # start_tunnel()/stop_tunnel() for cross-thread scheduling.
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+        # Tunnel state — all access is thread-safe via GIL for simple
+        # attribute reads/writes, plus asyncio.run_coroutine_threadsafe()
+        # for operations that touch the event loop.
+        self._tunnel_task: Optional[asyncio.Task] = None
+        self._tunnel_manager: Optional[Any] = None  # TunnelReconnectManager
+        self._tunnel_running: bool = False
 
     def start(self) -> None:
         """Start MCP server in background thread.
@@ -91,6 +117,216 @@ class McpServer:
             Safe to call from main thread (Qt event loop).
         """
         self._shutdown_event.set()
+        # Stop the tunnel if running — best effort, don't wait
+        if self._tunnel_running:
+            self.stop_tunnel()
+
+    # ------------------------------------------------------------------
+    # Tunnel control — called from Qt main thread
+    # ------------------------------------------------------------------
+
+    def start_tunnel(
+        self,
+        credentials_manager: Any,
+        auth: Any,
+        on_tunnel_established: Callable[[str, str | None], None] | None = None,
+        on_disconnected: Callable[[int, str], None] | None = None,
+        on_error: Callable[[str, str], None] | None = None,
+        on_request_completed: Callable[[str, int, float], None] | None = None,
+        on_reconnecting: Callable[[int, float], None] | None = None,
+        on_gave_up: Callable[[int, str], None] | None = None,
+    ) -> None:
+        """Start the tunnel alongside the HTTP server.
+
+        Called from the Qt main thread. Schedules tunnel startup on the
+        background asyncio loop via asyncio.run_coroutine_threadsafe().
+
+        Args:
+            credentials_manager: CredentialsManager instance for token I/O.
+            auth: DeviceFlowAuth instance for token refresh.
+            on_tunnel_established: Called when tunnel is ready (url, expires_at).
+            on_disconnected: Called when a connection ends (code, reason).
+            on_error: Called on server error (error_code, message).
+            on_request_completed: Called after each proxied request
+                (method_path, status_code, duration_ms).
+            on_reconnecting: Called before each reconnection delay
+                (attempt, delay_seconds).
+            on_gave_up: Called when reconnection is permanently abandoned
+                (close_code, reason).
+
+        Thread Safety:
+            Safe to call from any thread. The actual work runs on the
+            background asyncio loop.
+        """
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            logger.warning("Cannot start tunnel: asyncio loop not running")
+            return
+
+        asyncio.run_coroutine_threadsafe(
+            self._start_tunnel_async(
+                credentials_manager=credentials_manager,
+                auth=auth,
+                on_tunnel_established=on_tunnel_established,
+                on_disconnected=on_disconnected,
+                on_error=on_error,
+                on_request_completed=on_request_completed,
+                on_reconnecting=on_reconnecting,
+                on_gave_up=on_gave_up,
+            ),
+            loop,
+        )
+
+    def stop_tunnel(self) -> None:
+        """Stop the tunnel if running.
+
+        Called from the Qt main thread. Schedules tunnel shutdown on the
+        background asyncio loop via asyncio.run_coroutine_threadsafe().
+
+        Thread Safety:
+            Safe to call from any thread.
+        """
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+
+        asyncio.run_coroutine_threadsafe(self._stop_tunnel_async(), loop)
+
+    @property
+    def tunnel_running(self) -> bool:
+        """Whether the tunnel is currently running.
+
+        Thread Safety:
+            Safe to read from any thread (Python GIL makes simple
+            attribute reads atomic).
+        """
+        return self._tunnel_running
+
+    # ------------------------------------------------------------------
+    # Tunnel async internals — run on the background asyncio loop
+    # ------------------------------------------------------------------
+
+    async def _start_tunnel_async(
+        self,
+        credentials_manager: Any,
+        auth: Any,
+        on_tunnel_established: Callable[[str, str | None], None] | None = None,
+        on_disconnected: Callable[[int, str], None] | None = None,
+        on_error: Callable[[str, str], None] | None = None,
+        on_request_completed: Callable[[str, int, float], None] | None = None,
+        on_reconnecting: Callable[[int, float], None] | None = None,
+        on_gave_up: Callable[[int, str], None] | None = None,
+    ) -> None:
+        """Internal: start the tunnel on the asyncio loop.
+
+        Creates a TunnelReconnectManager and runs it as an asyncio task.
+        If a tunnel is already running, stops it first.
+        """
+        # Stop existing tunnel if running
+        if self._tunnel_task is not None and not self._tunnel_task.done():
+            await self._stop_tunnel_async()
+
+        from .tunnel.reconnect import TunnelReconnectManager
+
+        # Build local MCP URL for request forwarding
+        if self._config.http_path:
+            path_prefix = f"/{self._config.http_path.strip('/')}/"
+        else:
+            path_prefix = "/"
+        local_mcp_url = f"http://{self._config.http_host}:{self._config.http_port}{path_prefix}"
+
+        # Wrap the on_tunnel_established callback to also set _tunnel_running
+        original_on_established = on_tunnel_established
+
+        def _on_established_wrapper(url: str, expires_at: str | None) -> None:
+            self._tunnel_running = True
+            if original_on_established is not None:
+                original_on_established(url, expires_at)
+
+        # Wrap on_disconnected to update _tunnel_running
+        original_on_disconnected = on_disconnected
+
+        def _on_disconnected_wrapper(code: int, reason: str) -> None:
+            # Don't clear _tunnel_running here — the reconnect manager may
+            # reconnect. Only gave_up and explicit stop clear it.
+            if original_on_disconnected is not None:
+                original_on_disconnected(code, reason)
+
+        # Wrap on_gave_up to clear _tunnel_running
+        original_on_gave_up = on_gave_up
+
+        def _on_gave_up_wrapper(code: int, reason: str) -> None:
+            self._tunnel_running = False
+            self._tunnel_manager = None
+            if original_on_gave_up is not None:
+                original_on_gave_up(code, reason)
+
+        manager = TunnelReconnectManager(
+            server_url=self._config.tunnel_server_url,
+            local_mcp_url=local_mcp_url,
+            credentials_manager=credentials_manager,
+            auth=auth,
+            on_tunnel_established=_on_established_wrapper,
+            on_disconnected=_on_disconnected_wrapper,
+            on_error=on_error,
+            on_request_completed=on_request_completed,
+            on_reconnecting=on_reconnecting,
+            on_gave_up=_on_gave_up_wrapper,
+        )
+
+        self._tunnel_manager = manager
+
+        # Run as a fire-and-forget task alongside the HTTP server
+        self._tunnel_task = asyncio.create_task(
+            self._run_tunnel(manager),
+            name="tunnel-reconnect",
+        )
+
+        logger.info("Tunnel task started (server=%s)", self._config.tunnel_server_url)
+
+    async def _run_tunnel(self, manager: Any) -> None:
+        """Wrapper that runs the tunnel manager and cleans up on exit.
+
+        Catches ``BaseException`` (not just ``Exception``) because anyio's
+        task group can raise ``BaseExceptionGroup`` if a child task raises
+        a ``BaseException`` subclass (e.g. ``KeyboardInterrupt``).  We must
+        never let an exception escape this wrapper — it would become an
+        unhandled exception on the asyncio event loop.
+        """
+        try:
+            await manager.run()
+        except asyncio.CancelledError:
+            logger.info("Tunnel task cancelled")
+        except Exception as exc:
+            logger.error("Tunnel task failed unexpectedly: %s", exc, exc_info=True)
+        finally:
+            self._tunnel_running = False
+            self._tunnel_manager = None
+            self._tunnel_task = None
+
+    async def _stop_tunnel_async(self) -> None:
+        """Internal: stop the tunnel on the asyncio loop."""
+        manager = self._tunnel_manager
+        task = self._tunnel_task
+
+        if manager is not None:
+            await manager.disconnect()
+
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        self._tunnel_running = False
+        self._tunnel_manager = None
+        self._tunnel_task = None
+        logger.info("Tunnel stopped")
+
+    # ------------------------------------------------------------------
+    # Core server methods
+    # ------------------------------------------------------------------
 
     def _run(self) -> None:
         """Thread entry point - runs asyncio event loop.
@@ -150,7 +386,8 @@ class McpServer:
         """Main async function for MCP server.
 
         Sets up the MCP server with FastMCP, defines tool handlers, and starts
-        the appropriate transport (HTTP only for now).
+        the HTTP transport. The tunnel can be started/stopped dynamically as an
+        asyncio task alongside the HTTP server.
 
         The tool handlers are async functions that bridge to the main thread via
         _call_main_thread(). This keeps the background thread async-friendly while
@@ -159,6 +396,9 @@ class McpServer:
         Thread Safety:
             Runs in background thread. Never accesses Qt or Anki APIs directly.
         """
+        # Capture the running loop so Qt thread can schedule tunnel tasks
+        self._loop = asyncio.get_running_loop()
+
         # Disable DNS rebinding protection to allow tunnels/proxies (ngrok, Cloudflare, etc.)
         # The addon runs locally and users explicitly configure tunnel access
         security_settings = TransportSecuritySettings(
@@ -176,7 +416,9 @@ class McpServer:
         register_all_resources(mcp, self._call_main_thread)
         register_all_prompts(mcp)
 
-        # HTTP mode only for now
+        # Run HTTP server — this blocks until the process exits (daemon thread).
+        # The tunnel runs as a separate asyncio task on the same loop, started
+        # dynamically via start_tunnel() from the Qt thread.
         await self._run_http_mode(mcp)
 
     async def _run_http_mode(self, mcp: FastMCP) -> None:
