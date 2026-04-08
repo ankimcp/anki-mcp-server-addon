@@ -1,8 +1,8 @@
 """WebSocket tunnel client — manages a single connection lifecycle.
 
-Connects to the tunnel relay server, receives forwarded HTTP requests from
-AI clients, proxies them to the local MCP server, and sends responses back
-through the WebSocket.
+Connects to the tunnel relay server, receives forwarded MCP requests from
+AI clients, processes them via an in-memory transport directly into the
+FastMCP server, and sends responses back through the WebSocket.
 
 This module handles ONE connection. It does NOT handle reconnection — that
 responsibility belongs to a separate reconnection manager. When the
@@ -11,7 +11,7 @@ can decide what to do next.
 
 Uses:
 - ``websockets.asyncio.client`` (vendored) for the WebSocket connection
-- ``httpx.AsyncClient`` (vendored) for forwarding requests to the local server
+- ``InMemoryTransport`` for direct JSON-RPC processing (no HTTP round-trip)
 - ``anyio`` (vendored) for task groups and cancellation-safe sleep
 """
 
@@ -24,16 +24,15 @@ import time
 from typing import Any, Callable
 
 import anyio
-import httpx
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 
 from ..credentials import Credentials
+from .in_memory_transport import InMemoryTransport
 from .protocol import (
     CONNECTION_TIMEOUT,
     HEALTH_CHECK_TIMEOUT,
     HEARTBEAT_INTERVAL,
-    REQUEST_TIMEOUT,
     CloseCodes,
     TunnelPing,
     TunnelRequest,
@@ -86,7 +85,7 @@ class TunnelClient:
         self,
         server_url: str,
         credentials: Credentials,
-        local_mcp_url: str,
+        transport: InMemoryTransport,
         on_tunnel_established: Callable[[str, str | None], None] | None = None,
         on_disconnected: Callable[[int, str], None] | None = None,
         on_error: Callable[[str, str], None] | None = None,
@@ -99,8 +98,8 @@ class TunnelClient:
             server_url: WebSocket URL of the tunnel relay server
                 (e.g. ``wss://tunnel.ankimcp.ai``).
             credentials: OAuth credentials with a valid access token.
-            local_mcp_url: Base URL of the local MCP HTTP server
-                (e.g. ``http://127.0.0.1:3141``).
+            transport: In-memory transport for direct JSON-RPC processing
+                into the FastMCP server (no HTTP round-trip).
             on_tunnel_established: Called when the tunnel is ready.
                 Receives ``(public_url, expires_at)``.
             on_disconnected: Called when the connection ends.
@@ -114,7 +113,7 @@ class TunnelClient:
         """
         self._server_url = server_url
         self._credentials = credentials
-        self._local_mcp_url = local_mcp_url.rstrip("/")
+        self._transport = transport
 
         # Callbacks
         self._on_tunnel_established = on_tunnel_established
@@ -128,8 +127,6 @@ class TunnelClient:
         self._last_server_ping: float = 0.0
         self._tunnel_url: str | None = None
         self._pending_requests: set[asyncio.Task] = set()
-        self._http_client: httpx.AsyncClient | None = None
-        self._mcp_session_id: str | None = None  # tracked from local MCP server responses
 
     # ------------------------------------------------------------------
     # Public API
@@ -178,7 +175,6 @@ class TunnelClient:
         close_code = CloseCodes.NORMAL
         close_reason = "Connection closed"
 
-        self._http_client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
         try:
             async with anyio.create_task_group() as tg:
                 tg.start_soon(self._receive_loop, ws)
@@ -209,11 +205,6 @@ class TunnelClient:
             if self._pending_requests:
                 await asyncio.gather(*self._pending_requests, return_exceptions=True)
             self._pending_requests.clear()
-
-            # Close HTTP client
-            if self._http_client is not None:
-                await self._http_client.aclose()
-                self._http_client = None
 
             self._ws = None
 
@@ -322,95 +313,79 @@ class TunnelClient:
     # ------------------------------------------------------------------
 
     async def _handle_request(self, ws: Any, msg: TunnelRequest) -> None:
-        """Forward a tunneled request to the local MCP server and relay the response.
+        """Process a tunneled MCP request via in-memory transport and relay the response.
 
-        On HTTP errors (local server unreachable, timeout, etc.), sends
-        a 502 Bad Gateway response back through the tunnel.
+        Feeds the JSON-RPC body directly into the FastMCP server via
+        ``InMemoryTransport.handle_request()`` — no HTTP round-trip.
+
+        On processing errors, sends a 500 response with a JSON-RPC error
+        body back through the tunnel.
         """
         request_id = msg["requestId"]
         method = msg["method"]
         path = msg["path"]
-        headers = dict(msg["headers"])  # copy so we can modify
 
         # Body is always a string per protocol contract (z.string().optional())
         body: str | None = msg.get("body")
 
-        # Inject MCP session ID if the incoming request doesn't already
-        # carry one. The AI client normally includes it after the initial
-        # handshake, but if the relay strips headers or the client omits
-        # it, we fall back to the value we captured from a prior response.
-        # Use case-insensitive check since HTTP headers are case-insensitive
-        # and the relay server may use any casing.
-        incoming_header_names = {k.lower() for k in headers}
-        if "mcp-session-id" not in incoming_header_names and self._mcp_session_id is not None:
-            headers["mcp-session-id"] = self._mcp_session_id
-
-        local_url = self._local_mcp_url + path
         start = time.monotonic()
 
         try:
-            response = await self._http_client.request(  # type: ignore[union-attr]
-                method=method,
-                url=local_url,
-                headers=headers,
-                content=body.encode("utf-8") if body else None,
-            )
-
-            # Capture MCP session ID from the response for subsequent requests.
-            session_id = response.headers.get("mcp-session-id")
-            if session_id is not None:
-                self._mcp_session_id = session_id
-
-            # Build the tunnel response from the HTTP response.
-            response_headers = dict(response.headers)
-            response_body = response.text if response.text else None
+            if body:
+                response_body = await self._transport.handle_request(body)
+            else:
+                response_body = ""
 
             tunnel_response: TunnelResponse = {
                 "type": "response",
                 "requestId": request_id,
-                "statusCode": response.status_code,
-                "headers": response_headers,
+                "statusCode": 200,
+                "headers": {"content-type": "application/json"},
             }
-            if response_body is not None:
+            if response_body:
                 tunnel_response["body"] = response_body
 
             await ws.send(json.dumps(tunnel_response))
 
             duration_ms = (time.monotonic() - start) * 1000
             logger.debug(
-                "Proxied %s %s -> %d (%.1fms)",
-                method, path, response.status_code, duration_ms,
+                "Processed %s %s -> 200 (%.1fms)",
+                method, path, duration_ms,
             )
             self._fire_callback(
                 self._on_request_completed,
                 f"{method} {path}",
-                response.status_code,
+                200,
                 duration_ms,
             )
 
         except Exception as exc:
             duration_ms = (time.monotonic() - start) * 1000
             logger.error(
-                "Failed to proxy %s %s to local server: %s", method, path, exc
+                "Failed to process %s %s: %s", method, path, exc
             )
 
-            # Send a 502 Bad Gateway response through the tunnel so the
+            # Send a 500 error response through the tunnel so the
             # AI client gets a meaningful error instead of a timeout.
             error_response: TunnelResponse = {
                 "type": "response",
                 "requestId": request_id,
-                "statusCode": 502,
+                "statusCode": 500,
                 "headers": {"content-type": "application/json"},
                 "body": json.dumps({
-                    "error": "Bad Gateway",
-                    "message": f"Local MCP server unreachable: {exc}",
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32603,
+                        "message": f"Internal error: {exc}",
+                    },
+                    "id": None,
                 }),
             }
             try:
                 await ws.send(json.dumps(error_response))
             except Exception as send_exc:
                 logger.error(
-                    "Failed to send 502 response for request %s: %s",
+                    "Failed to send error response for request %s: %s",
                     request_id,
                     send_exc,
                 )
@@ -418,7 +393,7 @@ class TunnelClient:
             self._fire_callback(
                 self._on_request_completed,
                 f"{method} {path}",
-                502,
+                500,
                 duration_ms,
             )
 

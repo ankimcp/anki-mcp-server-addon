@@ -210,6 +210,7 @@ class TunnelSettingsSection(QWidget):
     def _refresh_status(self) -> None:
         """Update all dynamic labels and button visibility based on current state."""
         connected = self._cm.tunnel_connected
+        active = self._cm.tunnel_active
         url = self._cm.tunnel_url
         user = self._cm.tunnel_user
 
@@ -247,6 +248,22 @@ class TunnelSettingsSection(QWidget):
             self._connect_button.setVisible(False)
             self._disconnect_button.setVisible(True)
             self._logout_button.setVisible(True)
+
+        elif active:
+            # -- Connecting / reconnecting state --
+            self._status_label.setText("Status: Connecting...")
+            self._expiry_label.setVisible(False)
+
+            # URL row hidden
+            self._url_label.setVisible(False)
+            self._copy_button.setVisible(False)
+
+            # Connect button becomes Stop
+            self._connect_button.setVisible(True)
+            self._connect_button.setEnabled(True)
+            self._connect_button.setText("Stop")
+            self._disconnect_button.setVisible(False)
+            self._logout_button.setVisible(False)
 
         else:
             # -- Disconnected state --
@@ -307,8 +324,20 @@ class TunnelSettingsSection(QWidget):
     # ------------------------------------------------------------------
 
     def _on_connect(self) -> None:
-        """Handle Connect button click."""
-        # Check for existing credentials first
+        """Handle Connect / Stop button click.
+
+        This button serves double duty:
+        - Disconnected state: text is "Connect Tunnel" -- starts connection
+        - Connecting/reconnecting state: text is "Stop" -- cancels connection
+        """
+        # If the tunnel task is active (connecting/reconnecting), stop it.
+        if self._cm.tunnel_active:
+            self._cm.disconnect_tunnel()
+            self._refresh_status()
+            return
+
+        # Otherwise, start a new connection.
+        # Check for existing credentials first.
         credentials = self._cm.credentials_manager.load()
 
         if credentials is None:
@@ -368,6 +397,10 @@ class TunnelSettingsSection(QWidget):
         disconnection takes effect.
         """
         self._refresh_timer.stop()
+        try:
+            self._cm.tunnel_log.entry_added.disconnect(self._on_log_entry)
+        except (TypeError, RuntimeError):
+            pass  # Already disconnected or object deleted
         super().destroy(*args, **kwargs)
 
     def hideEvent(self, event) -> None:  # type: ignore[override]

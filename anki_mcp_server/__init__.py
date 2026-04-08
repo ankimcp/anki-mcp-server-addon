@@ -82,6 +82,7 @@ from aqt import gui_hooks, mw
 from aqt.qt import (
     QAction,
     QApplication,
+    QCheckBox,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -89,6 +90,7 @@ from aqt.qt import (
     QLineEdit,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 from aqt.utils import showInfo, showWarning
 
@@ -139,15 +141,13 @@ def _on_profile_opened() -> None:
 
     _connection_manager = ConnectionManager(config)
 
-    # Auto-connect if enabled
-    if config.auto_connect_on_startup:
-        valid, error = config.is_valid_for_mode()
-        if valid:
-            _connection_manager.start()
-            print(f"AnkiMCP Server: Started in {config.mode} mode")
-        else:
-            # Log warning but don't crash
-            print(f"AnkiMCP Server: Auto-connect skipped - {error}")
+    # Always start the background thread (needed for both HTTP and tunnel)
+    valid, error = config.is_valid()
+    if valid:
+        _connection_manager.start()
+        print("AnkiMCP Server: Started")
+    else:
+        print(f"AnkiMCP Server: Start skipped - {error}")
 
 
 def _on_profile_will_close() -> None:
@@ -183,13 +183,6 @@ def _show_settings() -> None:
         return
 
     config = _config_manager.load()
-    status = "connected" if _connection_manager.is_running else "disconnected"
-
-    # Build full server URL including http_path
-    if config.http_path:
-        server_url = f"http://{config.http_host}:{config.http_port}/{config.http_path.strip('/')}/"
-    else:
-        server_url = f"http://{config.http_host}:{config.http_port}/"
 
     # Create dialog
     dialog = QDialog(mw)
@@ -199,22 +192,52 @@ def _show_settings() -> None:
     layout = QVBoxLayout()
 
     # -- HTTP Server section --
-    layout.addWidget(QLabel(f"<b>Status:</b> {status}"))
-    layout.addWidget(QLabel(f"<b>Auto-connect:</b> {config.auto_connect_on_startup}"))
-    layout.addSpacing(10)
+    http_checkbox = QCheckBox("Enable HTTP Server")
+    http_checkbox.setChecked(config.http_enabled)
 
-    layout.addWidget(QLabel("<b>Server URL:</b>"))
+    def _on_http_toggled(checked: bool) -> None:
+        config.http_enabled = checked
+        _config_manager.save(config)
+        http_status_label.setVisible(checked)
+        http_url_widget.setVisible(checked)
+        restart_label.setVisible(True)
 
-    url_layout = QHBoxLayout()
+    http_checkbox.toggled.connect(_on_http_toggled)
+    layout.addWidget(http_checkbox)
+
+    # Status + URL (visible only when enabled)
+    http_status = "connected" if _connection_manager.http_running else "disconnected"
+    if config.http_path:
+        server_url = f"http://{config.http_host}:{config.http_port}/{config.http_path.strip('/')}/"
+    else:
+        server_url = f"http://{config.http_host}:{config.http_port}/"
+
+    http_status_label = QLabel(f"<b>Status:</b> {http_status}")
+    http_status_label.setVisible(config.http_enabled)
+    layout.addWidget(http_status_label)
+
+    # URL row as a widget so we can show/hide it
+    http_url_widget = QWidget()
+    url_inner = QVBoxLayout()
+    url_inner.setContentsMargins(0, 0, 0, 0)
+    url_inner.addWidget(QLabel("<b>Server URL:</b>"))
+    url_row = QHBoxLayout()
     url_field = QLineEdit(server_url)
     url_field.setReadOnly(True)
-    url_layout.addWidget(url_field)
-
+    url_row.addWidget(url_field)
     copy_button = QPushButton("Copy URL")
     copy_button.clicked.connect(lambda: QApplication.clipboard().setText(server_url))
-    url_layout.addWidget(copy_button)
+    url_row.addWidget(copy_button)
+    url_inner.addLayout(url_row)
+    http_url_widget.setLayout(url_inner)
+    http_url_widget.setVisible(config.http_enabled)
+    layout.addWidget(http_url_widget)
 
-    layout.addLayout(url_layout)
+    # Restart notice (hidden until toggled)
+    restart_label = QLabel("<i>Restart Anki for this change to take effect.</i>")
+    restart_label.setVisible(False)
+    layout.addWidget(restart_label)
+
     layout.addSpacing(10)
 
     # -- Separator --

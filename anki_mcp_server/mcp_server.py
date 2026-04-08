@@ -82,6 +82,16 @@ class McpServer:
         # start_tunnel()/stop_tunnel() for cross-thread scheduling.
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
+        # FastMCP instance — set in _async_main(), used by tunnel to get
+        # the lowlevel Server for in-memory transport.
+        self._mcp_instance: Optional[FastMCP] = None
+
+        # Async shutdown event — created on the event loop in _async_main(),
+        # used to keep the loop alive when HTTP is disabled (tunnel-only mode).
+        # Cannot use the threading.Event _shutdown_event because it can't be
+        # awaited in asyncio.
+        self._async_shutdown: Optional[asyncio.Event] = None
+
         # Tunnel state — all access is thread-safe via GIL for simple
         # attribute reads/writes, plus asyncio.run_coroutine_threadsafe()
         # for operations that touch the event loop.
@@ -117,6 +127,10 @@ class McpServer:
             Safe to call from main thread (Qt event loop).
         """
         self._shutdown_event.set()
+        # Signal the async shutdown event so _async_main() can exit
+        # when running in tunnel-only mode (no uvicorn to block on).
+        if self._loop and not self._loop.is_closed():
+            self._loop.call_soon_threadsafe(self._async_shutdown.set)  # type: ignore[union-attr]
         # Stop the tunnel if running — best effort, don't wait
         if self._tunnel_running:
             self.stop_tunnel()
@@ -194,13 +208,26 @@ class McpServer:
 
     @property
     def tunnel_running(self) -> bool:
-        """Whether the tunnel is currently running.
+        """Whether the tunnel is currently connected.
 
         Thread Safety:
             Safe to read from any thread (Python GIL makes simple
             attribute reads atomic).
         """
         return self._tunnel_running
+
+    @property
+    def tunnel_active(self) -> bool:
+        """Whether the tunnel task is alive (connecting, connected, or reconnecting).
+
+        Unlike ``tunnel_running`` which is only True when connected,
+        this is True whenever the tunnel task exists and hasn't finished.
+
+        Thread Safety:
+            Safe to read from any thread.
+        """
+        task = self._tunnel_task
+        return task is not None and not task.done()
 
     # ------------------------------------------------------------------
     # Tunnel async internals — run on the background asyncio loop
@@ -227,13 +254,6 @@ class McpServer:
             await self._stop_tunnel_async()
 
         from .tunnel.reconnect import TunnelReconnectManager
-
-        # Build local MCP URL for request forwarding
-        if self._config.http_path:
-            path_prefix = f"/{self._config.http_path.strip('/')}/"
-        else:
-            path_prefix = "/"
-        local_mcp_url = f"http://{self._config.http_host}:{self._config.http_port}{path_prefix}"
 
         # Wrap the on_tunnel_established callback to also set _tunnel_running
         original_on_established = on_tunnel_established
@@ -263,7 +283,7 @@ class McpServer:
 
         manager = TunnelReconnectManager(
             server_url=self._config.tunnel_server_url,
-            local_mcp_url=local_mcp_url,
+            mcp_server=self._mcp_instance._mcp_server,  # type: ignore[union-attr]
             credentials_manager=credentials_manager,
             auth=auth,
             on_tunnel_established=_on_established_wrapper,
@@ -297,7 +317,7 @@ class McpServer:
             await manager.run()
         except asyncio.CancelledError:
             logger.info("Tunnel task cancelled")
-        except Exception as exc:
+        except BaseException as exc:
             logger.error("Tunnel task failed unexpectedly: %s", exc, exc_info=True)
         finally:
             self._tunnel_running = False
@@ -399,6 +419,10 @@ class McpServer:
         # Capture the running loop so Qt thread can schedule tunnel tasks
         self._loop = asyncio.get_running_loop()
 
+        # Create async shutdown event on the event loop — used to keep the
+        # loop alive in tunnel-only mode (when HTTP is disabled).
+        self._async_shutdown = asyncio.Event()
+
         # Disable DNS rebinding protection to allow tunnels/proxies (ngrok, Cloudflare, etc.)
         # The addon runs locally and users explicitly configure tunnel access
         security_settings = TransportSecuritySettings(
@@ -408,6 +432,10 @@ class McpServer:
         streamable_path = f"/{self._config.http_path.strip('/')}/" if self._config.http_path else "/"
         mcp = FastMCP("anki-mcp", streamable_http_path=streamable_path, transport_security=security_settings)
 
+        # Store the FastMCP instance so the tunnel can access the lowlevel
+        # Server via mcp._mcp_server for in-memory transport.
+        self._mcp_instance = mcp
+
         # Register all MCP primitives (apply tool filtering from config)
         register_all_tools(
             mcp, self._call_main_thread,
@@ -416,10 +444,15 @@ class McpServer:
         register_all_resources(mcp, self._call_main_thread)
         register_all_prompts(mcp)
 
-        # Run HTTP server — this blocks until the process exits (daemon thread).
+        # Run HTTP server or wait for async shutdown (tunnel-only mode).
         # The tunnel runs as a separate asyncio task on the same loop, started
         # dynamically via start_tunnel() from the Qt thread.
-        await self._run_http_mode(mcp)
+        if self._config.http_enabled:
+            await self._run_http_mode(mcp)
+        else:
+            # No HTTP server — keep the event loop alive for tunnel-only mode.
+            # stop() will signal this event via loop.call_soon_threadsafe().
+            await self._async_shutdown.wait()
 
     async def _run_http_mode(self, mcp: FastMCP) -> None:
         """Run with SDK's built-in HTTP transport.

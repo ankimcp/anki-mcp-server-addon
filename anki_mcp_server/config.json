@@ -1,12 +1,11 @@
 {
-  "mode": "http",
+  "http_enabled": true,
   "http_port": 3141,
   "http_host": "127.0.0.1",
   "http_path": "",
   "cors_origins": [],
   "cors_expose_headers": ["mcp-session-id", "mcp-protocol-version"],
   "disabled_tools": [],
-  "auto_connect_on_startup": true,
   "tunnel_server_url": "ws://localhost:3004",
   "tunnel_client_id": "ankimcp-cli"
 }

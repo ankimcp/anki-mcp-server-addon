@@ -70,7 +70,7 @@ class ConnectionManager:
     deadlocks and ensure clean shutdown.
 
     Usage:
-        >>> config = Config(mode="http", http_port=3141)
+        >>> config = Config(http_port=3141)
         >>> manager = ConnectionManager(config)
         >>> manager.start()  # Start both components
         >>> # Tunnel control:
@@ -81,7 +81,7 @@ class ConnectionManager:
         >>> manager.stop()   # Clean shutdown
 
     Attributes:
-        _config: Current configuration (mode, host/port, token, etc.)
+        _config: Current configuration (host/port, CORS, tunnel settings, etc.)
         _bridge: Thread-safe queue bridge for cross-thread communication
         _processor: Request processor running on main thread (or None if stopped)
         _server: MCP server running in background thread (or None if stopped)
@@ -150,7 +150,7 @@ class ConnectionManager:
             apply configuration changes.
 
         Example:
-            >>> config = Config(mode="http", http_port=3141)
+            >>> config = Config(http_port=3141)
             >>> manager = ConnectionManager(config)
             >>> manager.start()
             >>> # MCP server now accepting connections on localhost:3141
@@ -234,10 +234,10 @@ class ConnectionManager:
             Must be called from Qt main thread.
 
         Example:
-            >>> manager = ConnectionManager(Config(mode="http", http_port=3141))
+            >>> manager = ConnectionManager(Config(http_port=3141))
             >>> manager.start()
             >>> # User changes port in settings
-            >>> manager.update_config(Config(mode="http", http_port=5555))
+            >>> manager.update_config(Config(http_port=5555))
             >>> # Connection automatically restarted with new port
         """
         self.stop()
@@ -268,6 +268,22 @@ class ConnectionManager:
         """
         return self._server is not None and self._processor is not None
 
+    @property
+    def http_running(self) -> bool:
+        """Whether the HTTP server is running.
+
+        Returns True only when the background thread is running AND HTTP
+        is enabled in the config.  When ``http_enabled=False`` the
+        background thread still runs (for the tunnel) but uvicorn is not
+        serving, so this returns False.
+
+        Thread Safety:
+            Safe to read from any thread -- reads simple attributes.
+        """
+        if not self.is_running:
+            return False
+        return self._config.http_enabled
+
     def update_config(self, config: Config) -> None:
         """Update configuration and restart if running.
 
@@ -279,7 +295,7 @@ class ConnectionManager:
 
         Args:
             config: New configuration to apply. Should be validated before
-                calling this method (use Config.is_valid_for_mode()).
+                calling this method (use Config.is_valid()).
 
         Thread Safety:
             Must be called from Qt main thread.
@@ -387,6 +403,17 @@ class ConnectionManager:
         if self._server is None:
             return False
         return self._server.tunnel_running
+
+    @property
+    def tunnel_active(self) -> bool:
+        """Whether the tunnel task is alive (connecting, connected, or reconnecting).
+
+        Thread Safety:
+            Safe to read from any thread.
+        """
+        if self._server is None:
+            return False
+        return self._server.tunnel_active
 
     @property
     def tunnel_url(self) -> Optional[str]:

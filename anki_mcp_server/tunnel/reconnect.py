@@ -16,13 +16,14 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import Callable
+from typing import Any, Callable
 
 import anyio
 
 from ..credentials import CredentialsManager
 from .auth import AuthError, DeviceFlowAuth
 from .client import TunnelClient, TunnelConnectionError
+from .in_memory_transport import InMemoryTransport
 from .protocol import (
     RECONNECT_INITIAL_DELAY,
     RECONNECT_JITTER_FACTOR,
@@ -47,7 +48,7 @@ class TunnelReconnectManager:
     def __init__(
         self,
         server_url: str,
-        local_mcp_url: str,
+        mcp_server: Any,
         credentials_manager: CredentialsManager,
         auth: DeviceFlowAuth,
         on_tunnel_established: Callable[[str, str | None], None] | None = None,
@@ -63,8 +64,9 @@ class TunnelReconnectManager:
         Args:
             server_url: WebSocket URL of the tunnel relay server
                 (e.g. ``wss://tunnel.ankimcp.ai``).
-            local_mcp_url: Base URL of the local MCP HTTP server
-                (e.g. ``http://127.0.0.1:3141``).
+            mcp_server: The lowlevel ``mcp.server.lowlevel.server.Server``
+                instance from ``FastMCP._mcp_server``. Used to create a
+                fresh ``InMemoryTransport`` per connection attempt.
             credentials_manager: Reads/writes credentials from disk.
             auth: Device flow auth client for token refresh.
             on_tunnel_established: Called when the tunnel is ready.
@@ -83,7 +85,7 @@ class TunnelReconnectManager:
                 Receives ``(close_code, reason)``.
         """
         self._server_url = server_url
-        self._local_mcp_url = local_mcp_url
+        self._mcp_server = mcp_server
         self._credentials_manager = credentials_manager
         self._auth = auth
 
@@ -152,13 +154,18 @@ class TunnelReconnectManager:
                         )
                         return
                     logger.warning("Token refresh failed: %s", exc)
+                    self._fire_callback(
+                        self._on_error,
+                        "token_refresh_failed",
+                        f"Token refresh failed (will retry): {exc}",
+                    )
                     # Non-fatal refresh failure — try connecting anyway,
                     # the server will tell us if the token is truly dead.
 
             if self._shutdown:
                 return
 
-            # --- Step 3: Create a fresh client and run ---
+            # --- Step 3: Create a fresh transport and client, then run ---
             # Wrap the on_tunnel_established callback to reset the attempt
             # counter on successful connection. This way transient failures
             # during an otherwise healthy session don't accumulate.
@@ -169,10 +176,52 @@ class TunnelReconnectManager:
                     self._on_tunnel_established, url, expires_at
                 )
 
+            # Fresh in-memory transport per connection — gives each
+            # reconnect a clean Server.run() session with no stale state.
+            transport = InMemoryTransport(self._mcp_server)
+            try:
+                await transport.start()
+            except Exception as exc:
+                logger.error("Failed to start in-memory transport: %s", exc)
+                self._fire_callback(
+                    self._on_error,
+                    "transport_start_failed",
+                    f"Internal transport failed to start: {exc}",
+                )
+                await transport.stop()
+                attempt += 1
+                # Fall through to attempt-limit check and backoff below
+                if self._shutdown:
+                    return
+                if attempt >= RECONNECT_MAX_ATTEMPTS:
+                    logger.warning(
+                        "Max reconnection attempts (%d) reached, giving up",
+                        RECONNECT_MAX_ATTEMPTS,
+                    )
+                    self._fire_callback(
+                        self._on_gave_up,
+                        0,
+                        f"Max reconnection attempts ({RECONNECT_MAX_ATTEMPTS}) exhausted",
+                    )
+                    return
+                delay = self._calculate_delay(attempt)
+                logger.info(
+                    "Reconnecting in %.1fs (attempt %d/%d)",
+                    delay,
+                    attempt,
+                    RECONNECT_MAX_ATTEMPTS,
+                )
+                self._fire_callback(self._on_reconnecting, attempt, delay)
+                with anyio.CancelScope() as scope:
+                    self._sleep_scope = scope
+                    await anyio.sleep(delay)
+                self._sleep_scope = None
+                continue
+
             client = TunnelClient(
                 server_url=self._server_url,
                 credentials=credentials,
-                local_mcp_url=self._local_mcp_url,
+                transport=transport,
                 on_tunnel_established=_on_established_wrapper,
                 on_disconnected=self._on_disconnected,
                 on_error=self._on_error,
@@ -185,6 +234,9 @@ class TunnelReconnectManager:
                 close_code, close_reason = await client.run()
             except TunnelConnectionError as exc:
                 logger.warning("Tunnel connection failed: %s", exc)
+                self._fire_callback(
+                    self._on_error, "connection_failed", str(exc)
+                )
                 self._active_client = None
                 attempt += 1
             else:
@@ -237,9 +289,16 @@ class TunnelReconnectManager:
                             close_code,
                             exc,
                         )
+                        self._fire_callback(
+                            self._on_error,
+                            "token_refresh_failed",
+                            f"Token refresh failed: {exc}",
+                        )
                         attempt += 1
                 else:
                     attempt += 1
+            finally:
+                await transport.stop()
 
             if self._shutdown:
                 return

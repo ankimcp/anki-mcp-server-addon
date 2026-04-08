@@ -5,7 +5,7 @@ addon settings using Anki's built-in configuration system.
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import Literal, Callable, List
+from typing import Callable, List
 
 
 @dataclass
@@ -17,10 +17,8 @@ class Config:
     Users can configure everything via GUI or by editing JSON directly.
     """
 
-    # Connection mode (only http for now)
-    mode: Literal["http"] = "http"
-
     # HTTP settings
+    http_enabled: bool = True
     http_port: int = 3141
     http_host: str = "127.0.0.1"
     http_path: str = ""
@@ -40,34 +38,29 @@ class Config:
     # Example: ["get_fsrs_params", "card_management:bury", "card_management:unbury"]
     disabled_tools: List[str] = field(default_factory=list)
 
-    # General
-    auto_connect_on_startup: bool = True
-
     # Tunnel settings
     tunnel_server_url: str = "ws://localhost:3004"
     tunnel_client_id: str = "ankimcp-cli"
 
-    def is_valid_for_mode(self) -> tuple[bool, str]:
+    def is_valid(self) -> tuple[bool, str]:
         """
-        Check if config is valid for current mode.
+        Check if config is valid.
 
         Returns:
             Tuple of (is_valid, error_message). If valid, error_message is empty string.
 
         Examples:
-            >>> config = Config(mode="http", http_port=80)
-            >>> config.is_valid_for_mode()
+            >>> config = Config(http_port=80)
+            >>> config.is_valid()
             (True, '')
 
-            >>> config = Config(mode="http", http_port=70000)
-            >>> config.is_valid_for_mode()
+            >>> config = Config(http_port=70000)
+            >>> config.is_valid()
             (False, 'Port must be between 1 and 65535')
         """
-        if self.mode == "http":
-            if not (1 <= self.http_port <= 65535):
-                return False, "Port must be between 1 and 65535"
-            return True, ""
-        return False, f"Unknown mode: {self.mode}"
+        if not (1 <= self.http_port <= 65535):
+            return False, "Port must be between 1 and 65535"
+        return True, ""
 
     def to_dict(self) -> dict:
         """
@@ -95,10 +88,10 @@ class Config:
 
         Examples:
             >>> Config.from_dict({"http_port": 8080})
-            Config(mode='http', http_port=8080, ...)
+            Config(http_enabled=True, http_port=8080, ...)
 
             >>> Config.from_dict({"unknown_field": "ignored"})
-            Config(mode='http', ...)  # Uses all defaults
+            Config(http_enabled=True, ...)  # Uses all defaults
         """
         return cls(
             **{k: v for k, v in data.items() if k in cls.__dataclass_fields__}
@@ -167,7 +160,7 @@ class ConfigManager:
 
         Examples:
             >>> manager = ConfigManager("ankimcp")
-            >>> manager.on_change(lambda cfg: print(f"Mode changed to {cfg.mode}"))
+            >>> manager.on_change(lambda cfg: print(f"Port changed to {cfg.http_port}"))
         """
         self._listeners.append(callback)
 
