@@ -19,6 +19,7 @@ make e2e-filtered-test          # Run test_tool_filtering_e2e.py against port 31
 make e2e-filtered-down          # Stop filtered container
 pytest tests/e2e/ -v --ignore=tests/e2e/test_tool_filtering_e2e.py  # Run tests directly
 pytest tests/e2e/test_note_tools.py -v  # Run a single test file
+pytest tests/unit/ -v                   # Run unit tests (tunnel in-memory transport)
 ```
 
 ## Project Overview
@@ -366,7 +367,7 @@ Configured via addon settings (`cors_origins`, `cors_expose_headers`). Empty `co
 
 ### E2E Tests
 
-All tests are E2E — there are no unit tests. This is by design: the addon runs inside Anki's Qt event loop and most code touches `mw.col`, making unit testing impractical without a full Anki environment.
+Most tests are E2E — the addon runs inside Anki's Qt event loop and most code touches `mw.col`, making unit testing impractical without a full Anki environment. Unit tests exist only for pure-logic modules that don't depend on Anki (e.g., `tests/unit/test_in_memory_transport.py`).
 
 Tests run against a real Anki instance in Docker using [headless-anki](https://github.com/ankimcp/headless-anki). The test client is `npx @modelcontextprotocol/inspector --cli` (MCP Inspector CLI), which means **Node.js is required** in addition to Python.
 
@@ -438,7 +439,7 @@ Tunnel testing is manual-only — there are no E2E tests for the tunnel path. Te
 
 ### No Linters or Type Checkers
 
-This project has **no configured linters, formatters, or type checkers** (no ruff, flake8, mypy, black, etc.). The only dev dependency is `pytest`. Don't try to run linting commands or add linting configuration.
+This project has **no configured linters, formatters, or type checkers** (no ruff, flake8, mypy, black, etc.). Dev dependencies are just `pytest` and `pytest-asyncio`. Don't try to run linting commands or add linting configuration.
 
 ### CI / Release
 
