@@ -22,6 +22,7 @@ import asyncio
 import logging
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Optional
 
 import uvicorn
@@ -77,6 +78,7 @@ class McpServer:
         self._config = config
         self._thread: Optional[threading.Thread] = None
         self._shutdown_event = threading.Event()
+        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mcp-bridge")
 
         # Asyncio loop reference — set in _async_main(), used by
         # start_tunnel()/stop_tunnel() for cross-thread scheduling.
@@ -129,11 +131,12 @@ class McpServer:
         self._shutdown_event.set()
         # Signal the async shutdown event so _async_main() can exit
         # when running in tunnel-only mode (no uvicorn to block on).
-        if self._loop and not self._loop.is_closed():
-            self._loop.call_soon_threadsafe(self._async_shutdown.set)  # type: ignore[union-attr]
+        if self._loop and not self._loop.is_closed() and self._async_shutdown is not None:
+            self._loop.call_soon_threadsafe(self._async_shutdown.set)
         # Stop the tunnel if running — best effort, don't wait
         if self._tunnel_running:
             self.stop_tunnel()
+        self._executor.shutdown(wait=False)
 
     # ------------------------------------------------------------------
     # Tunnel control — called from Qt main thread
@@ -143,7 +146,7 @@ class McpServer:
         self,
         credentials_manager: Any,
         auth: Any,
-        on_tunnel_established: Callable[[str, str | None], None] | None = None,
+        on_tunnel_established: Callable[[str, str | None, dict | None], None] | None = None,
         on_disconnected: Callable[[int, str], None] | None = None,
         on_error: Callable[[str, str], None] | None = None,
         on_request_completed: Callable[[str, int, float], None] | None = None,
@@ -158,7 +161,7 @@ class McpServer:
         Args:
             credentials_manager: CredentialsManager instance for token I/O.
             auth: DeviceFlowAuth instance for token refresh.
-            on_tunnel_established: Called when tunnel is ready (url, expires_at).
+            on_tunnel_established: Called when tunnel is ready (url, expires_at, user).
             on_disconnected: Called when a connection ends (code, reason).
             on_error: Called on server error (error_code, message).
             on_request_completed: Called after each proxied request
@@ -237,7 +240,7 @@ class McpServer:
         self,
         credentials_manager: Any,
         auth: Any,
-        on_tunnel_established: Callable[[str, str | None], None] | None = None,
+        on_tunnel_established: Callable[[str, str | None, dict | None], None] | None = None,
         on_disconnected: Callable[[int, str], None] | None = None,
         on_error: Callable[[str, str], None] | None = None,
         on_request_completed: Callable[[str, int, float], None] | None = None,
@@ -258,10 +261,10 @@ class McpServer:
         # Wrap the on_tunnel_established callback to also set _tunnel_running
         original_on_established = on_tunnel_established
 
-        def _on_established_wrapper(url: str, expires_at: str | None) -> None:
+        def _on_established_wrapper(url: str, expires_at: str | None, user: dict | None = None) -> None:
             self._tunnel_running = True
             if original_on_established is not None:
-                original_on_established(url, expires_at)
+                original_on_established(url, expires_at, user)
 
         # Wrap on_disconnected to update _tunnel_running
         original_on_disconnected = on_disconnected
@@ -394,9 +397,8 @@ class McpServer:
             arguments=arguments,
         )
 
-        # Use asyncio.to_thread for blocking queue operation
-        # This allows the async event loop to continue while waiting for response
-        response = await asyncio.to_thread(self._bridge.send_request, request)
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(self._executor, self._bridge.send_request, request)
 
         if not response.success:
             raise Exception(response.error)

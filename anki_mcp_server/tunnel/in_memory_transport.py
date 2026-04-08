@@ -30,6 +30,7 @@ from mcp.types import (
 logger = logging.getLogger(__name__)
 
 _RESPONSE_TIMEOUT = 30  # seconds
+_STOP_GRACE_PERIOD = 5  # seconds to wait for Server.run() to exit
 
 
 class InMemoryTransport:
@@ -75,10 +76,6 @@ class InMemoryTransport:
         self._server_read_send = our_send
         self._server_write_recv = sw_recv
 
-        # Keep references so stop() can close them
-        self._server_read_recv = our_recv
-        self._server_write_send = sw_send
-
         init_options = self._server.create_initialization_options()
 
         self._server_task = asyncio.create_task(
@@ -92,39 +89,67 @@ class InMemoryTransport:
         logger.info("InMemoryTransport started")
 
     async def stop(self) -> None:
-        """Close streams, cancel tasks, reject pending futures."""
+        """Gracefully stop Server.run(), cancel reader, reject pending futures.
 
-        # Close streams first – this unblocks Server.run() and the reader.
-        for stream in (
-            self._server_read_send,
-            self._server_read_recv,
-            self._server_write_send,
-            self._server_write_recv,
-        ):
-            if stream is not None:
-                await stream.aclose()
+        Shutdown order:
+        1. Close _server_read_send (our send end) -> Server.run() sees
+           EndOfStream and exits gracefully.
+        2. Await _server_task with a timeout; cancel if it doesn't finish.
+        3. Cancel _reader_task.
+        4. Close _server_write_recv (our receive end of the write stream).
+        5. Reject any pending futures.
 
-        for task in (self._server_task, self._reader_task):
-            if task is not None and not task.done():
-                task.cancel()
+        We do NOT close _server_read_recv or _server_write_send — those are
+        owned by Server.run() via ServerSession and will be closed when
+        Server.run() exits.
+        """
+
+        # 1. Signal Server.run() to exit by closing our send end
+        if self._server_read_send is not None:
+            await self._server_read_send.aclose()
+            self._server_read_send = None
+
+        # 2. Wait for Server.run() to finish; cancel if it takes too long
+        try:
+            if self._server_task is not None and not self._server_task.done():
                 try:
-                    await task
+                    await asyncio.wait_for(self._server_task, timeout=_STOP_GRACE_PERIOD)
+                except asyncio.TimeoutError:
+                    logger.warning("Server.run() did not exit within %ds, cancelling", _STOP_GRACE_PERIOD)
+                    self._server_task.cancel()
+                    try:
+                        await self._server_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                except (asyncio.CancelledError, Exception):
+                    pass
+        finally:
+            # 3-5 MUST run even if step 2 raises CancelledError
+
+            # 3. Cancel the response reader
+            if self._reader_task is not None and not self._reader_task.done():
+                self._reader_task.cancel()
+                try:
+                    await self._reader_task
                 except (asyncio.CancelledError, Exception):
                     pass
 
-        # Reject any pending futures still waiting
-        for request_id, fut in self._pending.items():
-            if not fut.done():
-                fut.set_exception(
-                    RuntimeError(f"Transport stopped while awaiting response for request {request_id}")
-                )
-        self._pending.clear()
+            # 4. Close our receive end of the write stream
+            if self._server_write_recv is not None:
+                await self._server_write_recv.aclose()
+                self._server_write_recv = None
 
-        self._server_task = None
-        self._reader_task = None
-        self._server_read_send = None
-        self._server_write_recv = None
-        logger.info("InMemoryTransport stopped")
+            # 5. Reject any pending futures still waiting
+            for request_id, fut in self._pending.items():
+                if not fut.done():
+                    fut.set_exception(
+                        RuntimeError(f"Transport stopped while awaiting response for request {request_id}")
+                    )
+            self._pending.clear()
+
+            self._server_task = None
+            self._reader_task = None
+            logger.info("InMemoryTransport stopped")
 
     # ------------------------------------------------------------------
     # Public API

@@ -487,13 +487,12 @@ class ConnectionManager:
     # Tunnel callbacks — fired from the background asyncio thread
     # ------------------------------------------------------------------
 
-    def _on_tunnel_established(self, url: str, expires_at: str | None) -> None:
+    def _on_tunnel_established(self, url: str, expires_at: str | None, user: dict | None = None) -> None:
         """Called when the tunnel is ready and has a public URL."""
-        creds = self._credentials_manager.load()
         self._tunnel_state = _TunnelState(
             url=url,
             expires_at=expires_at,
-            user=creds.user if creds else None,
+            user=user,
         )
         self._tunnel_log.info(f"Tunnel connected: {url}")
         logger.info("Tunnel established: %s (expires: %s)", url, expires_at or "never")

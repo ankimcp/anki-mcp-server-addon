@@ -206,6 +206,7 @@ class TunnelClient:
                 await asyncio.gather(*self._pending_requests, return_exceptions=True)
             self._pending_requests.clear()
 
+            await self._close_ws_quietly(ws)
             self._ws = None
 
         # --- Step 4: Fire disconnected callback ---
@@ -464,10 +465,9 @@ class TunnelClient:
         """Invoke a callback, catching and logging any exceptions.
 
         Callbacks are fire-and-forget — errors must never crash the
-        tunnel client.  We catch ``BaseException`` (not just ``Exception``)
-        because callbacks may emit Qt signals from the asyncio thread, and
-        any failure — including ``SystemExit`` or ``KeyboardInterrupt`` —
-        must be swallowed to keep the tunnel loop stable.
+        tunnel client.  We catch ``Exception`` so that callback failures
+        are swallowed, but let ``BaseException`` (``SystemExit``,
+        ``KeyboardInterrupt``) propagate normally.
         """
         if callback is None:
             return

@@ -51,7 +51,7 @@ class TunnelReconnectManager:
         mcp_server: Any,
         credentials_manager: CredentialsManager,
         auth: DeviceFlowAuth,
-        on_tunnel_established: Callable[[str, str | None], None] | None = None,
+        on_tunnel_established: Callable[[str, str | None, dict | None], None] | None = None,
         on_disconnected: Callable[[int, str], None] | None = None,
         on_error: Callable[[str, str], None] | None = None,
         on_url_changed: Callable[[str, str], None] | None = None,
@@ -70,7 +70,7 @@ class TunnelReconnectManager:
             credentials_manager: Reads/writes credentials from disk.
             auth: Device flow auth client for token refresh.
             on_tunnel_established: Called when the tunnel is ready.
-                Receives ``(public_url, expires_at)``.
+                Receives ``(public_url, expires_at, user_dict)``.
             on_disconnected: Called when a single connection ends.
                 Receives ``(close_code, reason)``.
             on_error: Called when the server sends an error message.
@@ -173,7 +173,8 @@ class TunnelReconnectManager:
                 nonlocal attempt
                 attempt = 0
                 self._fire_callback(
-                    self._on_tunnel_established, url, expires_at
+                    self._on_tunnel_established, url, expires_at,
+                    credentials.user,
                 )
 
             # Fresh in-memory transport per connection — gives each
@@ -370,9 +371,9 @@ class TunnelReconnectManager:
         """Invoke a callback, catching and logging any exceptions.
 
         Callbacks are fire-and-forget — errors must never crash the
-        reconnection manager.  We catch ``BaseException`` (not just
-        ``Exception``) because callbacks may emit Qt signals from the
-        asyncio thread, and any failure must be swallowed.
+        reconnection manager.  We catch ``Exception`` so that callback
+        failures are swallowed, but let ``BaseException`` (``SystemExit``,
+        ``KeyboardInterrupt``) propagate normally.
         """
         if callback is None:
             return
