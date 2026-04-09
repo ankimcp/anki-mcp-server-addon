@@ -6,6 +6,22 @@ from pathlib import Path
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
+from ....media_validators import (
+    validate_media_file_path,
+    validate_media_url,
+    sanitize_media_filename,
+    validate_media_filename_type,
+)
+from ....config import Config
+
+
+def _load_config() -> Config:
+    """Load addon config from Anki's config manager."""
+    from aqt import mw
+
+    addon_package = __name__.split(".")[0]
+    raw = mw.addonManager.getConfig(addon_package) or {}
+    return Config.from_dict(raw)
 
 
 def _get_file_bytes(
@@ -13,8 +29,12 @@ def _get_file_bytes(
     path: Optional[str],
     url: Optional[str],
     filename: str,
+    config: Config,
 ) -> tuple[bytes, str]:
     """Get file bytes from one of three sources.
+
+    Validates path and URL inputs against security policies from config
+    before performing any I/O.
 
     Returns:
         Tuple of (file_bytes, source_type)
@@ -30,16 +50,22 @@ def _get_file_bytes(
             )
 
     if path is not None:
-        file_path = Path(path)
+        # Validate before any filesystem I/O — checks MIME type and
+        # directory confinement per addon config.
+        resolved = validate_media_file_path(
+            path,
+            allowed_types=config.media_allowed_types or None,
+            import_dir=config.media_import_dir or None,
+        )
 
-        if not file_path.exists():
+        if not resolved.exists():
             raise HandlerError(f"File not found: {path}", filename=filename)
 
-        if not file_path.is_file():
+        if not resolved.is_file():
             raise HandlerError(f"Path is not a file: {path}", filename=filename)
 
         try:
-            return file_path.read_bytes(), "file"
+            return resolved.read_bytes(), "file"
         except Exception as e:
             raise HandlerError(
                 f"Failed to read file: {e}",
@@ -48,6 +74,13 @@ def _get_file_bytes(
             )
 
     if url is not None:
+        # Validate before any network I/O — checks scheme and blocks
+        # private/reserved IPs unless allow-listed in addon config.
+        validate_media_url(
+            url,
+            allowed_hosts=config.media_allowed_hosts or None,
+        )
+
         try:
             with urllib.request.urlopen(url, timeout=30) as response:
                 return response.read(), "url"
@@ -104,9 +137,18 @@ def store_media_file(
     if not filename or not filename.strip():
         raise HandlerError("Filename cannot be empty")
 
-    filename = filename.strip()
+    filename = sanitize_media_filename(filename)
 
-    file_bytes, source_type = _get_file_bytes(data, path, url, filename)
+    config = _load_config()
+
+    # MIME check on filename for all source types (path source gets additional
+    # path-level validation inside _get_file_bytes)
+    validate_media_filename_type(
+        filename,
+        allowed_types=config.media_allowed_types or None,
+    )
+
+    file_bytes, source_type = _get_file_bytes(data, path, url, filename, config)
 
     if not file_bytes:
         raise HandlerError("File data is empty", filename=filename)

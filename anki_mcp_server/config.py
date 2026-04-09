@@ -40,6 +40,19 @@ class Config:
     # Example: ["get_fsrs_params", "card_management:bury", "card_management:unbury"]
     disabled_tools: List[str] = field(default_factory=list)
 
+    # Media security settings
+    # Restrict file path imports to this directory (empty = no restriction, any directory allowed)
+    # Example: "/Users/me/anki-media"
+    media_import_dir: str = ""
+
+    # Additional MIME types to allow beyond image/audio/video
+    # Example: ["application/pdf", "application/zip"]
+    media_allowed_types: List[str] = field(default_factory=list)
+
+    # Hosts/IPs allowed to bypass private network blocking for URL imports
+    # Example: ["192.168.1.50", "my-nas.local"]
+    media_allowed_hosts: List[str] = field(default_factory=list)
+
     # General
     auto_connect_on_startup: bool = True
 

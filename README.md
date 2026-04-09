@@ -141,7 +141,10 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "cors_origins": [],
   "cors_expose_headers": ["mcp-session-id", "mcp-protocol-version"],
   "auto_connect_on_startup": true,
-  "disabled_tools": []
+  "disabled_tools": [],
+  "media_import_dir": "",
+  "media_allowed_types": [],
+  "media_allowed_hosts": []
 }
 ```
 
@@ -190,6 +193,28 @@ Use `["*"]` to allow all origins (not recommended for production).
 
 The `cors_expose_headers` setting controls which response headers browsers can read. The defaults (`mcp-session-id`, `mcp-protocol-version`) are required for the MCP Streamable HTTP protocol to work in browsers.
 
+### Media Security
+
+The `store_media_file` tool validates all inputs to prevent path traversal and SSRF attacks:
+
+- **File paths** are restricted to media files only (images, audio, video) via MIME type checking
+- **URLs** must use `http://` or `https://` and cannot target private/internal networks
+- **Filenames** are sanitized to remove path traversal sequences
+
+Optional hardening via config:
+
+```json
+{
+  "media_import_dir": "/Users/me/anki-media",
+  "media_allowed_types": ["application/pdf"],
+  "media_allowed_hosts": ["192.168.1.50", "my-nas.local"]
+}
+```
+
+- `media_import_dir` — restrict file path imports to this directory tree (empty = no restriction)
+- `media_allowed_types` — allow additional MIME types beyond image/audio/video
+- `media_allowed_hosts` — allow specific hosts to bypass private network blocking
+
 ## Available Tools
 
 ### Essential Tools
@@ -216,9 +241,9 @@ The `cors_expose_headers` setting controls which response headers browsers can r
 | `model_styling` | Get CSS styling for a note type |
 | `update_model_styling` | Update CSS styling for a note type |
 | `create_model` | Create a new note type |
-| `store_media_file` | Store a media file (image/audio) |
+| `store_media_file` | Store a media file (image/audio) via base64, file path, or URL. File paths are validated against a media-type allowlist; URLs are checked for SSRF |
 | `get_media_files_names` | List media files matching a pattern |
-| `delete_media_file` | Delete a media file |
+| `delete_media_file` | Move a media file to Anki's trash (recoverable via Check Media) |
 
 ### FSRS Tools
 
