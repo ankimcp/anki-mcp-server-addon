@@ -237,6 +237,18 @@ raise HandlerError(
 
 ## Key Implementation Details
 
+### Versioning & Releases
+
+Version lives in `__init__.py:__version__`. Release process: bump version → commit → push tag `v*.*.*` → CI runs E2E tests → creates GitHub Release with `.ankiaddon` artifact.
+
+### Source Install Mode (Nix)
+
+When installed from source (Nix, pip), vendored packages aren't used. `__init__.py` sets `_USING_SYSTEM_PACKAGES = True` and skips vendor path setup + conflict detection. The flag is toggled by checking whether system packages are importable before prepending the vendor path.
+
+### No Linter / Formatter
+
+This project has no pyproject.toml, ruff, flake8, or any configured linter. Don't try to run lint commands — they won't work.
+
 ### Profile Lifecycle
 
 - Server starts on `profile_did_open` hook
@@ -288,7 +300,7 @@ make e2e-down                   # Stop container
 
 **Server readiness**: `conftest.py` has a `session`-scoped `wait_for_server` fixture that polls the server up to `E2E_MAX_WAIT` seconds before any tests run — no need to manually wait.
 
-**Docker setup** (`.docker/`): The `docker-compose.yml` mounts `config.json` that binds the MCP server to `0.0.0.0` inside the container (instead of the default `127.0.0.1`) so the host can reach port 3141. It also mounts a custom `entrypoint.sh` that installs the `.ankiaddon` and starts headless Anki.
+**Docker setup** (`.docker/`): The `docker-compose.yml` mounts `config.json` that binds the MCP server to `0.0.0.0` inside the container (instead of the default `127.0.0.1`) so the host can reach port 3141. It also mounts a custom `entrypoint.sh` that installs the `.ankiaddon` and starts headless Anki. CI pins `ghcr.io/ankimcp/headless-anki:qt-vnc-v1.0.0`.
 
 **Debugging failed tests:**
 - `make e2e-debug` — keeps container running after start; VNC available at `localhost:5900`
