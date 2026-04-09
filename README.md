@@ -74,7 +74,7 @@ let
 
   anki-mcp-server = pkgs.anki-utils.buildAnkiAddon (finalAttrs: {
     pname = "anki-mcp-server";
-    version = "0.12.0";
+    version = "0.13.0";
     src = pkgs.fetchFromGitHub {
       owner = "ankimcp";
       repo = "anki-mcp-server-addon";

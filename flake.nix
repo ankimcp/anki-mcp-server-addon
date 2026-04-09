@@ -45,7 +45,7 @@
 
           addon = pkgs.anki-utils.buildAnkiAddon {
             pname = "anki-mcp-server";
-            version = "0.12.0";
+            version = "0.13.0";
             src = ./anki_mcp_server;
 
             postFixup = ''

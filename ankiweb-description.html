@@ -17,10 +17,17 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
 </ul>
 
-<h2>What's New in v0.12</h2>
+<h2>What's New in v0.13</h2>
 <ul>
-<li><b>Filtered deck inspection</b> - New <code>get_info</code> action for <code>filtered_deck</code> retrieves search terms, order, card count, and reschedule settings for up to 50 decks at once. Works on both filtered and regular decks</li>
-<li><b>Fix: Invalid deck ID handling</b> - Anki's <code>col.decks.get()</code> silently returns the Default deck for non-existent IDs. All filtered deck actions now correctly report "Deck not found" instead of misleading errors</li>
+<li><b>NixOS support</b> - Ships a <code>flake.nix</code> for one-line NixOS installs. Source-based installs now detect system-provided packages instead of crashing</li>
+<li><b>Source install support</b> - When <code>vendor/</code> is missing (pip from source, Nix, Guix), the addon falls back to system packages with a clear error if any are missing</li>
+<li><b>Fix: Better error handling</b> - A corrupted or missing vendor file now shows a friendly error dialog instead of an ugly traceback</li>
+</ul>
+
+<h2>v0.12 Highlights</h2>
+<ul>
+<li><b>Filtered deck inspection</b> - New <code>get_info</code> action for <code>filtered_deck</code> retrieves search terms, order, card count, and reschedule settings for up to 50 decks at once</li>
+<li><b>Fix: Invalid deck ID handling</b> - Filtered deck actions now correctly report "Deck not found" for non-existent IDs</li>
 </ul>
 
 <h2>v0.11 Highlights</h2>
