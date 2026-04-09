@@ -34,6 +34,73 @@ On first run, this addon downloads `pydantic_core` (~2MB) from PyPI. This is req
 2. Double-click to install, or use *Tools → Add-ons → Install from file...*
 3. Restart Anki
 
+### NixOS
+
+#### With flakes (recommended)
+
+Add the flake input and use the pre-built package:
+
+```nix
+# flake.nix
+{
+  inputs.anki-mcp.url = "github:ankimcp/anki-mcp-server-addon";
+
+  outputs = { nixpkgs, anki-mcp, ... }: {
+    # Option A: Standalone — Anki with the addon pre-installed
+    environment.systemPackages = [
+      anki-mcp.packages.${system}.default
+    ];
+
+    # Option B: Composable with other addons via overlay
+    nixpkgs.overlays = [ anki-mcp.overlays.default ];
+    environment.systemPackages = [
+      (pkgs.anki.withAddons [ pkgs.ankiAddons.anki-mcp-server ])
+    ];
+  };
+}
+```
+
+#### Without flakes
+
+```nix
+# configuration.nix
+{ pkgs, ... }:
+let
+  python3 = pkgs.python3;
+
+  ankiMcpPythonDeps = python3.withPackages (ps: with ps; [
+    mcp pydantic pydantic-settings starlette uvicorn anyio httpx websockets
+  ]);
+
+  anki-mcp-server = pkgs.anki-utils.buildAnkiAddon (finalAttrs: {
+    pname = "anki-mcp-server";
+    version = "0.12.0";
+    src = pkgs.fetchFromGitHub {
+      owner = "ankimcp";
+      repo = "anki-mcp-server-addon";
+      rev = "v${finalAttrs.version}";
+      hash = ""; # nix will tell you the correct hash on first build
+    };
+    sourceRoot = "${finalAttrs.src.name}/anki_mcp_server";
+  });
+
+  ankiWithMcp = pkgs.anki.withAddons [ anki-mcp-server ];
+
+  ankiWrapped = pkgs.symlinkJoin {
+    name = "anki-with-mcp";
+    paths = [ ankiWithMcp ];
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+    postBuild = ''
+      wrapProgram $out/bin/anki \
+        --prefix PYTHONPATH ':' "${ankiMcpPythonDeps}/${python3.sitePackages}"
+    '';
+  };
+in
+{
+  environment.systemPackages = [ ankiWrapped ];
+}
+```
+
 ## Usage
 
 The server starts automatically when you open Anki. Check status via *Tools → AnkiMCP Server Settings...*
