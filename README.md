@@ -195,7 +195,7 @@ The `cors_expose_headers` setting controls which response headers browsers can r
 
 ### Media Security
 
-> Thanks to **Hideaki Takahashi** (Columbia University) for responsibly disclosing the media path traversal vulnerability.
+> Thanks to **[Hideaki Takahashi](https://github.com/Koukyosyumei)** (Columbia University) for responsibly disclosing the media path traversal vulnerability.
 
 The `store_media_file` tool validates all inputs to prevent path traversal and SSRF attacks:
 
