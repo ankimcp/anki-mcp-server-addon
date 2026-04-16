@@ -1,5 +1,11 @@
 # AnkiMCP Server (Addon)
 
+<div align="center">
+  <img src="./docs/images/ankimcp.png" alt="Anki + MCP Integration" width="600" />
+
+  <p><strong>Seamlessly integrate <a href="https://apps.ankiweb.net">Anki</a> with AI assistants through the <a href="https://modelcontextprotocol.io">Model Context Protocol</a></strong></p>
+</div>
+
 An Anki addon that exposes your collection to AI assistants via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/).
 
 ## What is this?
