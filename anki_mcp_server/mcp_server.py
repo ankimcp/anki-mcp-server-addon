@@ -28,6 +28,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from .config import Config
 from .queue_bridge import QueueBridge, ToolRequest
 from .primitives import register_all_tools, register_all_resources, register_all_prompts
+from .static_routes import register_static_routes
 
 
 class McpServer:
@@ -175,6 +176,7 @@ class McpServer:
         )
         register_all_resources(mcp, self._call_main_thread)
         register_all_prompts(mcp)
+        register_static_routes(mcp)
 
         # HTTP mode only for now
         await self._run_http_mode(mcp)
