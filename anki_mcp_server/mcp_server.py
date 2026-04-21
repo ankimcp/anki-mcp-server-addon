@@ -131,8 +131,6 @@ class McpServer:
             >>> # Main thread executes sync, returns result via queue
             >>> print(result)  # {"status": "success", ...}
         """
-        from .queue_bridge import ToolRequest
-
         request = ToolRequest(
             request_id=str(uuid.uuid4()),
             tool_name=tool_name,
