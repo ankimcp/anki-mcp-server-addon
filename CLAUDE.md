@@ -80,6 +80,8 @@ anki_mcp_server/
 ├── resource_decorator.py    # @Resource decorator implementation
 ├── prompt_decorator.py      # @Prompt decorator implementation
 ├── dependency_loader.py     # Runtime pydantic_core download from PyPI
+├── media_validators.py      # Path traversal / SSRF guards for media tools
+├── transport/, tunnel/, ui/ # Empty stub packages reserved for future work
 └── primitives/
     ├── tools.py             # Triggers auto-discovery of tool modules
     ├── resources.py         # Triggers auto-discovery of resource modules
@@ -267,6 +269,10 @@ Disabled in `mcp_server.py` to allow tunnel/proxy access (Cloudflare, ngrok).
 
 Configured via addon settings (`cors_origins`, `cors_expose_headers`). Empty `cors_origins` = CORS disabled. The `mcp-session-id` and `mcp-protocol-version` headers must be exposed for browser-based MCP clients (Streamable HTTP protocol requirement). See `config.py` for the full `Config` dataclass.
 
+### Connection Modes
+
+`Config.mode` is `Literal["http"]` — only one mode is supported today. `is_valid_for_mode()` and the surrounding scaffolding exist for future modes (e.g., tunnel) but are unused right now. Don't conditionalize behavior on `mode` until a second mode actually lands.
+
 ### Tool Filtering
 
 `disabled_tools` config hides tools/actions from AI clients. Supports whole-tool (`"sync"`) and per-action (`"card_management:bury"`) granularity. Typos produce `print()` warnings visible in Anki's console. See `tool_decorator.py` for implementation.
@@ -347,6 +353,10 @@ For changes that can't be tested via E2E (UI interactions, config dialog):
 - **Releases** trigger on `v*.*.*` tags — runs E2E first, then creates GitHub Release with the `.ankiaddon` artifact (`.github/workflows/release.yml`)
 
 ## Known Gotchas
+
+### Media Security Boundary
+
+All media inputs (file paths, URLs, filenames) must pass through `media_validators.py` before any I/O occurs. It enforces `media_import_dir` containment (path traversal prevention) and blocks private-network URLs (SSRF prevention). Custom error subclasses of `HandlerError` (`MediaFileTypeError`, `MediaImportDirError`, etc.) carry actionable hints for the AI client, while security-relevant details (resolved paths, MIME types, resolved IPs) are logged at WARNING level for the operator's audit trail. **Never bypass these validators** when adding media-related tools.
 
 ### Imports Must Be Relative
 
