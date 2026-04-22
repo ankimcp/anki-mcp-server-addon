@@ -169,9 +169,9 @@ class McpServer:
             "anki-mcp",
             website_url="https://ankimcp.ai",
             icons=[Icon(
-                src="https://ankimcp.ai/mcp-icon.png",
-                mimeType="image/png",
-                sizes=["64x64"],
+                src="https://ankimcp.ai/favicon.svg",
+                mimeType="image/svg+xml",
+                sizes=["any"],
             )],
             streamable_http_path=streamable_path,
             transport_security=security_settings,
