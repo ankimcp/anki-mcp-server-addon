@@ -24,11 +24,11 @@ from typing import Any, Optional
 import uvicorn
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import Icon
 
 from .config import Config
 from .queue_bridge import QueueBridge, ToolRequest
 from .primitives import register_all_tools, register_all_resources, register_all_prompts
-from .static_routes import register_static_routes
 
 
 class McpServer:
@@ -165,7 +165,17 @@ class McpServer:
         )
         # Use http_path if configured, otherwise default to root "/"
         streamable_path = f"/{self._config.http_path.strip('/')}/" if self._config.http_path else "/"
-        mcp = FastMCP("anki-mcp", streamable_http_path=streamable_path, transport_security=security_settings)
+        mcp = FastMCP(
+            "anki-mcp",
+            website_url="https://ankimcp.ai",
+            icons=[Icon(
+                src="https://ankimcp.ai/mcp-icon.png",
+                mimeType="image/png",
+                sizes=["64x64"],
+            )],
+            streamable_http_path=streamable_path,
+            transport_security=security_settings,
+        )
 
         # Register all MCP primitives (apply tool filtering from config)
         register_all_tools(
@@ -174,7 +184,6 @@ class McpServer:
         )
         register_all_resources(mcp, self._call_main_thread)
         register_all_prompts(mcp)
-        register_static_routes(mcp)
 
         # HTTP mode only for now
         await self._run_http_mode(mcp)
