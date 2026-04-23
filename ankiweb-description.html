@@ -22,7 +22,13 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
 </ul>
 
-<h2>What's New in v0.14</h2>
+<h2>What's New in v0.15</h2>
+<ul>
+<li><b>Server identity in MCP protocol</b> - Addon now exposes its icon and website URL via the MCP <code>initialize</code> response (<code>serverInfo.icons</code> + <code>websiteUrl</code> per spec 2025-11-25). Spec-aware MCP clients render the AnkiMCP branding</li>
+<li><b>Listed in MCP Registry</b> - Published to the official <a href="https://github.com/modelcontextprotocol/registry">MCP Registry</a> as <code>ai.ankimcp/anki-mcp-server-addon</code>, propagating to PulseMCP, Glama, and MCP.so catalogs</li>
+</ul>
+
+<h2>v0.14 Highlights</h2>
 <ul>
 <li><b>Security: Media file validation</b> - <code>store_media_file</code> now validates all inputs: file paths are restricted to media types (images, audio, video) via MIME checking, URLs are checked for SSRF (private network blocking), and filenames are sanitized against path traversal</li>
 <li><b>Security: Configurable hardening</b> - New config options <code>media_import_dir</code> (restrict file imports to a directory), <code>media_allowed_types</code> (allow additional MIME types), and <code>media_allowed_hosts</code> (allow specific private hosts for URL imports)</li>
