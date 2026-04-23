@@ -17,7 +17,7 @@ if sys.version_info < (3, 10):
 
 from pathlib import Path
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 
 # Packages we vendor — used for conflict detection AND system-package fallback checks
 _VENDOR_PACKAGES = ['mcp', 'pydantic', 'pydantic_core', 'starlette', 'uvicorn', 'anyio', 'httpx', 'websockets']
