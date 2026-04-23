@@ -89,10 +89,10 @@ jobs:
           MCP_REGISTRY_PRIVATE_KEY: ${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}
         run: |
           if ! ./mcp-publisher login dns --domain ankimcp.ai --private-key "$MCP_REGISTRY_PRIVATE_KEY"; then
-            echo "::warning::MCP registry login failed — see logs"
+            echo "::error::MCP registry login failed — see logs"
             exit 0
           fi
           if ! ./mcp-publisher publish; then
-            echo "::warning::MCP registry publish failed — see logs"
+            echo "::error::MCP registry publish failed — see logs"
             exit 0
           fi
