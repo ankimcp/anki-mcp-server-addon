@@ -3,14 +3,14 @@ import os
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
+from ....media_validators import sanitize_media_filename
 
 
 @Tool(
     "delete_media_file",
-    "Delete a media file from Anki's media folder. This will permanently remove "
-    "the file from disk. This action cannot be undone unless you have a backup. "
-    "CRITICAL: This is destructive and permanent - only delete files the user "
-    "explicitly confirmed for deletion.",
+    "Move a media file to Anki's trash folder. The file can be recovered via "
+    "Anki's 'Check Media' dialog until the trash is emptied. Sync to propagate "
+    "the deletion to other devices. Confirm with the user before deleting.",
     write=True,
 )
 def delete_media_file(filename: str) -> dict[str, Any]:
@@ -19,17 +19,7 @@ def delete_media_file(filename: str) -> dict[str, Any]:
     if not filename or not filename.strip():
         raise HandlerError("Filename cannot be empty")
 
-    if os.path.sep in filename or (os.path.altsep and os.path.altsep in filename):
-        raise HandlerError(
-            f"Filename cannot contain path separators. Got: {filename}",
-            hint="Use only the filename without directory paths",
-        )
-
-    if ".." in filename or filename.startswith("."):
-        raise HandlerError(
-            f"Filename cannot contain relative path indicators (./ or ../). Got: {filename}",
-            hint="Use only the filename without relative path components",
-        )
+    filename = sanitize_media_filename(filename)
 
     media_dir = col.media.dir()
     file_path = os.path.join(media_dir, filename)
@@ -46,18 +36,11 @@ def delete_media_file(filename: str) -> dict[str, Any]:
             hint="Cannot delete directories",
         )
 
-    try:
-        os.remove(file_path)
-    except PermissionError:
-        raise HandlerError(
-            f"Permission denied when trying to delete {filename}",
-            hint="The file may be in use by another process",
-        )
+    col.media.trash_files([filename])
 
     return {
         "filename": filename,
         "path": file_path,
-        "message": f"Successfully deleted media file: {filename}",
-        "warning": "This file has been permanently deleted from the media folder",
-        "hint": "Consider syncing with AnkiWeb to propagate deletion to other devices",
+        "message": f"Successfully moved media file to trash: {filename}",
+        "hint": "File can be recovered via Anki's 'Check Media' dialog. Sync to propagate deletion to other devices.",
     }

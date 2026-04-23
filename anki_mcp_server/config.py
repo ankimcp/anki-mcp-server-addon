@@ -42,6 +42,22 @@ class Config:
     tunnel_server_url: str = "ws://localhost:3004"
     tunnel_client_id: str = "ankimcp-cli"
 
+    # Media security settings
+    # Restrict file path imports to this directory (empty = no restriction, any directory allowed)
+    # Example: "/Users/me/anki-media"
+    media_import_dir: str = ""
+
+    # Additional MIME types to allow beyond image/audio/video
+    # Example: ["application/pdf", "application/zip"]
+    media_allowed_types: List[str] = field(default_factory=list)
+
+    # Hosts/IPs allowed to bypass private network blocking for URL imports
+    # Example: ["192.168.1.50", "my-nas.local"]
+    media_allowed_hosts: List[str] = field(default_factory=list)
+
+    # General
+    auto_connect_on_startup: bool = True
+
     def is_valid(self) -> tuple[bool, str]:
         """
         Check if config is valid.

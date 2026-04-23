@@ -28,6 +28,7 @@ from typing import Any, Callable, Optional
 import uvicorn
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import Icon
 
 from .config import Config
 from .queue_bridge import QueueBridge, ToolRequest
@@ -389,8 +390,6 @@ class McpServer:
             >>> # Main thread executes sync, returns result via queue
             >>> print(result)  # {"status": "success", ...}
         """
-        from .queue_bridge import ToolRequest
-
         request = ToolRequest(
             request_id=str(uuid.uuid4()),
             tool_name=tool_name,
@@ -432,7 +431,17 @@ class McpServer:
         )
         # Use http_path if configured, otherwise default to root "/"
         streamable_path = f"/{self._config.http_path.strip('/')}/" if self._config.http_path else "/"
-        mcp = FastMCP("anki-mcp", streamable_http_path=streamable_path, transport_security=security_settings)
+        mcp = FastMCP(
+            "anki-mcp",
+            website_url="https://ankimcp.ai",
+            icons=[Icon(
+                src="https://ankimcp.ai/favicon.svg",
+                mimeType="image/svg+xml",
+                sizes=["any"],
+            )],
+            streamable_http_path=streamable_path,
+            transport_security=security_settings,
+        )
 
         # Store the FastMCP instance so the tunnel can access the lowlevel
         # Server via mcp._mcp_server for in-memory transport.

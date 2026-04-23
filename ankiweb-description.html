@@ -1,3 +1,8 @@
+<div align="center">
+<img src="https://raw.githubusercontent.com/ankimcp/anki-mcp-server-addon/main/docs/images/ankimcp.png" alt="Anki + MCP Integration" width="600" />
+<p><b>Seamlessly integrate Anki with AI assistants through the Model Context Protocol</b></p>
+</div>
+
 <p><b>Note:</b> On first run, this addon downloads <code>pydantic_core</code> (~2MB) from PyPI. This is required because pydantic_core contains platform-specific binaries (Windows/macOS/Linux) that cannot be bundled in a single addon file.</p>
 
 <h2>What is this?</h2>
@@ -17,10 +22,31 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
 </ul>
 
-<h2>What's New in v0.12</h2>
+<h2>What's New in v0.15</h2>
 <ul>
-<li><b>Filtered deck inspection</b> - New <code>get_info</code> action for <code>filtered_deck</code> retrieves search terms, order, card count, and reschedule settings for up to 50 decks at once. Works on both filtered and regular decks</li>
-<li><b>Fix: Invalid deck ID handling</b> - Anki's <code>col.decks.get()</code> silently returns the Default deck for non-existent IDs. All filtered deck actions now correctly report "Deck not found" instead of misleading errors</li>
+<li><b>Server identity in MCP protocol</b> - Addon now exposes its icon and website URL via the MCP <code>initialize</code> response (<code>serverInfo.icons</code> + <code>websiteUrl</code> per spec 2025-11-25). Spec-aware MCP clients render the AnkiMCP branding</li>
+<li><b>Listed in MCP Registry</b> - Published to the official <a href="https://github.com/modelcontextprotocol/registry">MCP Registry</a> as <code>ai.ankimcp/anki-mcp-server-addon</code>, propagating to PulseMCP, Glama, and MCP.so catalogs</li>
+</ul>
+
+<h2>v0.14 Highlights</h2>
+<ul>
+<li><b>Security: Media file validation</b> - <code>store_media_file</code> now validates all inputs: file paths are restricted to media types (images, audio, video) via MIME checking, URLs are checked for SSRF (private network blocking), and filenames are sanitized against path traversal</li>
+<li><b>Security: Configurable hardening</b> - New config options <code>media_import_dir</code> (restrict file imports to a directory), <code>media_allowed_types</code> (allow additional MIME types), and <code>media_allowed_hosts</code> (allow specific private hosts for URL imports)</li>
+<li><b>Fix: delete_media_file uses Anki's trash</b> - Files are now moved to Anki's trash folder instead of permanent deletion. Recoverable via Check Media, and deletions propagate correctly on sync</li>
+</ul>
+<p>Thanks to <b><a href="https://github.com/Koukyosyumei">Hideaki Takahashi</a></b> (Columbia University) for responsibly disclosing the media path traversal vulnerability.</p>
+
+<h2>v0.13 Highlights</h2>
+<ul>
+<li><b>NixOS support</b> - Ships a <code>flake.nix</code> for one-line NixOS installs. Source-based installs now detect system-provided packages instead of crashing</li>
+<li><b>Source install support</b> - When <code>vendor/</code> is missing (pip from source, Nix, Guix), the addon falls back to system packages with a clear error if any are missing</li>
+<li><b>Fix: Better error handling</b> - A corrupted or missing vendor file now shows a friendly error dialog instead of an ugly traceback</li>
+</ul>
+
+<h2>v0.12 Highlights</h2>
+<ul>
+<li><b>Filtered deck inspection</b> - New <code>get_info</code> action for <code>filtered_deck</code> retrieves search terms, order, card count, and reschedule settings for up to 50 decks at once</li>
+<li><b>Fix: Invalid deck ID handling</b> - Filtered deck actions now correctly report "Deck not found" for non-existent IDs</li>
 </ul>
 
 <h2>v0.11 Highlights</h2>
@@ -90,9 +116,9 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>model_styling</b> - Get CSS styling for a note type</li>
 <li><b>update_model_styling</b> - Update CSS styling for a note type</li>
 <li><b>create_model</b> - Create a new note type</li>
-<li><b>store_media_file</b> - Store a media file (image/audio)</li>
+<li><b>store_media_file</b> - Store a media file (image/audio) via base64, file path, or URL. Validates media type and blocks SSRF</li>
 <li><b>get_media_files_names</b> - List media files matching a pattern</li>
-<li><b>delete_media_file</b> - Delete a media file</li>
+<li><b>delete_media_file</b> - Move a media file to Anki's trash (recoverable via Check Media)</li>
 </ul>
 
 <h3>Multi-Action Tools</h3>
@@ -149,7 +175,10 @@ AI-powered study sessions, card creation, and collection management.</p>
   "http_path": "",
   "cors_origins": [],
   "auto_connect_on_startup": true,
-  "disabled_tools": []
+  "disabled_tools": [],
+  "media_import_dir": "",
+  "media_allowed_types": [],
+  "media_allowed_hosts": []
 }
 </pre>
 

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "ai.ankimcp/anki-mcp-server-addon",
+  "title": "AnkiMCP Server",
+  "description": "Anki addon that exposes your flashcard collection to AI assistants via a local MCP server.",
+  "version": "0.15.0",
+  "repository": {
+    "url": "https://github.com/ankimcp/anki-mcp-server-addon",
+    "source": "github"
+  },
+  "websiteUrl": "https://ankimcp.ai"
+}

@@ -1,5 +1,11 @@
 # AnkiMCP Server (Addon)
 
+<div align="center">
+  <img src="./docs/images/ankimcp.png" alt="Anki + MCP Integration" width="600" />
+
+  <p><strong>Seamlessly integrate <a href="https://apps.ankiweb.net">Anki</a> with AI assistants through the <a href="https://modelcontextprotocol.io">Model Context Protocol</a></strong></p>
+</div>
+
 An Anki addon that exposes your collection to AI assistants via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/).
 
 ## What is this?
@@ -34,6 +40,73 @@ On first run, this addon downloads `pydantic_core` (~2MB) from PyPI. This is req
 1. Download `anki_mcp_server.ankiaddon` from [Releases](https://github.com/ankimcp/anki-mcp-server-addon/releases)
 2. Double-click to install, or use *Tools → Add-ons → Install from file...*
 3. Restart Anki
+
+### NixOS
+
+#### With flakes (recommended)
+
+Add the flake input and use the pre-built package:
+
+```nix
+# flake.nix
+{
+  inputs.anki-mcp.url = "github:ankimcp/anki-mcp-server-addon";
+
+  outputs = { nixpkgs, anki-mcp, ... }: {
+    # Option A: Standalone — Anki with the addon pre-installed
+    environment.systemPackages = [
+      anki-mcp.packages.${system}.default
+    ];
+
+    # Option B: Composable with other addons via overlay
+    nixpkgs.overlays = [ anki-mcp.overlays.default ];
+    environment.systemPackages = [
+      (pkgs.anki.withAddons [ pkgs.ankiAddons.anki-mcp-server ])
+    ];
+  };
+}
+```
+
+#### Without flakes
+
+```nix
+# configuration.nix
+{ pkgs, ... }:
+let
+  python3 = pkgs.python3;
+
+  ankiMcpPythonDeps = python3.withPackages (ps: with ps; [
+    mcp pydantic pydantic-settings starlette uvicorn anyio httpx websockets
+  ]);
+
+  anki-mcp-server = pkgs.anki-utils.buildAnkiAddon (finalAttrs: {
+    pname = "anki-mcp-server";
+    version = "0.13.0";
+    src = pkgs.fetchFromGitHub {
+      owner = "ankimcp";
+      repo = "anki-mcp-server-addon";
+      rev = "v${finalAttrs.version}";
+      hash = ""; # nix will tell you the correct hash on first build
+    };
+    sourceRoot = "${finalAttrs.src.name}/anki_mcp_server";
+  });
+
+  ankiWithMcp = pkgs.anki.withAddons [ anki-mcp-server ];
+
+  ankiWrapped = pkgs.symlinkJoin {
+    name = "anki-with-mcp";
+    paths = [ ankiWithMcp ];
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+    postBuild = ''
+      wrapProgram $out/bin/anki \
+        --prefix PYTHONPATH ':' "${ankiMcpPythonDeps}/${python3.sitePackages}"
+    '';
+  };
+in
+{
+  environment.systemPackages = [ ankiWrapped ];
+}
+```
 
 ## Usage
 
@@ -76,7 +149,11 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "cors_expose_headers": ["mcp-session-id", "mcp-protocol-version"],
   "disabled_tools": [],
   "tunnel_server_url": "ws://localhost:3004",
-  "tunnel_client_id": "ankimcp-cli"
+  "tunnel_client_id": "ankimcp-cli",
+  "media_import_dir": "",
+  "media_allowed_types": [],
+  "media_allowed_hosts": [],
+  "auto_connect_on_startup": true
 }
 ```
 
@@ -180,6 +257,30 @@ Use `["*"]` to allow all origins (not recommended for production).
 
 The `cors_expose_headers` setting controls which response headers browsers can read. The defaults (`mcp-session-id`, `mcp-protocol-version`) are required for the MCP Streamable HTTP protocol to work in browsers.
 
+### Media Security
+
+> Thanks to **[Hideaki Takahashi](https://github.com/Koukyosyumei)** (Columbia University) for responsibly disclosing the media path traversal vulnerability.
+
+The `store_media_file` tool validates all inputs to prevent path traversal and SSRF attacks:
+
+- **File paths** are restricted to media files only (images, audio, video) via MIME type checking
+- **URLs** must use `http://` or `https://` and cannot target private/internal networks
+- **Filenames** are sanitized to remove path traversal sequences
+
+Optional hardening via config:
+
+```json
+{
+  "media_import_dir": "/Users/me/anki-media",
+  "media_allowed_types": ["application/pdf"],
+  "media_allowed_hosts": ["192.168.1.50", "my-nas.local"]
+}
+```
+
+- `media_import_dir` — restrict file path imports to this directory tree (empty = no restriction)
+- `media_allowed_types` — allow additional MIME types beyond image/audio/video
+- `media_allowed_hosts` — allow specific hosts to bypass private network blocking
+
 ## Available Tools
 
 ### Essential Tools
@@ -206,9 +307,9 @@ The `cors_expose_headers` setting controls which response headers browsers can r
 | `model_styling` | Get CSS styling for a note type |
 | `update_model_styling` | Update CSS styling for a note type |
 | `create_model` | Create a new note type |
-| `store_media_file` | Store a media file (image/audio) |
+| `store_media_file` | Store a media file (image/audio) via base64, file path, or URL. File paths are validated against a media-type allowlist; URLs are checked for SSRF |
 | `get_media_files_names` | List media files matching a pattern |
-| `delete_media_file` | Delete a media file |
+| `delete_media_file` | Move a media file to Anki's trash (recoverable via Check Media) |
 
 ### FSRS Tools
 

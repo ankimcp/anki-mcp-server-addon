@@ -17,14 +17,36 @@ if sys.version_info < (3, 10):
 
 from pathlib import Path
 
-__version__ = "0.12.0"
+__version__ = "0.15.0"
 
-# Packages we vendor that might conflict with other addons
+# Packages we vendor — used for conflict detection AND system-package fallback checks
 _VENDOR_PACKAGES = ['mcp', 'pydantic', 'pydantic_core', 'starlette', 'uvicorn', 'anyio', 'httpx', 'websockets']
+
+# Set to True when running from source with system-provided packages (e.g. Nix)
+_USING_SYSTEM_PACKAGES = False
+
+
+def _check_system_packages(packages: list[str]) -> list[str]:
+    """Check which packages from the list are NOT importable from the system.
+
+    Returns a list of package names that failed to import.
+    Note: Packages that import successfully will remain in sys.modules.
+    """
+    import importlib
+    missing = []
+    for pkg in packages:
+        try:
+            importlib.import_module(pkg)
+        except ImportError:
+            missing.append(pkg)
+    return missing
 
 
 def _check_vendor_conflicts() -> list[str]:
     """Check if any vendored packages are already loaded (potential conflicts)."""
+    if _USING_SYSTEM_PACKAGES:
+        return []
+
     conflicts = []
     for pkg in _VENDOR_PACKAGES:
         if pkg in sys.modules:
@@ -34,11 +56,27 @@ def _check_vendor_conflicts() -> list[str]:
 
 def _setup_vendor_path() -> None:
     """Add shared vendor directory to sys.path."""
+    global _USING_SYSTEM_PACKAGES
+
     vendor_dir = Path(__file__).parent / "vendor"
 
     if not vendor_dir.exists():
-        print("AnkiMCP Server Warning: vendor directory not found. Dependencies may be missing.")
-        return
+        # No vendor directory — check if system provides the packages (e.g. Nix, pip from source)
+        missing = _check_system_packages(_VENDOR_PACKAGES)
+        if not missing:
+            _USING_SYSTEM_PACKAGES = True
+            print("AnkiMCP Server: vendor/ not found — using system-provided packages")
+            return
+
+        print(
+            f"AnkiMCP Server Error: vendor/ directory not found and system is missing "
+            f"required packages: {', '.join(missing)}\n"
+            f"If you installed from source, install dependencies with:\n"
+            f"  pip install {' '.join(missing)}\n"
+            f"Or download the .ankiaddon release from "
+            f"https://github.com/ankimcp/anki-mcp-server-addon/releases"
+        )
+        raise ImportError("AnkiMCP Server: required packages not available")
 
     # Check for conflicts before adding to path
     conflicts = _check_vendor_conflicts()

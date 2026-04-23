@@ -99,7 +99,26 @@ def ensure_pydantic_core() -> bool:
     Returns True if pydantic_core is ready, False if failed.
     Shows progress dialog during download.
     """
-    required_version = _get_required_pydantic_core_version()
+    # Fast path: already importable (system-installed, cached, or vendored).
+    # No version check here — pydantic validates pydantic_core compatibility
+    # at its own import time and raises PydanticUserError on mismatch.
+    try:
+        import pydantic_core  # noqa: F401
+        return True
+    except ImportError:
+        pass
+
+    try:
+        required_version = _get_required_pydantic_core_version()
+    except Exception as e:
+        QMessageBox.critical(
+            None,
+            "AnkiMCP Server - Setup Failed",
+            f"Failed to determine required pydantic_core version:\n\n{e}\n\n"
+            "If you installed from source, install pydantic_core with pip.",
+        )
+        return False
+
     pypi_url = f"https://pypi.org/pypi/pydantic-core/{required_version}/json"
 
     cache_dir = CACHE_DIR / "pydantic_core_pkg"

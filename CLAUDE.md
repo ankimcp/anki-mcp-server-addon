@@ -88,6 +88,7 @@ anki_mcp_server/
 ├── resource_decorator.py    # @Resource decorator implementation
 ├── prompt_decorator.py      # @Prompt decorator implementation
 ├── dependency_loader.py     # Runtime pydantic_core download from PyPI
+├── media_validators.py      # Path traversal / SSRF guards for media tools
 ├── tunnel/
 │   ├── __init__.py              # Package marker
 │   ├── protocol.py              # Close codes, message types, constants (pure data, no I/O)
@@ -341,6 +342,18 @@ Follow the existing module patterns:
 
 ## Key Implementation Details
 
+### Versioning & Releases
+
+Version lives in `__init__.py:__version__`. Release process: bump version → commit → push tag `v*.*.*` → CI runs E2E tests → creates GitHub Release with `.ankiaddon` artifact.
+
+### Source Install Mode (Nix)
+
+When installed from source (Nix, pip), vendored packages aren't used. `__init__.py` sets `_USING_SYSTEM_PACKAGES = True` and skips vendor path setup + conflict detection. The flag is toggled by checking whether system packages are importable before prepending the vendor path.
+
+### No Linter / Formatter
+
+This project has no pyproject.toml, ruff, flake8, or any configured linter. Don't try to run lint commands — they won't work.
+
 ### Profile Lifecycle
 
 - Server starts on `profile_did_open` hook (HTTP auto-starts if `http_enabled`, tunnel never auto-starts)
@@ -358,6 +371,10 @@ Disabled in `mcp_server.py` to allow tunnel/proxy access (Cloudflare, ngrok).
 ### CORS Configuration
 
 Configured via addon settings (`cors_origins`, `cors_expose_headers`). Empty `cors_origins` = CORS disabled. The `mcp-session-id` and `mcp-protocol-version` headers must be exposed for browser-based MCP clients (Streamable HTTP protocol requirement). See `config.py` for the full `Config` dataclass. CORS only applies to the HTTP transport — the tunnel path bypasses HTTP entirely.
+
+### Connection Modes
+
+`Config.mode` is `Literal["http"]` — only one mode is supported today. `is_valid_for_mode()` and the surrounding scaffolding exist for future modes (e.g., tunnel) but are unused right now. Don't conditionalize behavior on `mode` until a second mode actually lands.
 
 ### Tool Filtering
 
@@ -394,7 +411,7 @@ make e2e-down                   # Stop container
 
 **Server readiness**: `conftest.py` has a `session`-scoped `wait_for_server` fixture that polls the server up to `E2E_MAX_WAIT` seconds before any tests run — no need to manually wait.
 
-**Docker setup** (`.docker/`): The `docker-compose.yml` mounts `config.json` that binds the MCP server to `0.0.0.0` inside the container (instead of the default `127.0.0.1`) so the host can reach port 3141. It also mounts a custom `entrypoint.sh` that installs the `.ankiaddon` and starts headless Anki.
+**Docker setup** (`.docker/`): The `docker-compose.yml` mounts `config.json` that binds the MCP server to `0.0.0.0` inside the container (instead of the default `127.0.0.1`) so the host can reach port 3141. It also mounts a custom `entrypoint.sh` that installs the `.ankiaddon` and starts headless Anki. CI pins `ghcr.io/ankimcp/headless-anki:qt-vnc-v1.0.0`.
 
 **Debugging failed tests:**
 - `make e2e-debug` — keeps container running after start; VNC available at `localhost:5900`
@@ -448,6 +465,10 @@ This project has **no configured linters, formatters, or type checkers** (no ruf
 - **Version** lives in `__init__.py` as `__version__`. Bump it there before tagging a release.
 
 ## Known Gotchas
+
+### Media Security Boundary
+
+All media inputs (file paths, URLs, filenames) must pass through `media_validators.py` before any I/O occurs. It enforces `media_import_dir` containment (path traversal prevention) and blocks private-network URLs (SSRF prevention). Custom error subclasses of `HandlerError` (`MediaFileTypeError`, `MediaImportDirError`, etc.) carry actionable hints for the AI client, while security-relevant details (resolved paths, MIME types, resolved IPs) are logged at WARNING level for the operator's audit trail. **Never bypass these validators** when adding media-related tools.
 
 ### Imports Must Be Relative
 
