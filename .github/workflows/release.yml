@@ -78,3 +78,21 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/v1.6.0/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz mcp-publisher
+
+      - name: Publish to MCP Registry
+        env:
+          MCP_REGISTRY_PRIVATE_KEY: ${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}
+        run: |
+          if ! ./mcp-publisher login dns --domain ankimcp.ai --private-key "$MCP_REGISTRY_PRIVATE_KEY"; then
+            echo "::warning::MCP registry login failed — see logs"
+            exit 0
+          fi
+          if ! ./mcp-publisher publish; then
+            echo "::warning::MCP registry publish failed — see logs"
+            exit 0
+          fi
