@@ -28,6 +28,20 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 
+class BridgeError(Exception):
+    """Failure surfaced by the queue bridge.
+
+    Raised when a ``ToolResponse`` comes back with ``success=False`` (handler
+    raised on the main thread, or shutdown unblocked a pending request), or
+    when ``send_request`` is called after shutdown. Distinct from
+    ``HandlerError`` — by the time a response crosses the bridge the original
+    exception type is gone and only the error string survives, so callers
+    can't recover the structured handler info anyway. Use this when you need
+    to distinguish bridge/transport failures from genuine bugs in the
+    background thread.
+    """
+
+
 @dataclass
 class ToolRequest:
     """Request from MCP server to execute an Anki operation.
@@ -186,8 +200,8 @@ class QueueBridge:
             The response from the main thread after executing the tool.
 
         Raises:
-            Exception: If the bridge is shutting down and new requests are not
-                accepted. This prevents deadlocks during addon shutdown.
+            BridgeError: If the bridge is shutting down and new requests are
+                not accepted. This prevents deadlocks during addon shutdown.
             queue.Empty: If no response is received within 30 seconds. This
                 timeout prevents indefinite blocking if the main thread crashes
                 or becomes unresponsive.
@@ -200,7 +214,7 @@ class QueueBridge:
 
         with self._pending_lock:
             if self._shutdown:
-                raise Exception("Bridge is shutting down")
+                raise BridgeError("Bridge is shutting down")
             self._pending[request.request_id] = response_q
 
         self.request_queue.put(request)

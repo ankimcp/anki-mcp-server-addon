@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from anki_mcp_server.queue_bridge import QueueBridge, ToolRequest, ToolResponse
+from anki_mcp_server.queue_bridge import BridgeError, QueueBridge, ToolRequest, ToolResponse
 
 
 def _make_request(request_id: str, tool_name: str = "test") -> ToolRequest:
@@ -185,7 +185,7 @@ class TestShutdown:
         bridge = QueueBridge()
         bridge.shutdown()
 
-        with pytest.raises(Exception, match="shutting down"):
+        with pytest.raises(BridgeError, match="shutting down"):
             bridge.send_request(_make_request("late"))
 
     def test_shutdown_then_fresh_bridge(self):
@@ -234,7 +234,7 @@ class TestTimeout:
             response_q: queue.Queue[ToolResponse] = queue.Queue()
             with bridge._pending_lock:
                 if bridge._shutdown:
-                    raise Exception("Bridge is shutting down")
+                    raise BridgeError("Bridge is shutting down")
                 bridge._pending[request.request_id] = response_q
             bridge.request_queue.put(request)
             try:
@@ -254,7 +254,7 @@ class TestTimeout:
             response_q: queue.Queue[ToolResponse] = queue.Queue()
             with bridge._pending_lock:
                 if bridge._shutdown:
-                    raise Exception("Bridge is shutting down")
+                    raise BridgeError("Bridge is shutting down")
                 bridge._pending[request.request_id] = response_q
             bridge.request_queue.put(request)
             try:
