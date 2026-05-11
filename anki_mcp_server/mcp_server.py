@@ -27,7 +27,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import Icon
 
 from .config import Config
-from .queue_bridge import QueueBridge, ToolRequest
+from .queue_bridge import BridgeError, QueueBridge, ToolRequest
 from .primitives import register_all_tools, register_all_resources, register_all_prompts
 
 
@@ -49,7 +49,6 @@ class McpServer:
         _bridge: Queue bridge for thread-safe communication with main thread
         _config: Server configuration (HTTP host/port, mode, etc.)
         _thread: Background thread running the asyncio event loop
-        _shutdown_event: Event to signal server shutdown
     """
 
     def __init__(self, bridge: QueueBridge, config: Config) -> None:
@@ -62,7 +61,10 @@ class McpServer:
         self._bridge = bridge
         self._config = config
         self._thread: Optional[threading.Thread] = None
-        self._shutdown_event = threading.Event()
+        # Set in _async_main() / _run_http_mode(); used by stop() to signal
+        # uvicorn shutdown across the asyncio/Qt thread boundary.
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._uvicorn_server: Optional[uvicorn.Server] = None
 
     def start(self) -> None:
         """Start MCP server in background thread.
@@ -73,25 +75,35 @@ class McpServer:
         Thread Safety:
             Safe to call from main thread (Qt event loop).
         """
-        self._shutdown_event.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
-        """Signal shutdown.
+        """Signal shutdown and wait for the background thread to exit.
 
-        Sets the shutdown event. The daemon thread will be terminated
-        automatically when Anki's process exits.
-
-        Note:
-            We don't wait for the thread - uvicorn doesn't respond to
-            shutdown events, so waiting would just add unnecessary delay.
-            The daemon=True flag ensures clean process exit.
+        Sets uvicorn's ``should_exit`` flag via ``call_soon_threadsafe`` so the
+        serve loop wakes on its next tick (~100ms) and releases the listening
+        socket. Then joins the background thread with a short timeout so a
+        subsequent ``start()`` (e.g. profile switch) doesn't race the port
+        rebind.
 
         Thread Safety:
             Safe to call from main thread (Qt event loop).
         """
-        self._shutdown_event.set()
+        loop = self._loop
+        server = self._uvicorn_server
+        if loop is not None and server is not None and not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(lambda: setattr(server, "should_exit", True))
+            except RuntimeError:
+                # Loop already stopped/closing — nothing to signal.
+                pass
+
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=3.0)
+        self._thread = None
+        self._loop = None
+        self._uvicorn_server = None
 
     def _run(self) -> None:
         """Thread entry point - runs asyncio event loop.
@@ -119,8 +131,8 @@ class McpServer:
             The result from executing the tool on the main thread
 
         Raises:
-            Exception: If the main thread returns an error response, with the
-                error message from the response
+            BridgeError: If the main thread returns an error response, with
+                the error message from the response.
 
         Thread Safety:
             Safe to call from background thread (asyncio event loop). Uses
@@ -142,7 +154,7 @@ class McpServer:
         response = await asyncio.to_thread(self._bridge.send_request, request)
 
         if not response.success:
-            raise Exception(response.error)
+            raise BridgeError(response.error or "Unknown bridge error")
         return response.result
 
     async def _async_main(self) -> None:
@@ -158,6 +170,10 @@ class McpServer:
         Thread Safety:
             Runs in background thread. Never accesses Qt or Anki APIs directly.
         """
+        # Capture the loop so stop() (Qt thread) can schedule cross-thread
+        # callbacks via call_soon_threadsafe.
+        self._loop = asyncio.get_running_loop()
+
         # Disable DNS rebinding protection to allow tunnels/proxies (ngrok, Cloudflare, etc.)
         # The addon runs locally and users explicitly configure tunnel access
         security_settings = TransportSecuritySettings(
@@ -194,16 +210,13 @@ class McpServer:
         Uses FastMCP's streamable_http() which returns a Starlette ASGI app
         configured with the MCP protocol handlers. The app is served via uvicorn.
 
+        Shutdown is driven by stop() flipping ``server.should_exit`` via
+        ``call_soon_threadsafe``; uvicorn's serve loop polls that flag and
+        unwinds on its next tick, releasing the listening socket so the next
+        profile open can rebind the port.
+
         Args:
             mcp: Configured FastMCP server instance with tools defined
-
-        Note:
-            Shutdown handling is best-effort for v1. Uvicorn's serve() blocks
-            and we use a daemon thread, so the server will be forcibly terminated
-            when Anki closes. This is acceptable for v1 since:
-            - Daemon thread won't block Anki shutdown
-            - MCP is stateless - no data loss from abrupt termination
-            - Future versions can implement proper shutdown via server.shutdown()
 
         Thread Safety:
             Runs in background thread. Never accesses Qt or Anki APIs directly.
@@ -230,8 +243,7 @@ class McpServer:
             log_level="warning",
         )
         server = uvicorn.Server(config)
+        # Publish before serving so stop() can reach it via call_soon_threadsafe.
+        self._uvicorn_server = server
 
-        # Note: server.serve() blocks until shutdown
-        # For v1, daemon=True on thread handles cleanup
-        # TODO(future): Implement graceful shutdown via server.shutdown()
         await server.serve()
