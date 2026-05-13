@@ -99,14 +99,17 @@ def ensure_pydantic_core() -> bool:
     Returns True if pydantic_core is ready, False if failed.
     Shows progress dialog during download.
     """
-    # Fast path: already importable (system-installed, cached, or vendored).
-    # No version check here — pydantic validates pydantic_core compatibility
-    # at its own import time and raises PydanticUserError on mismatch.
-    try:
-        import pydantic_core  # noqa: F401
-        return True
-    except ImportError:
-        pass
+    from . import _USING_SYSTEM_PACKAGES
+
+    # When running on a system-packages install (e.g. NixOS, source pip install),
+    # vendor/ doesn't exist. Trust whatever pydantic_core the system provides —
+    # the matching pydantic comes from the same environment.
+    if _USING_SYSTEM_PACKAGES:
+        try:
+            import pydantic_core  # noqa: F401
+            return True
+        except ImportError:
+            return False
 
     try:
         required_version = _get_required_pydantic_core_version()
@@ -119,22 +122,57 @@ def ensure_pydantic_core() -> bool:
         )
         return False
 
-    pypi_url = f"https://pypi.org/pypi/pydantic-core/{required_version}/json"
-
     cache_dir = CACHE_DIR / "pydantic_core_pkg"
     marker_file = cache_dir / ".complete"
     version_file = cache_dir / ".version"
 
-    # Already cached? Check version matches.
+    pypi_url = f"https://pypi.org/pypi/pydantic-core/{required_version}/json"
+
+    # Validate cache version BEFORE prepending. A stale cache (from a previous
+    # addon version that required a different pydantic_core) must NOT be put on
+    # sys.path — otherwise the version-match probe below would accept it without
+    # noticing it's the wrong build for our vendored pydantic.
     if marker_file.exists():
         cached_version = version_file.read_text().strip() if version_file.exists() else None
         if cached_version == required_version:
             cache_str = str(cache_dir)
             if cache_str not in sys.path:
                 sys.path.insert(0, cache_str)
+        else:
+            # Stale cache — wipe so the download path rebuilds it.
+            shutil.rmtree(cache_dir, ignore_errors=True)
+
+    # Snapshot which pydantic_core entries are in sys.modules BEFORE our probe
+    # so we can undo only the tracks our probe leaves behind. Entries already
+    # present (loaded by another addon) are off-limits — leave them alone.
+    pre_probe_modules = {
+        name for name in sys.modules
+        if name == "pydantic_core" or name.startswith("pydantic_core.")
+    }
+
+    # Fast path: already importable AND its __version__ matches what our
+    # vendored pydantic expects. Version-string match is what pydantic itself
+    # checks at the same boundary, and it works under symlinked installs (Nix)
+    # where path-based ownership checks misfire. A system-provided pydantic_core
+    # at a different version would ABI-mismatch our vendored pydantic, so reject
+    # it and fall through to download.
+    try:
+        import pydantic_core
+        if getattr(pydantic_core, "__version__", None) == required_version:
             return True
-        # Version mismatch (addon was upgraded) — re-download
-        shutil.rmtree(cache_dir, ignore_errors=True)
+        # Probe loaded a wrong-version module and cached it in sys.modules.
+        # If it was already there before our probe, leave it (another addon's
+        # state — popping it would break them). Otherwise pop to undo our own
+        # probe, so the next import (after we prepend _cache/ post-download)
+        # re-resolves against the correct location.
+        for name in list(sys.modules):
+            if (
+                (name == "pydantic_core" or name.startswith("pydantic_core."))
+                and name not in pre_probe_modules
+            ):
+                sys.modules.pop(name, None)
+    except ImportError:
+        pass
 
     # Need to download
     try:

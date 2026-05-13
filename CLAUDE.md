@@ -120,7 +120,7 @@ anki_mcp_server/
     │   │       ├── __init__.py
     │   │       ├── filtered_deck_tool.py
     │   │       └── actions/
-    │   ├── resources/       # system_info, query_syntax, schema, stats
+    │   ├── resources/       # system_info, query_syntax, schema, stats, fsrs_config
     │   └── prompts/         # review_session, twenty_rules
     └── gui/tools/           # UI tools: browse, add_cards, edit_note, etc.
 ```
@@ -372,6 +372,10 @@ Disabled in `mcp_server.py` to allow tunnel/proxy access (Cloudflare, ngrok).
 
 Configured via addon settings (`cors_origins`, `cors_expose_headers`). Empty `cors_origins` = CORS disabled. The `mcp-session-id` and `mcp-protocol-version` headers must be exposed for browser-based MCP clients (Streamable HTTP protocol requirement). See `config.py` for the full `Config` dataclass. CORS only applies to the HTTP transport — the tunnel path bypasses HTTP entirely.
 
+### HTTP Path Prefix (Secret Path)
+
+`Config.http_path` (default `""`) lets the operator move the MCP endpoint off `/` to an obscure prefix like `"my-secret"` → served at `/my-secret/`. Used for security-through-obscurity when exposing the server through a tunnel. Normalization happens in `mcp_server.py` (`streamable_path = f"/{http_path.strip('/')}/"`). Tests live in `tests/e2e/test_secret_path.py`.
+
 ### Connection Modes
 
 `Config.mode` is `Literal["http"]` — only one mode is supported today. `is_valid_for_mode()` and the surrounding scaffolding exist for future modes (e.g., tunnel) but are unused right now. Don't conditionalize behavior on `mode` until a second mode actually lands.
@@ -469,6 +473,11 @@ This project has **no configured linters, formatters, or type checkers** (no ruf
 ### Media Security Boundary
 
 All media inputs (file paths, URLs, filenames) must pass through `media_validators.py` before any I/O occurs. It enforces `media_import_dir` containment (path traversal prevention) and blocks private-network URLs (SSRF prevention). Custom error subclasses of `HandlerError` (`MediaFileTypeError`, `MediaImportDirError`, etc.) carry actionable hints for the AI client, while security-relevant details (resolved paths, MIME types, resolved IPs) are logged at WARNING level for the operator's audit trail. **Never bypass these validators** when adding media-related tools.
+
+Operator-facing config knobs (all in `config.py`):
+- `media_import_dir` — restrict file-path imports to this directory (empty = no restriction)
+- `media_allowed_types` — extra MIME types beyond the built-in image/audio/video set
+- `media_allowed_hosts` — hosts/IPs allowed to bypass the private-network block (for `192.168.x.x` NAS-style setups)
 
 ### Imports Must Be Relative
 
