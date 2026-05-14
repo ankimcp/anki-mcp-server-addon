@@ -49,11 +49,12 @@ _spec = importlib.util.spec_from_file_location("_anki_mcp_loader", _loader_path)
 _loader = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_loader)
 
-if not _loader._ensure_pydantic_core_with_callbacks():
+_bootstrap_errors: list[str] = []
+
+if not _loader._ensure_pydantic_core_with_callbacks(on_error=_bootstrap_errors.append):
+    reason = "; ".join(_bootstrap_errors) if _bootstrap_errors else "(no reason reported)"
     raise RuntimeError(
-        "Failed to bootstrap pydantic_core for unit tests. "
-        "Check network connectivity and that the vendored pydantic version "
-        "has a matching pydantic_core wheel for this Python on PyPI."
+        f"Failed to bootstrap pydantic_core for unit tests: {reason}"
     )
 
 # ---------------------------------------------------------------------------

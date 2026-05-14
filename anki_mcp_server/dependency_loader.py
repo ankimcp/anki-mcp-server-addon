@@ -293,21 +293,44 @@ def ensure_pydantic_core() -> bool:
 
     from aqt.qt import QProgressDialog, QMessageBox, QApplication
 
-    progress = QProgressDialog("Initializing AnkiMCP Server...", "Cancel", 0, 100)
-    progress.setWindowTitle("AnkiMCP Server - Setup")
-    progress.setMinimumDuration(0)
-    progress.show()
-    QApplication.processEvents()
+    # Lazy-create the progress dialog on the first status/progress callback.
+    # Fast paths (cache hit, version match) never invoke those callbacks, so no
+    # dialog is created and there's no "dialog flash" on Anki startup for users
+    # with a warm _cache/.
+    progress: "QProgressDialog | None" = None
+
+    def _ensure_dialog(initial_label: str) -> QProgressDialog:
+        nonlocal progress
+        if progress is None:
+            progress = QProgressDialog(initial_label, "Cancel", 0, 100)
+            progress.setWindowTitle("AnkiMCP Server - Setup")
+            progress.setMinimumDuration(0)
+            progress.show()
+        return progress
+
+    def on_status(msg: str) -> None:
+        _ensure_dialog(msg).setLabelText(msg)
+
+    def on_progress(pct: int) -> None:
+        _ensure_dialog("Downloading pydantic_core...").setValue(pct)
+
+    def is_cancelled() -> bool:
+        # Defensive: pure core only checks cancellation inside the download
+        # branch, after on_status has already fired. The None guard guarantees
+        # safety even if that invariant ever changes.
+        return progress.wasCanceled() if progress is not None else False
+
+    def on_error(msg: str) -> None:
+        QMessageBox.critical(None, "AnkiMCP Server - Setup Failed", msg)
 
     try:
         return _ensure_pydantic_core_with_callbacks(
-            on_status=progress.setLabelText,
-            on_progress=progress.setValue,
-            is_cancelled=progress.wasCanceled,
-            on_error=lambda msg: QMessageBox.critical(
-                None, "AnkiMCP Server - Setup Failed", msg
-            ),
+            on_status=on_status,
+            on_progress=on_progress,
+            is_cancelled=is_cancelled,
+            on_error=on_error,
             yield_ui=QApplication.processEvents,
         )
     finally:
-        progress.close()
+        if progress is not None:
+            progress.close()

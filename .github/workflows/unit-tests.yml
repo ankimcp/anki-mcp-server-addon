@@ -29,6 +29,9 @@ jobs:
         run: |
           pip install -r requirements-dev.txt
 
+      - name: Build addon vendor directory
+        run: ./package.sh
+
       - name: Run unit tests
         run: |
           pytest tests/unit/ -v
