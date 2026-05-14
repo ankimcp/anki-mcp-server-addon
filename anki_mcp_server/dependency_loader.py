@@ -1,4 +1,10 @@
-"""Lazy-loader for pydantic_core - downloads correct wheel from PyPI on first run."""
+"""Lazy-loader for pydantic_core - downloads correct wheel from PyPI on first run.
+
+Split into a pure-logic core (``_ensure_pydantic_core_with_callbacks``) and a thin
+Qt wrapper (``ensure_pydantic_core``). The seam exists so headless callers
+(unit tests, CI bootstrap) can drive the loader without a Qt event loop, while
+the Anki runtime still gets a progress dialog.
+"""
 
 import sys
 import sysconfig
@@ -7,9 +13,7 @@ import urllib.request
 import zipfile
 import shutil
 from pathlib import Path
-
-# Qt imports for progress dialog
-from aqt.qt import QProgressDialog, QMessageBox, QApplication
+from typing import Callable
 
 CACHE_DIR = Path(__file__).parent / "_cache"
 
@@ -93,32 +97,28 @@ def _fix_windows_pyd(cache_dir: Path) -> None:
                 shutil.copy(pyd_file, simple_path)
 
 
-def ensure_pydantic_core() -> bool:
+def _ensure_pydantic_core_with_callbacks(
+    on_status: Callable[[str], None] = lambda msg: None,
+    on_progress: Callable[[int], None] = lambda pct: None,
+    is_cancelled: Callable[[], bool] = lambda: False,
+    on_error: Callable[[str], None] = lambda msg: None,
+    yield_ui: Callable[[], None] = lambda: None,
+) -> bool:
     """Ensure pydantic_core is available. Downloads from PyPI if needed.
 
-    Returns True if pydantic_core is ready, False if failed.
-    Shows progress dialog during download.
+    Pure-logic core with no Qt dependency. The Qt wrapper
+    ``ensure_pydantic_core`` adapts these callbacks to QProgressDialog /
+    QMessageBox. Default no-op callbacks make this directly callable from
+    headless contexts (tests, CI).
+
+    Returns True if pydantic_core is ready, False otherwise.
     """
-    from . import _USING_SYSTEM_PACKAGES
-
-    # When running on a system-packages install (e.g. NixOS, source pip install),
-    # vendor/ doesn't exist. Trust whatever pydantic_core the system provides —
-    # the matching pydantic comes from the same environment.
-    if _USING_SYSTEM_PACKAGES:
-        try:
-            import pydantic_core  # noqa: F401
-            return True
-        except ImportError:
-            return False
-
     try:
         required_version = _get_required_pydantic_core_version()
     except Exception as e:
-        QMessageBox.critical(
-            None,
-            "AnkiMCP Server - Setup Failed",
+        on_error(
             f"Failed to determine required pydantic_core version:\n\n{e}\n\n"
-            "If you installed from source, install pydantic_core with pip.",
+            "If you installed from source, install pydantic_core with pip."
         )
         return False
 
@@ -176,21 +176,13 @@ def ensure_pydantic_core() -> bool:
 
     # Need to download
     try:
-        # Create progress dialog
-        progress = QProgressDialog(
-            f"Downloading pydantic_core {required_version} (first run only)...",
-            "Cancel",
-            0, 100
-        )
-        progress.setWindowTitle("AnkiMCP Server - Setup")
-        progress.setMinimumDuration(0)
-        progress.setValue(0)
-        progress.show()
-        QApplication.processEvents()
+        on_status(f"Downloading pydantic_core {required_version} (first run only)...")
+        on_progress(0)
+        yield_ui()
 
         # Fetch PyPI metadata for the exact required version
-        progress.setLabelText("Fetching package info...")
-        QApplication.processEvents()
+        on_status("Fetching package info...")
+        yield_ui()
 
         with urllib.request.urlopen(pypi_url, timeout=30) as response:
             pypi_data = json.loads(response.read().decode())
@@ -199,42 +191,42 @@ def ensure_pydantic_core() -> bool:
         if served_version != required_version:
             raise RuntimeError(f"PyPI returned version {served_version}, expected {required_version}")
 
-        if progress.wasCanceled():
+        if is_cancelled():
             return False
 
         # Find correct wheel
         wheel_url = _find_wheel_url(pypi_data)
         wheel_name = wheel_url.split("/")[-1]
 
-        progress.setLabelText(f"Downloading {wheel_name}...")
-        progress.setValue(10)
-        QApplication.processEvents()
+        on_status(f"Downloading {wheel_name}...")
+        on_progress(10)
+        yield_ui()
 
         # Download wheel
         cache_dir.mkdir(parents=True, exist_ok=True)
         wheel_path = cache_dir / wheel_name
 
         def download_progress(block_num, block_size, total_size):
-            if progress.wasCanceled():
+            if is_cancelled():
                 raise InterruptedError("Download cancelled")
             if total_size > 0:
                 downloaded = block_num * block_size
                 percent = min(10 + int(downloaded * 70 / total_size), 80)
                 mb_done = downloaded / (1024 * 1024)
                 mb_total = total_size / (1024 * 1024)
-                progress.setLabelText(f"Downloading... {mb_done:.1f}/{mb_total:.1f} MB")
-                progress.setValue(percent)
-                QApplication.processEvents()
+                on_status(f"Downloading... {mb_done:.1f}/{mb_total:.1f} MB")
+                on_progress(percent)
+                yield_ui()
 
         urllib.request.urlretrieve(wheel_url, wheel_path, reporthook=download_progress)
 
-        if progress.wasCanceled():
+        if is_cancelled():
             return False
 
         # Extract wheel
-        progress.setLabelText("Extracting...")
-        progress.setValue(85)
-        QApplication.processEvents()
+        on_status("Extracting...")
+        on_progress(85)
+        yield_ui()
 
         with zipfile.ZipFile(wheel_path, 'r') as zf:
             for member in zf.namelist():
@@ -253,10 +245,9 @@ def ensure_pydantic_core() -> bool:
         version_file.write_text(required_version)
         marker_file.touch()
 
-        progress.setValue(100)
-        progress.setLabelText("Done!")
-        QApplication.processEvents()
-        progress.close()
+        on_progress(100)
+        on_status("Done!")
+        yield_ui()
 
         # Add to path
         cache_str = str(cache_dir)
@@ -270,12 +261,53 @@ def ensure_pydantic_core() -> bool:
         return False
 
     except Exception as e:
-        # Show error
         shutil.rmtree(cache_dir, ignore_errors=True)
-        QMessageBox.critical(
-            None,
-            "AnkiMCP Server - Setup Failed",
+        on_error(
             f"Failed to download pydantic_core:\n\n{e}\n\n"
             "Please check your internet connection and try again."
         )
         return False
+
+
+def ensure_pydantic_core() -> bool:
+    """Ensure pydantic_core is available. Shows Qt progress dialog during download.
+
+    Thin Qt wrapper around ``_ensure_pydantic_core_with_callbacks``. The
+    _USING_SYSTEM_PACKAGES short-circuit lives here because it is only
+    meaningful at production runtime (source / Nix installs); headless
+    callers should always go through the download path.
+
+    Returns True if pydantic_core is ready, False if failed.
+    """
+    from . import _USING_SYSTEM_PACKAGES
+
+    # When running on a system-packages install (e.g. NixOS, source pip install),
+    # vendor/ doesn't exist. Trust whatever pydantic_core the system provides —
+    # the matching pydantic comes from the same environment.
+    if _USING_SYSTEM_PACKAGES:
+        try:
+            import pydantic_core  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
+    from aqt.qt import QProgressDialog, QMessageBox, QApplication
+
+    progress = QProgressDialog("Initializing AnkiMCP Server...", "Cancel", 0, 100)
+    progress.setWindowTitle("AnkiMCP Server - Setup")
+    progress.setMinimumDuration(0)
+    progress.show()
+    QApplication.processEvents()
+
+    try:
+        return _ensure_pydantic_core_with_callbacks(
+            on_status=progress.setLabelText,
+            on_progress=progress.setValue,
+            is_cancelled=progress.wasCanceled,
+            on_error=lambda msg: QMessageBox.critical(
+                None, "AnkiMCP Server - Setup Failed", msg
+            ),
+            yield_ui=QApplication.processEvents,
+        )
+    finally:
+        progress.close()

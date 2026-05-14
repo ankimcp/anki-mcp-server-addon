@@ -16,6 +16,9 @@ venv/
 *.ankiaddon
 vendor/
 
+# pydantic_core download cache (runtime + test bootstrap)
+anki_mcp_server/_cache/
+
 # OS
 .DS_Store
 
