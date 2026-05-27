@@ -145,7 +145,7 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "http_host": "127.0.0.1",
   "http_path": "",
   "cors_origins": [],
-  "cors_expose_headers": ["mcp-session-id", "mcp-protocol-version"],
+  "cors_expose_headers": ["mcp-protocol-version"],
   "auto_connect_on_startup": true,
   "disabled_tools": [],
   "media_import_dir": "",
@@ -197,7 +197,7 @@ To allow browser-based MCP clients (like web-hosted MCP Inspector), add allowed 
 
 Use `["*"]` to allow all origins (not recommended for production).
 
-The `cors_expose_headers` setting controls which response headers browsers can read. The defaults (`mcp-session-id`, `mcp-protocol-version`) are required for the MCP Streamable HTTP protocol to work in browsers.
+The `cors_expose_headers` setting controls which response headers browsers can read. The default (`mcp-protocol-version`) lets browser-based MCP clients negotiate the protocol version. Since v0.16.0 the server runs in stateless mode, so `mcp-session-id` is no longer emitted and no longer needs to be exposed.
 
 ### Media Security
 
