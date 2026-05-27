@@ -190,6 +190,7 @@ class McpServer:
                 sizes=["any"],
             )],
             streamable_http_path=streamable_path,
+            stateless_http=True,
             transport_security=security_settings,
         )
 
