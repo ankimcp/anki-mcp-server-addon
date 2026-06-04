@@ -3,7 +3,7 @@
   "name": "ai.ankimcp/anki-mcp-server-addon",
   "title": "AnkiMCP Server",
   "description": "Anki addon that exposes your flashcard collection to AI assistants via a local MCP server.",
-  "version": "0.15.1",
+  "version": "0.17.0",
   "repository": {
     "url": "https://github.com/ankimcp/anki-mcp-server-addon",
     "source": "github"
