@@ -10,7 +10,6 @@ UI module -- depends on ConnectionManager for tunnel state and control.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 
 from aqt.qt import (
     QApplication,
@@ -36,37 +35,6 @@ from .login_dialog import LoginDialog
 logger = logging.getLogger(__name__)
 
 
-def _parse_expiry(iso_str: str | None) -> datetime | None:
-    """Parse an ISO 8601 expiry string into a timezone-aware datetime.
-
-    Returns None if the string is None or unparseable.
-    """
-    if iso_str is None:
-        return None
-    try:
-        cleaned = iso_str.strip()
-        if cleaned.endswith("Z"):
-            cleaned = cleaned[:-1] + "+00:00"
-        dt = datetime.fromisoformat(cleaned)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
-    except (ValueError, AttributeError):
-        return None
-
-
-def _format_duration(seconds: float) -> str:
-    """Format a duration in seconds to a human-readable string like '18h 32m'."""
-    if seconds <= 0:
-        return "expired"
-    total_minutes = int(seconds) // 60
-    hours = total_minutes // 60
-    minutes = total_minutes % 60
-    if hours > 0:
-        return f"{hours}h {minutes:02d}m"
-    return f"{minutes}m"
-
-
 class TunnelSettingsSection(QWidget):
     """Tunnel control panel for the settings dialog.
 
@@ -74,7 +42,7 @@ class TunnelSettingsSection(QWidget):
     user tier info, and scrollable event log.
 
     The widget refreshes its display every second via a QTimer to keep
-    the expiry countdown accurate and status labels current.
+    status labels current.
     """
 
     def __init__(
@@ -224,18 +192,12 @@ class TunnelSettingsSection(QWidget):
                 f"Connected as <b>{email}</b> ({tier_display})"
             )
 
-            # Expiry countdown
+            # Expiry indicator (tunnel URLs do not expire; paid tiers show a
+            # "Permanent URL" hint, free tier shows nothing).
             if tier != "free":
                 self._expiry_label.setText("Permanent URL")
             else:
-                expires_at = _parse_expiry(self._cm.tunnel_expires_at)
-                if expires_at is not None:
-                    remaining = (expires_at - datetime.now(timezone.utc)).total_seconds()
-                    self._expiry_label.setText(
-                        f"URL expires in {_format_duration(remaining)}"
-                    )
-                else:
-                    self._expiry_label.setText("")
+                self._expiry_label.setText("")
 
             self._expiry_label.setVisible(True)
 

@@ -148,7 +148,7 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "cors_origins": [],
   "cors_expose_headers": ["mcp-protocol-version"],
   "disabled_tools": [],
-  "tunnel_server_url": "ws://localhost:3004",
+  "tunnel_server_url": "wss://tunnel.ankimcp.ai",
   "tunnel_client_id": "ankimcp-cli",
   "media_import_dir": "",
   "media_allowed_types": [],
@@ -207,10 +207,10 @@ claude mcp add anki --transport http https://your-tunnel-url.tunnel.ankimcp.ai/
 - **Logout** deletes credentials. Next Connect triggers the login dialog again.
 
 **Tunnel config fields** (for advanced users / self-hosters):
-- `tunnel_server_url` — WebSocket URL of the tunnel relay server (default: `ws://localhost:3004`)
+- `tunnel_server_url` — WebSocket URL of the tunnel relay server (default: `wss://tunnel.ankimcp.ai`)
 - `tunnel_client_id` — OAuth client identifier (default: `ankimcp-cli`)
 
-Credentials are stored at `~/.ankimcp/credentials.json` and shared with the [AnkiMCP CLI](https://github.com/ankimcp/anki-mcp-cli) — logging in from either side works for both.
+Credentials are stored in the addon's own `user_files/credentials.json` (preserved across addon updates). They are not shared with the [AnkiMCP CLI](https://github.com/ankimcp/anki-mcp-cli) — the CLI keeps its own credentials under `~/.ankimcp/`, so you log in to the addon and the CLI independently. The on-disk format is identical between the two.
 
 ### Disabling Tools
 

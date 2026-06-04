@@ -19,6 +19,11 @@ vendor/
 # pydantic_core download cache (runtime + test bootstrap)
 anki_mcp_server/_cache/
 
+# Addon-owned tunnel credentials (incl. transient .tmp written during save())
+# Keep the README so user_files/ ships in the package.
+anki_mcp_server/user_files/*
+!anki_mcp_server/user_files/README.txt
+
 # OS
 .DS_Store
 

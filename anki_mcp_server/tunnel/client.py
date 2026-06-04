@@ -60,6 +60,28 @@ class _HealthCheckTimeout(Exception):
 
 
 # --------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------
+
+def _extract_request_id(body: str | None) -> Any:
+    """Best-effort parse of the inner JSON-RPC request ``id`` from a body string.
+
+    Returns the ``id`` so error envelopes can be correlated by the end client,
+    or ``None`` if the body is absent, not a JSON object, or has no ``id``
+    (e.g. a batch request, which is a list, or a malformed body).
+    """
+    if not body:
+        return None
+    try:
+        parsed = json.loads(body)
+    except (ValueError, TypeError):
+        return None
+    if isinstance(parsed, dict):
+        return parsed.get("id")
+    return None
+
+
+# --------------------------------------------------------------------------
 # Tunnel Client
 # --------------------------------------------------------------------------
 
@@ -86,10 +108,9 @@ class TunnelClient:
         server_url: str,
         credentials: Credentials,
         transport: InMemoryTransport,
-        on_tunnel_established: Callable[[str, str | None], None] | None = None,
+        on_tunnel_established: Callable[[str], None] | None = None,
         on_disconnected: Callable[[int, str], None] | None = None,
         on_error: Callable[[str, str], None] | None = None,
-        on_url_changed: Callable[[str, str], None] | None = None,
         on_request_completed: Callable[[str, int, float], None] | None = None,
     ) -> None:
         """Initialize the tunnel client.
@@ -101,13 +122,11 @@ class TunnelClient:
             transport: In-memory transport for direct JSON-RPC processing
                 into the FastMCP server (no HTTP round-trip).
             on_tunnel_established: Called when the tunnel is ready.
-                Receives ``(public_url, expires_at)``.
+                Receives ``(public_url,)``.
             on_disconnected: Called when the connection ends.
                 Receives ``(close_code, reason)``.
             on_error: Called when the server sends an error message.
                 Receives ``(error_code, error_message)``.
-            on_url_changed: Called when the tunnel URL changes.
-                Receives ``(old_url, new_url)``.
             on_request_completed: Called after each proxied request.
                 Receives ``(method_path, status_code, duration_ms)``.
         """
@@ -119,7 +138,6 @@ class TunnelClient:
         self._on_tunnel_established = on_tunnel_established
         self._on_disconnected = on_disconnected
         self._on_error = on_error
-        self._on_url_changed = on_url_changed
         self._on_request_completed = on_request_completed
 
         # Connection state
@@ -148,8 +166,8 @@ class TunnelClient:
                 self._server_url,
                 additional_headers={"Authorization": f"Bearer {self._credentials.access_token}"},
                 open_timeout=CONNECTION_TIMEOUT,
-                # Disable websockets' built-in keepalive — we handle pings
-                # at the application protocol level (tunnel ping/pong).
+                # Disable websockets' built-in keepalive — we handle pings at
+                # the application protocol level.
                 ping_interval=None,
                 ping_timeout=None,
             )
@@ -257,17 +275,10 @@ class TunnelClient:
             )
 
         self._tunnel_url = msg["url"]
-        expires_at: str | None = msg.get("expiresAt")
 
-        logger.info(
-            "Tunnel established: url=%s, expires_at=%s",
-            self._tunnel_url,
-            expires_at or "never",
-        )
+        logger.info("Tunnel established: url=%s", self._tunnel_url)
 
-        self._fire_callback(
-            self._on_tunnel_established, self._tunnel_url, expires_at
-        )
+        self._fire_callback(self._on_tunnel_established, self._tunnel_url)
 
     # ------------------------------------------------------------------
     # Receive loop
@@ -304,8 +315,6 @@ class TunnelClient:
                     await self._handle_ping(ws, msg)  # type: ignore[arg-type]
                 case "error":
                     self._handle_error(msg)
-                case "url_changed":
-                    self._handle_url_changed(msg)
                 case _:
                     logger.warning("Unknown message type: %s", msg_type)
 
@@ -360,6 +369,45 @@ class TunnelClient:
                 duration_ms,
             )
 
+        except asyncio.TimeoutError:
+            duration_ms = (time.monotonic() - start) * 1000
+            logger.warning(
+                "Timed out processing %s %s after %.1fms", method, path, duration_ms
+            )
+
+            # Mirror the relay's request-timeout convention: 504 + JSON-RPC
+            # error code -32004. Echo the inner request id when we can recover
+            # it from the body so the end client can correlate the error.
+            timeout_response: TunnelResponse = {
+                "type": "response",
+                "requestId": request_id,
+                "statusCode": 504,
+                "headers": {"content-type": "application/json"},
+                "body": json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": _extract_request_id(body),
+                    "error": {
+                        "code": -32004,
+                        "message": "Request timed out",
+                    },
+                }),
+            }
+            try:
+                await ws.send(json.dumps(timeout_response))
+            except Exception as send_exc:
+                logger.error(
+                    "Failed to send timeout response for request %s: %s",
+                    request_id,
+                    send_exc,
+                )
+
+            self._fire_callback(
+                self._on_request_completed,
+                f"{method} {path}",
+                504,
+                duration_ms,
+            )
+
         except Exception as exc:
             duration_ms = (time.monotonic() - start) * 1000
             logger.error(
@@ -410,7 +458,7 @@ class TunnelClient:
         logger.debug("Pong sent (timestamp=%d)", msg["timestamp"])
 
     # ------------------------------------------------------------------
-    # Error and URL-changed handlers
+    # Error handler
     # ------------------------------------------------------------------
 
     def _handle_error(self, msg: dict[str, Any]) -> None:
@@ -424,15 +472,6 @@ class TunnelClient:
             code, message, details,
         )
         self._fire_callback(self._on_error, code, message)
-
-    def _handle_url_changed(self, msg: dict[str, Any]) -> None:
-        """Handle a tunnel URL change notification."""
-        old_url = msg.get("oldUrl", "")
-        new_url = msg.get("newUrl", "")
-
-        self._tunnel_url = new_url
-        logger.info("Tunnel URL changed: %s -> %s", old_url, new_url)
-        self._fire_callback(self._on_url_changed, old_url, new_url)
 
     # ------------------------------------------------------------------
     # Health check

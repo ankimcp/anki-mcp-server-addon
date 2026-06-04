@@ -173,7 +173,7 @@ class McpServer:
         self,
         credentials_manager: Any,
         auth: Any,
-        on_tunnel_established: Callable[[str, str | None, dict | None], None] | None = None,
+        on_tunnel_established: Callable[[str, dict | None], None] | None = None,
         on_disconnected: Callable[[int, str], None] | None = None,
         on_error: Callable[[str, str], None] | None = None,
         on_request_completed: Callable[[str, int, float], None] | None = None,
@@ -188,7 +188,7 @@ class McpServer:
         Args:
             credentials_manager: CredentialsManager instance for token I/O.
             auth: DeviceFlowAuth instance for token refresh.
-            on_tunnel_established: Called when tunnel is ready (url, expires_at, user).
+            on_tunnel_established: Called when tunnel is ready (url, user).
             on_disconnected: Called when a connection ends (code, reason).
             on_error: Called on server error (error_code, message).
             on_request_completed: Called after each proxied request
@@ -267,7 +267,7 @@ class McpServer:
         self,
         credentials_manager: Any,
         auth: Any,
-        on_tunnel_established: Callable[[str, str | None, dict | None], None] | None = None,
+        on_tunnel_established: Callable[[str, dict | None], None] | None = None,
         on_disconnected: Callable[[int, str], None] | None = None,
         on_error: Callable[[str, str], None] | None = None,
         on_request_completed: Callable[[str, int, float], None] | None = None,
@@ -288,10 +288,10 @@ class McpServer:
         # Wrap the on_tunnel_established callback to also set _tunnel_running
         original_on_established = on_tunnel_established
 
-        def _on_established_wrapper(url: str, expires_at: str | None, user: dict | None = None) -> None:
+        def _on_established_wrapper(url: str, user: dict | None = None) -> None:
             self._tunnel_running = True
             if original_on_established is not None:
-                original_on_established(url, expires_at, user)
+                original_on_established(url, user)
 
         # Wrap on_disconnected to update _tunnel_running
         original_on_disconnected = on_disconnected

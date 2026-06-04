@@ -15,6 +15,7 @@ cancellation-safe sleep.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -157,7 +158,7 @@ class DeviceFlowAuth:
 
         # Step 2: Poll until the user completes auth
         credentials = await auth.poll_for_token(
-            device.device_code, device.interval
+            device.device_code, device.interval, device.expires_in
         )
 
         # Step 3: Later, refresh the token
@@ -208,7 +209,14 @@ class DeviceFlowAuth:
 
         data = await self._post(
             self._device_endpoint,
-            form_data={"client_id": self._client_id},
+            form_data={
+                "client_id": self._client_id,
+                # offline_access -> Keycloak issues an OFFLINE refresh token
+                # (long-lived, survives logout). openid is included for verbatim
+                # parity with the TS client even though it's functionally inert
+                # here. Must match device-flow.service.ts exactly.
+                "scope": "openid offline_access",
+            },
         )
 
         try:
@@ -231,7 +239,7 @@ class DeviceFlowAuth:
     # ------------------------------------------------------------------
 
     async def poll_for_token(
-        self, device_code: str, interval: int
+        self, device_code: str, interval: int, expires_in: int
     ) -> Credentials:
         """Poll the token endpoint until the user completes authorization.
 
@@ -239,9 +247,16 @@ class DeviceFlowAuth:
         ``anyio.sleep()`` so it can be cancelled cleanly via task group
         cancellation or ``asyncio.Task.cancel()``.
 
+        The loop is self-bounded by ``expires_in``: once that many seconds
+        have elapsed (measured against a monotonic clock) it gives up with
+        an ``expired_token`` :class:`AuthError`, mirroring the server-side
+        ``expired_token`` case so the caller handles both identically.
+
         Args:
             device_code: The ``device_code`` from :meth:`request_device_code`.
             interval: Initial polling interval in seconds.
+            expires_in: Lifetime of ``device_code`` in seconds; the poll loop
+                stops once this elapses.
 
         Returns:
             OAuth credentials on successful authorization.
@@ -252,13 +267,18 @@ class DeviceFlowAuth:
         """
         poll_interval = interval
 
+        # Monotonic deadline — immune to wall-clock changes (NTP, DST, manual
+        # adjustment) during the flow.
+        deadline = time.monotonic() + expires_in
+
         logger.debug(
-            "Starting token poll (interval=%ds, endpoint=%s)",
+            "Starting token poll (interval=%ds, expires_in=%ds, endpoint=%s)",
             poll_interval,
+            expires_in,
             self._token_endpoint,
         )
 
-        while True:
+        while time.monotonic() < deadline:
             # Sleep first — the spec says to wait before the initial poll.
             # anyio.sleep is cancellation-safe (raises Cancelled on cancel).
             await anyio.sleep(poll_interval)
@@ -294,6 +314,15 @@ class DeviceFlowAuth:
             # Success — build and return credentials.
             logger.debug("Token poll succeeded, building credentials")
             return _build_credentials(data)
+
+        # Deadline reached without the server returning expired_token first.
+        # Surface the same terminal error as the server-side expired_token
+        # case so the caller handles both paths identically.
+        logger.debug("Polling deadline reached (%ds), giving up", expires_in)
+        raise AuthError(
+            "Device code expired before authorization. Please restart login.",
+            error_code="expired_token",
+        )
 
     # ------------------------------------------------------------------
     # refresh_token

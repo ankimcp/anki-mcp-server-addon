@@ -75,7 +75,6 @@ class TunnelEstablished(TypedDict):
 
     type: str  # "tunnel_established"
     url: str
-    expiresAt: str | None
 
 
 class TunnelRequest(TypedDict):
@@ -112,20 +111,11 @@ class TunnelError(TypedDict):
     details: NotRequired[dict | None]
 
 
-class TunnelUrlChanged(TypedDict):
-    """Server notifies that the tunnel URL has changed (admin action)."""
-
-    type: str  # "url_changed"
-    oldUrl: str
-    newUrl: str
-
-
 ServerMessage = (
     TunnelEstablished
     | TunnelRequest
     | TunnelPing
     | TunnelError
-    | TunnelUrlChanged
 )
 
 
@@ -162,7 +152,6 @@ _SERVER_MESSAGE_TYPES: dict[str, type] = {
     "request": TunnelRequest,
     "ping": TunnelPing,
     "error": TunnelError,
-    "url_changed": TunnelUrlChanged,
 }
 
 

@@ -38,7 +38,7 @@ class Config:
     disabled_tools: List[str] = field(default_factory=list)
 
     # Tunnel settings
-    tunnel_server_url: str = "ws://localhost:3004"
+    tunnel_server_url: str = "wss://tunnel.ankimcp.ai"
     tunnel_client_id: str = "ankimcp-cli"
 
     # Media security settings

@@ -1,8 +1,11 @@
 """Credentials manager for AnkiMCP tunnel authentication.
 
-Reads and writes OAuth credentials shared with the TypeScript CLI.
-Both the CLI and this addon use the same file at ~/.ankimcp/credentials.json,
-so logging in from either side works for both.
+Reads and writes the addon's OAuth credentials. The file is addon-owned and
+lives in this addon's ``user_files/credentials.json`` directory, which Anki
+preserves across addon updates. It is NOT shared with the TypeScript CLI —
+the CLI keeps its own credentials under ``~/.ankimcp/``. The on-disk JSON
+format is still identical to the CLI's, but logging in on one side does not
+authenticate the other.
 
 This module handles ONLY file I/O. No auth logic, no network calls.
 Uses only stdlib — no vendored dependencies.
@@ -53,17 +56,23 @@ class Credentials:
 
 
 class CredentialsManager:
-    """Manage the shared credentials file at ``~/.ankimcp/credentials.json``.
+    """Manage the addon-owned credentials file in ``user_files/credentials.json``.
 
     All methods are defensive — filesystem errors are caught and logged,
     never propagated. This ensures a broken credentials file can never
     crash Anki.
 
-    The file format is intentionally identical to the TypeScript CLI so
-    that users who logged in via CLI don't need to re-authenticate in Anki.
+    The file lives in this addon's ``user_files/`` directory (which Anki
+    preserves across addon updates) and is NOT shared with the TypeScript
+    CLI. The on-disk JSON format is intentionally identical to the CLI's,
+    but credentials are stored per-application — logging in via the CLI does
+    not authenticate the addon and vice versa.
     """
 
-    CREDENTIALS_DIR: Path = Path.home() / ".ankimcp"
+    # Addon-owned storage: ``user_files/`` sits next to this module in the
+    # addon package directory, which is also the addon root. Anki preserves
+    # ``user_files/`` across addon updates.
+    CREDENTIALS_DIR: Path = Path(__file__).resolve().parent / "user_files"
     CREDENTIALS_PATH: Path = CREDENTIALS_DIR / "credentials.json"
     EXPIRY_BUFFER_SECONDS: int = 60
 
@@ -113,7 +122,7 @@ class CredentialsManager:
     def save(self, credentials: Credentials) -> None:
         """Write credentials to disk with restrictive permissions.
 
-        Creates ``~/.ankimcp/`` with mode 0700 if it doesn't exist.
+        Creates the ``user_files/`` directory with mode 0700 if it doesn't exist.
         The credentials file is written with mode 0600 (owner read/write only).
 
         Args:

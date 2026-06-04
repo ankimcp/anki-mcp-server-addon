@@ -51,10 +51,9 @@ class TunnelReconnectManager:
         mcp_server: Any,
         credentials_manager: CredentialsManager,
         auth: DeviceFlowAuth,
-        on_tunnel_established: Callable[[str, str | None, dict | None], None] | None = None,
+        on_tunnel_established: Callable[[str, dict | None], None] | None = None,
         on_disconnected: Callable[[int, str], None] | None = None,
         on_error: Callable[[str, str], None] | None = None,
-        on_url_changed: Callable[[str, str], None] | None = None,
         on_request_completed: Callable[[str, int, float], None] | None = None,
         on_reconnecting: Callable[[int, float], None] | None = None,
         on_gave_up: Callable[[int, str], None] | None = None,
@@ -70,13 +69,11 @@ class TunnelReconnectManager:
             credentials_manager: Reads/writes credentials from disk.
             auth: Device flow auth client for token refresh.
             on_tunnel_established: Called when the tunnel is ready.
-                Receives ``(public_url, expires_at, user_dict)``.
+                Receives ``(public_url, user_dict)``.
             on_disconnected: Called when a single connection ends.
                 Receives ``(close_code, reason)``.
             on_error: Called when the server sends an error message.
                 Receives ``(error_code, error_message)``.
-            on_url_changed: Called when the tunnel URL changes.
-                Receives ``(old_url, new_url)``.
             on_request_completed: Called after each proxied request.
                 Receives ``(method_path, status_code, duration_ms)``.
             on_reconnecting: Called before each reconnection delay.
@@ -93,7 +90,6 @@ class TunnelReconnectManager:
         self._on_tunnel_established = on_tunnel_established
         self._on_disconnected = on_disconnected
         self._on_error = on_error
-        self._on_url_changed = on_url_changed
         self._on_request_completed = on_request_completed
 
         # Reconnection-specific callbacks
@@ -169,12 +165,11 @@ class TunnelReconnectManager:
             # Wrap the on_tunnel_established callback to reset the attempt
             # counter on successful connection. This way transient failures
             # during an otherwise healthy session don't accumulate.
-            def _on_established_wrapper(url: str, expires_at: str | None) -> None:
+            def _on_established_wrapper(url: str) -> None:
                 nonlocal attempt
                 attempt = 0
                 self._fire_callback(
-                    self._on_tunnel_established, url, expires_at,
-                    credentials.user,
+                    self._on_tunnel_established, url, credentials.user,
                 )
 
             # Fresh in-memory transport per connection — gives each
@@ -226,7 +221,6 @@ class TunnelReconnectManager:
                 on_tunnel_established=_on_established_wrapper,
                 on_disconnected=self._on_disconnected,
                 on_error=self._on_error,
-                on_url_changed=self._on_url_changed,
                 on_request_completed=self._on_request_completed,
             )
             self._active_client = client

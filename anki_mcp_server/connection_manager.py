@@ -50,7 +50,6 @@ class _TunnelState:
     """
 
     url: str | None = None
-    expires_at: str | None = None
     user: dict | None = field(default=None)
 
 
@@ -443,15 +442,6 @@ class ConnectionManager:
         return credentials.user if credentials else None
 
     @property
-    def tunnel_expires_at(self) -> Optional[str]:
-        """ISO 8601 expiry of the current tunnel session, or None.
-
-        Thread Safety:
-            Safe to read from any thread — reads a single object reference.
-        """
-        return self._tunnel_state.expires_at
-
-    @property
     def tunnel_log(self) -> TunnelLog:
         """The shared TunnelLog instance for UI binding.
 
@@ -487,15 +477,14 @@ class ConnectionManager:
     # Tunnel callbacks — fired from the background asyncio thread
     # ------------------------------------------------------------------
 
-    def _on_tunnel_established(self, url: str, expires_at: str | None, user: dict | None = None) -> None:
+    def _on_tunnel_established(self, url: str, user: dict | None = None) -> None:
         """Called when the tunnel is ready and has a public URL."""
         self._tunnel_state = _TunnelState(
             url=url,
-            expires_at=expires_at,
             user=user,
         )
         self._tunnel_log.info(f"Tunnel connected: {url}")
-        logger.info("Tunnel established: %s (expires: %s)", url, expires_at or "never")
+        logger.info("Tunnel established: %s", url)
 
     def _on_tunnel_disconnected(self, code: int, reason: str) -> None:
         """Called when a single tunnel connection ends (may reconnect)."""

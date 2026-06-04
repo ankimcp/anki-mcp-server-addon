@@ -66,7 +66,11 @@ rm -rf "$WHEELS_DIR"
 
 echo "=== Creating .ankiaddon package ==="
 cd "$ADDON_DIR"
-zip -r -q "../$OUTPUT" . -x "*.pyc" -x "__pycache__/*" -x ".DS_Store" -x "*.git*"
+# Exclude any developer's local tunnel credentials (and the transient .tmp
+# written during CredentialsManager.save()). The README.txt is kept so the
+# user_files/ directory still ships. Paths are relative to this cwd.
+zip -r -q "../$OUTPUT" . -x "*.pyc" -x "__pycache__/*" -x ".DS_Store" -x "*.git*" \
+    -x "user_files/credentials.json" -x "user_files/credentials.tmp"
 cd ..
 
 echo ""

@@ -78,7 +78,7 @@ anki_mcp_server/
 ├── __init__.py              # Entry point, vendor path setup, lifecycle hooks
 ├── connection_manager.py    # Manages MCP server + tunnel lifecycle
 ├── config.py                # Configuration from Anki's addon config
-├── credentials.py           # OAuth credentials file I/O (~/.ankimcp/credentials.json)
+├── credentials.py           # OAuth credentials file I/O (user_files/credentials.json)
 ├── mcp_server.py            # FastMCP server in background thread (HTTP via uvicorn)
 ├── queue_bridge.py          # Thread-safe request/response queue
 ├── request_processor.py     # Main thread handler dispatcher
@@ -269,7 +269,7 @@ The tunnel runs on the **same asyncio event loop** as HTTP (the background threa
 Each tunnel module has a single responsibility. Dependencies flow one direction (downward). UI is never imported by core tunnel logic.
 
 - `protocol.py` — pure data types and constants (close codes, message TypedDicts, timeouts). Zero I/O, zero state.
-- `credentials.py` — credential file I/O only (`~/.ankimcp/credentials.json`). No auth, no network. Lives at `anki_mcp_server/credentials.py` (not in tunnel/) since it's shared with the main addon.
+- `credentials.py` — credential file I/O only (addon-owned `user_files/credentials.json`). No auth, no network. Lives at `anki_mcp_server/credentials.py` (not in tunnel/) since it's used across the main addon.
 - `auth.py` — async OAuth Device Flow HTTP calls via httpx. No WebSocket, no file I/O.
 - `client.py` — single WebSocket connection lifecycle. Receives tunnel requests, proxies via `InMemoryTransport`, handles ping/pong. No retry logic.
 - `reconnect.py` — retry/backoff wrapper around `TunnelClient`. Creates a fresh client + transport per attempt. This is the main entry point callers use.
@@ -283,14 +283,14 @@ Each tunnel module has a single responsibility. Dependencies flow one direction 
 Three config fields control tunnel behavior:
 
 - `http_enabled: bool = True` — when `False`, uvicorn doesn't start. Only tunnel transport is available. Toggle via the settings dialog checkbox.
-- `tunnel_server_url: str` — WebSocket URL of the tunnel relay server. Default is `ws://localhost:3004` (development). Production will be `wss://tunnel.ankimcp.ai`.
+- `tunnel_server_url: str` — WebSocket URL of the tunnel relay server. Default is `wss://tunnel.ankimcp.ai` (production). Point at `ws://localhost:3004` for local relay development.
 - `tunnel_client_id: str` — OAuth client identifier. Default is `ankimcp-cli` (shared with the TypeScript CLI).
 
 There is no `mode` field and no `auto_connect_on_startup` field. HTTP is always-on by default (controlled by `http_enabled`). Tunnel never auto-connects — the user must explicitly click "Connect Tunnel" in the settings dialog each time.
 
-#### Credential Sharing
+#### Credential Storage
 
-Credentials are stored at `~/.ankimcp/credentials.json` with `0o600` file permissions. The format is identical to the TypeScript CLI's `CredentialsService`, so logging in via either the CLI or the addon works for both. The `Credentials` dataclass holds `access_token`, `refresh_token`, `expires_at`, and `user` (with email and tier).
+Credentials are addon-owned: stored in the addon's `user_files/credentials.json` (preserved across addon updates) with `0o600` file permissions, in a directory created at mode `0o700`. They are **not** shared with the TypeScript CLI — the CLI keeps its own credentials under `~/.ankimcp/`, so the addon and CLI authenticate independently. The on-disk format is identical to the CLI's `CredentialsService`, but there is no migration or read-fallback: a user who previously logged in via the CLI (or an older addon build that used `~/.ankimcp/`) must log in again from the addon. The `Credentials` dataclass holds `access_token`, `refresh_token`, `expires_at`, and `user` (with email and tier).
 
 #### Settings Dialog
 

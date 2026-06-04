@@ -29,7 +29,10 @@ from mcp.types import (
 
 logger = logging.getLogger(__name__)
 
-_RESPONSE_TIMEOUT = 30  # seconds
+# Must stay below the relay's own 30s request-timeout (which would emit a
+# generic 504 / -32004). Timing out first lets the addon return its own
+# JSON-RPC error envelope so the client gets an accurate, correlatable response.
+_RESPONSE_TIMEOUT = 25  # seconds
 _STOP_GRACE_PERIOD = 5  # seconds to wait for Server.run() to exit
 
 
@@ -185,15 +188,9 @@ class InMemoryTransport:
         try:
             await self._server_read_send.send(session_message)
             response_msg = await asyncio.wait_for(fut, timeout=_RESPONSE_TIMEOUT)
-        except asyncio.TimeoutError:
-            self._pending.pop(request_id, None)
-            error_body = {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "error": {"code": -32000, "message": "Request timed out"},
-            }
-            return json.dumps(error_body)
         except Exception:
+            # Includes asyncio.TimeoutError from wait_for — let it propagate so
+            # the caller can map it to a non-2xx response (504 + JSON-RPC error).
             self._pending.pop(request_id, None)
             raise
 

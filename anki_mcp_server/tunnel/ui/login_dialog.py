@@ -142,7 +142,7 @@ class _LoginWorker(QThread):
         # handler below.
         try:
             credentials = await auth.poll_for_token(
-                device.device_code, device.interval
+                device.device_code, device.interval, device.expires_in
             )
         except AuthError as exc:
             if not self._cancelled:
