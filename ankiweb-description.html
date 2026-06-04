@@ -22,16 +22,17 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
 </ul>
 
-<h2>What's New in v0.15.1</h2>
+<h2>What's New in v0.16.0</h2>
 <ul>
-<li><b>Fix: Distro-packaged Anki compatibility</b> - On Arch, Fedora and other distros where Anki uses system Python with a system-installed <code>pydantic-core</code>, the addon previously crashed at startup if that version differed from what our vendored <code>pydantic</code> required. Now the loader detects the mismatch and downloads the matching version into its private cache, leaving system packages untouched (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/40">#40</a>)</li>
-<li><b>Fix: Clean shutdown on profile switch</b> - Switching Anki profiles previously left uvicorn bound to port 3141, so the next profile open failed with <code>[Errno 48] address already in use</code>. The MCP server now shuts down cleanly on profile close</li>
+<li><b>Stateless HTTP transport</b> - The MCP server no longer issues or requires the <code>mcp-session-id</code> header. This aligns with the upcoming MCP <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2750">2026-07-28 protocol release candidate</a>, which removes session-id from the spec entirely. Existing clients (Claude Desktop, Claude Code, MCP Inspector) keep working unchanged; clients that don't manage session-ids (e.g., opencode's "remote" transport, <a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/42">#42</a>) now work too</li>
 </ul>
 
 <h2>v0.15 Highlights</h2>
 <ul>
 <li><b>Server identity in MCP protocol</b> - Addon now exposes its icon and website URL via the MCP <code>initialize</code> response (<code>serverInfo.icons</code> + <code>websiteUrl</code> per spec 2025-11-25). Spec-aware MCP clients render the AnkiMCP branding</li>
 <li><b>Listed in MCP Registry</b> - Published to the official <a href="https://github.com/modelcontextprotocol/registry">MCP Registry</a> as <code>ai.ankimcp/anki-mcp-server-addon</code>, propagating to PulseMCP, Glama, and MCP.so catalogs</li>
+<li><b>Fix: Distro-packaged Anki compatibility</b> - On Arch, Fedora and other distros where Anki uses system Python with a system-installed <code>pydantic-core</code>, the addon previously crashed at startup if that version differed from what our vendored <code>pydantic</code> required. Now the loader detects the mismatch and downloads the matching version into its private cache, leaving system packages untouched (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/40">#40</a>)</li>
+<li><b>Fix: Clean shutdown on profile switch</b> - Switching Anki profiles previously left uvicorn bound to port 3141, so the next profile open failed with <code>[Errno 48] address already in use</code>. The MCP server now shuts down cleanly on profile close</li>
 </ul>
 
 <h2>v0.14 Highlights</h2>
