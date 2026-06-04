@@ -296,6 +296,12 @@ def _show_settings() -> None:
     layout.addSpacing(6)
 
     # -- Footer --
+    dashboard_label = QLabel("<b>Tunnel Dashboard:</b> <a href='https://web.ankimcp.ai'>https://web.ankimcp.ai</a>")
+    dashboard_label.setOpenExternalLinks(True)
+    layout.addWidget(dashboard_label)
+    community_label = QLabel("<b>Community:</b> <a href='https://forum.ankimcp.ai'>https://forum.ankimcp.ai</a>")
+    community_label.setOpenExternalLinks(True)
+    layout.addWidget(community_label)
     website_label = QLabel("<b>Website:</b> <a href='https://ankimcp.ai'>https://ankimcp.ai</a>")
     website_label.setOpenExternalLinks(True)
     layout.addWidget(website_label)
