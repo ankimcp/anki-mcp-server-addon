@@ -81,7 +81,7 @@ let
 
   anki-mcp-server = pkgs.anki-utils.buildAnkiAddon (finalAttrs: {
     pname = "anki-mcp-server";
-    version = "0.13.0";
+    version = "0.17.0";
     src = pkgs.fetchFromGitHub {
       owner = "ankimcp";
       repo = "anki-mcp-server-addon";
@@ -135,6 +135,49 @@ Requires [Node.js](https://nodejs.org/) installed. Add to your Claude Desktop co
 claude mcp add anki --transport http http://127.0.0.1:3141/
 ```
 
+### Tunnel (Remote Access)
+
+The built-in tunnel gives your Anki collection a public HTTPS URL, so AI assistants can reach it from anywhere — no port forwarding or reverse proxy needed. The collection is relayed through a WebSocket tunnel server (`wss://tunnel.ankimcp.ai` by default). Requires an [ankimcp.ai](https://ankimcp.ai) account to log in.
+
+**How to connect:**
+
+1. Open *Tools -> AnkiMCP Server Settings...*
+2. Click **Connect Tunnel**
+3. If not logged in, a login dialog appears — it shows a one-time code; click **Open Browser** and enter that code at the verification URL (OAuth 2.0 device flow)
+4. Once connected, a public tunnel URL is displayed (e.g., `https://tunnel.ankimcp.ai/e3439277-9d1e-47a1-b961-d193a4590da0`)
+5. Use this URL in your AI client instead of `http://127.0.0.1:3141`
+
+**Using with Claude Desktop:**
+
+Replace the localhost URL with your tunnel URL in the Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "anki": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://tunnel.ankimcp.ai/<your-tunnel-id>"]
+    }
+  }
+}
+```
+
+**Using with Claude Code:**
+
+```bash
+claude mcp add anki --transport http https://tunnel.ankimcp.ai/<your-tunnel-id>
+```
+
+**Disconnect vs. Logout:**
+- **Disconnect** closes the tunnel connection. Credentials stay on disk — next Connect reconnects without re-login.
+- **Logout** deletes credentials. Next Connect triggers the login dialog again.
+
+**Tunnel config fields** (for advanced users / self-hosters):
+- `tunnel_server_url` — WebSocket URL of the tunnel relay server (default: `wss://tunnel.ankimcp.ai`)
+- `tunnel_client_id` — OAuth client identifier (default: `ankimcp-cli`)
+
+Credentials are stored in the addon's own `user_files/credentials.json` (preserved across addon updates). They are not shared with the [AnkiMCP CLI](https://github.com/ankimcp/anki-mcp-cli) — the CLI keeps its own credentials under `~/.ankimcp/`, so you log in to the addon and the CLI independently. The on-disk format is identical between the two.
+
 ## Configuration
 
 Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
@@ -168,49 +211,6 @@ The `http_enabled` setting controls whether the local HTTP server runs. When set
 ```
 
 This is useful if you only use the tunnel and don't want a local HTTP server listening.
-
-### Tunnel (Remote Access)
-
-The built-in tunnel gives your Anki collection a public HTTPS URL, so AI assistants can reach it from anywhere — no port forwarding or reverse proxy needed.
-
-**How to connect:**
-
-1. Open *Tools -> AnkiMCP Server Settings...*
-2. Click **Connect Tunnel**
-3. If not logged in, a login dialog appears — enter the code shown at the verification URL
-4. Once connected, a public tunnel URL is displayed (e.g., `https://abc123.tunnel.ankimcp.ai`)
-5. Use this URL in your AI client instead of `http://127.0.0.1:3141`
-
-**Using with Claude Desktop:**
-
-Replace the localhost URL with your tunnel URL in the Claude Desktop config:
-
-```json
-{
-  "mcpServers": {
-    "anki": {
-      "command": "npx",
-      "args": ["mcp-remote", "https://your-tunnel-url.tunnel.ankimcp.ai"]
-    }
-  }
-}
-```
-
-**Using with Claude Code:**
-
-```bash
-claude mcp add anki --transport http https://your-tunnel-url.tunnel.ankimcp.ai/
-```
-
-**Disconnect vs. Logout:**
-- **Disconnect** closes the tunnel connection. Credentials stay on disk — next Connect reconnects without re-login.
-- **Logout** deletes credentials. Next Connect triggers the login dialog again.
-
-**Tunnel config fields** (for advanced users / self-hosters):
-- `tunnel_server_url` — WebSocket URL of the tunnel relay server (default: `wss://tunnel.ankimcp.ai`)
-- `tunnel_client_id` — OAuth client identifier (default: `ankimcp-cli`)
-
-Credentials are stored in the addon's own `user_files/credentials.json` (preserved across addon updates). They are not shared with the [AnkiMCP CLI](https://github.com/ankimcp/anki-mcp-cli) — the CLI keeps its own credentials under `~/.ankimcp/`, so you log in to the addon and the CLI independently. The on-disk format is identical between the two.
 
 ### Disabling Tools
 
