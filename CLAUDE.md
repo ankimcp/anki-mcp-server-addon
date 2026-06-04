@@ -19,14 +19,15 @@ make e2e-filtered-test          # Run test_tool_filtering_e2e.py against port 31
 make e2e-filtered-down          # Stop filtered container
 pytest tests/e2e/ -v --ignore=tests/e2e/test_tool_filtering_e2e.py  # Run tests directly
 pytest tests/e2e/test_note_tools.py -v  # Run a single test file
+pytest tests/unit/ -v                   # Run unit tests (tunnel in-memory transport)
 ```
 
 ## Project Overview
 
-Anki addon that runs an MCP server inside Anki, exposing collection operations to AI assistants. Uses FastMCP + uvicorn for HTTP transport.
+Anki addon that runs an MCP server inside Anki, exposing collection operations to AI assistants. Supports two independent transports: local HTTP (FastMCP + uvicorn) and remote tunnel (WebSocket relay to a public HTTPS URL).
 
 - **Package**: `anki_mcp_server.ankiaddon`
-- **Default Port**: 3141
+- **Default Port**: 3141 (HTTP)
 - **License**: AGPL-3.0-or-later
 
 ## Architecture
@@ -34,19 +35,23 @@ Anki addon that runs an MCP server inside Anki, exposing collection operations t
 ### Threading Model
 
 ```
-┌─────────────────────────────────────────┐
-│          AI Client (HTTP)               │
-└───────────────┬─────────────────────────┘
-                │
-                ▼
-┌─────────────────────────────────────────┐
-│    Background Thread (asyncio)          │
-│  - MCP Server (FastMCP + uvicorn)       │
-│  - Tool handlers bridge to main thread  │
-└───────────────┬─────────────────────────┘
-                │
-                │ queue.Queue (thread-safe)
-                ▼
+┌──────────────────┐    ┌───────────────────────────────┐
+│  AI Client (HTTP)│    │  AI Client (remote, via tunnel)│
+└────────┬─────────┘    └──────────────┬────────────────┘
+         │                             │
+         ▼                             ▼
+┌─────────────────────────────────────────────────────────┐
+│    Background Thread (single asyncio event loop)        │
+│                                                         │
+│  HTTP path:                  Tunnel path:               │
+│  uvicorn → StreamableHTTP    WebSocket → InMemoryTransport│
+│       ↘                           ↙                     │
+│         Server.run() (shared FastMCP)                   │
+│         Tool handlers bridge to main thread              │
+└───────────────────────┬─────────────────────────────────┘
+                        │
+                        │ queue.Queue (thread-safe)
+                        ▼
 ┌─────────────────────────────────────────┐
 │        QueueBridge                      │
 │  - request_queue                        │
@@ -64,13 +69,16 @@ Anki addon that runs an MCP server inside Anki, exposing collection operations t
 
 **Key Principle**: Never access `mw.col` from background threads. All Anki operations must go through the queue bridge to execute on the main Qt thread.
 
+Both HTTP and tunnel transports share the same `Server` object (same handlers, same tools). Each runs its own `Server.run()` with separate streams and session state. Either can be enabled/disabled independently.
+
 ### Core Files
 
 ```
 anki_mcp_server/
 ├── __init__.py              # Entry point, vendor path setup, lifecycle hooks
-├── connection_manager.py    # Manages MCP server lifecycle
+├── connection_manager.py    # Manages MCP server + tunnel lifecycle
 ├── config.py                # Configuration from Anki's addon config
+├── credentials.py           # OAuth credentials file I/O (user_files/credentials.json)
 ├── mcp_server.py            # FastMCP server in background thread (HTTP via uvicorn)
 ├── queue_bridge.py          # Thread-safe request/response queue
 ├── request_processor.py     # Main thread handler dispatcher
@@ -81,7 +89,17 @@ anki_mcp_server/
 ├── prompt_decorator.py      # @Prompt decorator implementation
 ├── dependency_loader.py     # Runtime pydantic_core download from PyPI
 ├── media_validators.py      # Path traversal / SSRF guards for media tools
-├── transport/, tunnel/, ui/ # Empty stub packages reserved for future work
+├── tunnel/
+│   ├── __init__.py              # Package marker
+│   ├── protocol.py              # Close codes, message types, constants (pure data, no I/O)
+│   ├── auth.py                  # OAuth 2.0 Device Flow client (async HTTP via httpx)
+│   ├── client.py                # Single WebSocket connection lifecycle (no retry)
+│   ├── reconnect.py             # Retry/backoff wrapper around client
+│   ├── in_memory_transport.py   # Feeds JSON-RPC into Server.run() via anyio streams
+│   ├── log.py                   # Thread-safe ring buffer with Qt signal
+│   └── ui/
+│       ├── login_dialog.py      # Qt device flow dialog (user code + browser button)
+│       └── settings_section.py  # Tunnel status/controls in settings dialog
 └── primitives/
     ├── tools.py             # Triggers auto-discovery of tool modules
     ├── resources.py         # Triggers auto-discovery of resource modules
@@ -110,6 +128,8 @@ anki_mcp_server/
 **Vendored Dependencies**: Located in `vendor/shared/`. The `__init__.py` prepends vendor path to `sys.path` at startup. On load, `_check_vendor_conflicts()` warns if any vendored packages (mcp, pydantic, starlette, uvicorn, etc.) are already in `sys.modules` from other addons — helps debug compatibility issues.
 
 **Build (`package.sh`)**: Downloads wheels pinned to `--python-version 313` (Anki 25.07's Python). Deliberately **excludes `pydantic_core`** from the bundle — it has platform-specific binaries and is instead lazy-loaded at runtime via `dependency_loader.py`. If modifying the build, keep this exclusion intact.
+
+**Keeping vendor lists in sync**: When adding or removing a vendored dependency, update **both** `PURE_PACKAGES` in `package.sh` (controls what gets downloaded/bundled) **and** `_VENDOR_PACKAGES` in `__init__.py` (controls conflict detection at startup). They must stay in sync.
 
 ### Decorator Patterns
 
@@ -211,6 +231,89 @@ raise HandlerError(
 )
 ```
 
+### Tunnel Architecture
+
+The tunnel provides remote access to the MCP server via a public HTTPS URL, allowing AI clients that cannot reach `localhost` (e.g., Claude Desktop on a different machine, mobile clients) to connect.
+
+#### How It Works
+
+The tunnel client connects to a WebSocket relay server (SaaS). The relay assigns a public HTTPS URL. When an AI client sends an MCP request to that URL, the relay forwards it over WebSocket to the addon, which processes it via an in-memory transport directly into FastMCP and sends the response back.
+
+```
+AI Client (remote)
+    → HTTPS request to public URL
+    → Tunnel relay server (WebSocket)
+    → TunnelClient._handle_request()
+    → InMemoryTransport.handle_request(json_rpc_body)
+    → Server.run() → FastMCP handlers → QueueBridge → Qt main thread
+    → Response flows back the same path
+```
+
+#### In-Memory Transport
+
+The tunnel does NOT proxy through HTTP. Instead, `in_memory_transport.py` feeds JSON-RPC strings directly into the MCP SDK's `Server.run()` via anyio memory streams. This makes the tunnel a first-class transport peer to HTTP, not a proxy layer.
+
+Key details:
+- Uses raw `anyio.create_memory_object_stream[SessionMessage | Exception](1)` (not the SDK's context manager helper)
+- Runs `Server.run(stateless=True)` — skips MCP initialize handshake since the remote client drives initialization through the relay
+- Matches responses to requests by JSON-RPC `id` via `asyncio.Future`
+- Notifications (no `id`) are fire-and-forget
+- One fresh `InMemoryTransport` per connection attempt (clean session on reconnect)
+
+#### Threading
+
+The tunnel runs on the **same asyncio event loop** as HTTP (the background thread in `mcp_server.py`). Both HTTP and tunnel share one `Server` object (via `FastMCP._mcp_server`). Each transport runs its own `Server.run()` with independent streams — no cross-contamination. When `http_enabled=False`, the asyncio loop stays alive via an `asyncio.Event` wait instead of uvicorn.
+
+#### Module Responsibilities
+
+Each tunnel module has a single responsibility. Dependencies flow one direction (downward). UI is never imported by core tunnel logic.
+
+- `protocol.py` — pure data types and constants (close codes, message TypedDicts, timeouts). Zero I/O, zero state.
+- `credentials.py` — credential file I/O only (addon-owned `user_files/credentials.json`). No auth, no network. Lives at `anki_mcp_server/credentials.py` (not in tunnel/) since it's used across the main addon.
+- `auth.py` — async OAuth Device Flow HTTP calls via httpx. No WebSocket, no file I/O.
+- `client.py` — single WebSocket connection lifecycle. Receives tunnel requests, proxies via `InMemoryTransport`, handles ping/pong. No retry logic.
+- `reconnect.py` — retry/backoff wrapper around `TunnelClient`. Creates a fresh client + transport per attempt. This is the main entry point callers use.
+- `in_memory_transport.py` — feeds JSON-RPC into `Server.run()` via anyio memory streams.
+- `log.py` — thread-safe ring buffer with Qt signal for cross-thread UI updates.
+- `ui/login_dialog.py` — Qt device flow dialog (user code + "Open Browser" button).
+- `ui/settings_section.py` — tunnel status/controls in the settings dialog.
+
+#### Configuration
+
+Three config fields control tunnel behavior:
+
+- `http_enabled: bool = True` — when `False`, uvicorn doesn't start. Only tunnel transport is available. Toggle via the settings dialog checkbox.
+- `tunnel_server_url: str` — WebSocket URL of the tunnel relay server. Default is `wss://tunnel.ankimcp.ai` (production). Point at `ws://localhost:3004` for local relay development.
+- `tunnel_client_id: str` — OAuth client identifier. Default is `ankimcp-cli` (shared with the TypeScript CLI).
+
+There is no `mode` field and no `auto_connect_on_startup` field. HTTP is always-on by default (controlled by `http_enabled`). Tunnel never auto-connects — the user must explicitly click "Connect Tunnel" in the settings dialog each time.
+
+#### Credential Storage
+
+Credentials are addon-owned: stored in the addon's `user_files/credentials.json` (preserved across addon updates) with `0o600` file permissions, in a directory created at mode `0o700`. They are **not** shared with the TypeScript CLI — the CLI keeps its own credentials under `~/.ankimcp/`, so the addon and CLI authenticate independently. The on-disk format is identical to the CLI's `CredentialsService`, but there is no migration or read-fallback: a user who previously logged in via the CLI (or an older addon build that used `~/.ankimcp/`) must log in again from the addon. The `Credentials` dataclass holds `access_token`, `refresh_token`, `expires_at`, and `user` (with email and tier).
+
+#### Settings Dialog
+
+The settings dialog (*Tools -> AnkiMCP Server Settings...*) has:
+- **HTTP section**: status display, URL, "Copy URL" button. Shows "Disabled" when `http_enabled=False`.
+- **Tunnel section**: Connect/Disconnect button, status with user email + tier + URL expiry, Logout link.
+- **Log section**: scrollable ring buffer of recent tunnel events (connections, requests, errors, auth).
+
+Connect flow: check credentials -> no credentials? launch device flow login dialog -> credentials expired? silent refresh -> connect WebSocket -> show tunnel URL.
+
+#### Known Issues
+
+**SIGKILL crash**: Anki can crash with SIGKILL when the tunnel relay server restarts while a tunnel connection is active. This is under investigation. The in-memory transport redesign was partly motivated by eliminating HTTP proxying as a potential crash vector, but the issue may persist.
+
+#### Adding Tunnel-Related Code
+
+Follow the existing module patterns:
+- Pure data/constants go in `protocol.py`
+- Network I/O gets its own module (like `auth.py` for HTTP, `client.py` for WebSocket)
+- UI code goes in `tunnel/ui/` and must never be imported by core tunnel modules
+- Use `TunnelLog` for user-visible events (not `print()` or `logging` alone)
+- All callbacks are fire-and-forget — never let callback exceptions crash the tunnel
+
 ## Adding New Primitives
 
 ### Adding a Tool
@@ -253,8 +356,8 @@ This project has no pyproject.toml, ruff, flake8, or any configured linter. Don'
 
 ### Profile Lifecycle
 
-- Server starts on `profile_did_open` hook
-- Server stops on `profile_will_close` hook
+- Server starts on `profile_did_open` hook (HTTP auto-starts if `http_enabled`, tunnel never auto-starts)
+- Server stops on `profile_will_close` hook (both HTTP and active tunnel)
 - Fallback cleanup on `app_will_close`
 
 ### pydantic_core Runtime Loading
@@ -267,7 +370,7 @@ Disabled in `mcp_server.py` to allow tunnel/proxy access (Cloudflare, ngrok).
 
 ### CORS Configuration
 
-Configured via addon settings (`cors_origins`, `cors_expose_headers`). Empty `cors_origins` = CORS disabled. The `mcp-session-id` and `mcp-protocol-version` headers must be exposed for browser-based MCP clients (Streamable HTTP protocol requirement). See `config.py` for the full `Config` dataclass.
+Configured via addon settings (`cors_origins`, `cors_expose_headers`). Empty `cors_origins` = CORS disabled. The `mcp-session-id` and `mcp-protocol-version` headers must be exposed for browser-based MCP clients (Streamable HTTP protocol requirement). See `config.py` for the full `Config` dataclass. CORS only applies to the HTTP transport — the tunnel path bypasses HTTP entirely.
 
 ### HTTP Path Prefix (Secret Path)
 
@@ -284,6 +387,8 @@ Configured via addon settings (`cors_origins`, `cors_expose_headers`). Empty `co
 ## Development Workflow
 
 ### E2E Tests
+
+Most tests are E2E — the addon runs inside Anki's Qt event loop and most code touches `mw.col`, making unit testing impractical without a full Anki environment. Unit tests exist only for pure-logic modules that don't depend on Anki (e.g., `tests/unit/test_in_memory_transport.py`).
 
 Tests run against a real Anki instance in Docker using [headless-anki](https://github.com/ankimcp/headless-anki). The test client is `npx @modelcontextprotocol/inspector --cli` (MCP Inspector CLI), which means **Node.js is required** in addition to Python.
 
@@ -346,15 +451,22 @@ Test conventions:
 
 ### Manual Testing
 
-For changes that can't be tested via E2E (UI interactions, config dialog):
+For changes that can't be tested via E2E (UI interactions, config dialog, tunnel):
 1. Run `./package.sh`
 2. Install `.ankiaddon` in Anki (double-click or *Tools → Add-ons → Install from file...*)
 3. Restart Anki and check *Tools → AnkiMCP Server Settings...* for status
+
+Tunnel testing is manual-only — there are no E2E tests for the tunnel path. Test by connecting via the settings dialog and verifying the tunnel URL works from an external MCP client.
+
+### No Linters or Type Checkers
+
+This project has **no configured linters, formatters, or type checkers** (no ruff, flake8, mypy, black, etc.). Dev dependencies are just `pytest` and `pytest-asyncio`. Don't try to run linting commands or add linting configuration.
 
 ### CI / Release
 
 - **E2E tests** run on every push and PR to `main` (`.github/workflows/e2e.yml`). Uses `concurrency: cancel-in-progress: true` — pushing again auto-cancels any in-progress E2E run for the same branch.
 - **Releases** trigger on `v*.*.*` tags — runs E2E first, then creates GitHub Release with the `.ankiaddon` artifact (`.github/workflows/release.yml`)
+- **Version** lives in `__init__.py` as `__version__`. Bump it there before tagging a release.
 
 ## Known Gotchas
 

@@ -21,9 +21,10 @@ On first run, this addon downloads `pydantic_core` (~2MB) from PyPI. This is req
 ## Features
 
 - **Local HTTP server** - Runs on `http://127.0.0.1:3141/` by default
+- **Remote tunnel** - Access your collection from anywhere via a public HTTPS URL
 - **MCP protocol** - Compatible with any MCP client (Claude Desktop, etc.)
-- **Auto-start** - Server starts automatically when Anki opens
-- **Tunnel-friendly** - Works with Cloudflare Tunnel, ngrok, etc.
+- **Auto-start** - HTTP server starts automatically when Anki opens
+- **Tunnel-friendly** - Works with Cloudflare Tunnel, ngrok, or the built-in tunnel
 - **Cross-platform** - Works on macOS, Windows, and Linux (x64 and ARM)
 
 ## Installation
@@ -80,7 +81,7 @@ let
 
   anki-mcp-server = pkgs.anki-utils.buildAnkiAddon (finalAttrs: {
     pname = "anki-mcp-server";
-    version = "0.13.0";
+    version = "0.17.0";
     src = pkgs.fetchFromGitHub {
       owner = "ankimcp";
       repo = "anki-mcp-server-addon";
@@ -134,25 +135,82 @@ Requires [Node.js](https://nodejs.org/) installed. Add to your Claude Desktop co
 claude mcp add anki --transport http http://127.0.0.1:3141/
 ```
 
+### Tunnel (Remote Access)
+
+The built-in tunnel gives your Anki collection a public HTTPS URL, so AI assistants can reach it from anywhere — no port forwarding or reverse proxy needed. The collection is relayed through a WebSocket tunnel server (`wss://tunnel.ankimcp.ai` by default). Requires an [ankimcp.ai](https://ankimcp.ai) account to log in.
+
+**How to connect:**
+
+1. Open *Tools -> AnkiMCP Server Settings...*
+2. Click **Connect Tunnel**
+3. If not logged in, a login dialog appears — it shows a one-time code; click **Open Browser** and enter that code at the verification URL (OAuth 2.0 device flow)
+4. Once connected, a public tunnel URL is displayed (e.g., `https://tunnel.ankimcp.ai/e3439277-9d1e-47a1-b961-d193a4590da0`)
+5. Use this URL in your AI client instead of `http://127.0.0.1:3141`
+
+**Using with Claude Desktop:**
+
+Replace the localhost URL with your tunnel URL in the Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "anki": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://tunnel.ankimcp.ai/<your-tunnel-id>"]
+    }
+  }
+}
+```
+
+**Using with Claude Code:**
+
+```bash
+claude mcp add anki --transport http https://tunnel.ankimcp.ai/<your-tunnel-id>
+```
+
+**Disconnect vs. Logout:**
+- **Disconnect** closes the tunnel connection. Credentials stay on disk — next Connect reconnects without re-login.
+- **Logout** deletes credentials. Next Connect triggers the login dialog again.
+
+**Tunnel config fields** (for advanced users / self-hosters):
+- `tunnel_server_url` — WebSocket URL of the tunnel relay server (default: `wss://tunnel.ankimcp.ai`)
+- `tunnel_client_id` — OAuth client identifier (default: `ankimcp-cli`)
+
+Credentials are stored in the addon's own `user_files/credentials.json` (preserved across addon updates). They are not shared with the [AnkiMCP CLI](https://github.com/ankimcp/anki-mcp-cli) — the CLI keeps its own credentials under `~/.ankimcp/`, so you log in to the addon and the CLI independently. The on-disk format is identical between the two.
+
 ## Configuration
 
 Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
 
 ```json
 {
-  "mode": "http",
+  "http_enabled": true,
   "http_port": 3141,
   "http_host": "127.0.0.1",
   "http_path": "",
   "cors_origins": [],
   "cors_expose_headers": ["mcp-protocol-version"],
-  "auto_connect_on_startup": true,
   "disabled_tools": [],
+  "tunnel_server_url": "wss://tunnel.ankimcp.ai",
+  "tunnel_client_id": "ankimcp-cli",
   "media_import_dir": "",
   "media_allowed_types": [],
-  "media_allowed_hosts": []
+  "media_allowed_hosts": [],
+  "auto_connect_on_startup": true
 }
 ```
+
+### HTTP Server Toggle
+
+The `http_enabled` setting controls whether the local HTTP server runs. When set to `false`, the HTTP server won't start — only the tunnel transport is available. Default is `true`.
+
+```json
+{
+  "http_enabled": false
+}
+```
+
+This is useful if you only use the tunnel and don't want a local HTTP server listening.
 
 ### Disabling Tools
 
@@ -303,7 +361,7 @@ These tools interact with Anki's user interface:
 
 ## Architecture
 
-The addon runs an MCP server in a background thread with HTTP transport (FastMCP + uvicorn). All Anki operations are bridged to the main Qt thread via a queue system, following the same proven pattern as AnkiConnect.
+The addon runs an MCP server in a background thread with two independent transports: local HTTP (FastMCP + uvicorn) and remote tunnel (WebSocket relay with in-memory transport). Both share the same FastMCP server instance. All Anki operations are bridged to the main Qt thread via a queue system, following the same proven pattern as AnkiConnect.
 
 For details, see [Anki Add-on Development Documentation](https://addon-docs.ankiweb.net/).
 

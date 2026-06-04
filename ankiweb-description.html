@@ -14,6 +14,7 @@ AI-powered study sessions, card creation, and collection management.</p>
 <h2>Features</h2>
 <ul>
 <li><b>Local HTTP server</b> - Runs on http://127.0.0.1:3141/ by default</li>
+<li><b>Remote tunnel</b> - Optional public HTTPS URL via the AnkiMCP tunnel relay, for reaching your collection from anywhere (requires an ankimcp.ai account)</li>
 <li><b>MCP protocol</b> - Compatible with any MCP client (Claude Desktop, etc.)</li>
 <li><b>Auto-start</b> - Server starts automatically when Anki opens</li>
 <li><b>Tunnel-friendly</b> - Works with Cloudflare Tunnel, ngrok, etc.</li>
@@ -22,7 +23,15 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
 </ul>
 
-<h2>What's New in v0.16.0</h2>
+<h2>What's New in v0.17.0</h2>
+<ul>
+<li><b>Remote tunnel</b> - Give your local Anki collection a public HTTPS URL through the AnkiMCP tunnel relay (<code>wss://tunnel.ankimcp.ai</code>), so AI assistants can reach it from anywhere with no port forwarding or reverse proxy</li>
+<li><b>One-click login</b> - Connect from <i>Tools -&gt; AnkiMCP Server Settings...</i> using OAuth 2.0 device flow: a one-time code is shown in the addon, which you enter in your browser to authorize. Connect, Disconnect, and Logout controls live in the same dialog</li>
+<li><b>Tunnel-only mode</b> - New <code>http_enabled</code> config toggle lets you run the tunnel without a local HTTP server listening</li>
+<li><b>Credentials stay with the addon</b> - Login credentials are stored in the addon's own <code>user_files/credentials.json</code>, which Anki preserves across addon updates</li>
+</ul>
+
+<h2>v0.16 Highlights</h2>
 <ul>
 <li><b>Stateless HTTP transport</b> - The MCP server no longer issues or requires the <code>mcp-session-id</code> header. This aligns with the upcoming MCP <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2750">2026-07-28 protocol release candidate</a>, which removes session-id from the spec entirely. Existing clients (Claude Desktop, Claude Code, MCP Inspector) keep working unchanged; clients that don't manage session-ids (e.g., opencode's "remote" transport, <a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/42">#42</a>) now work too</li>
 </ul>
