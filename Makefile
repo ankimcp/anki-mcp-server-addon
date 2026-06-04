@@ -1,9 +1,13 @@
-.PHONY: build e2e e2e-full e2e-up e2e-down e2e-test e2e-logs e2e-debug \
+.PHONY: build unit e2e e2e-full e2e-up e2e-down e2e-test e2e-logs e2e-debug \
        e2e-filtered e2e-filtered-up e2e-filtered-down e2e-filtered-test e2e-filtered-logs
 
 # Build the addon package
 build:
 	./package.sh
+
+# Run unit tests (no Docker / Anki needed -- aqt is stubbed in tests/unit/conftest.py)
+unit:
+	pytest tests/unit/ -v
 
 # ---------------------------------------------------------------------------
 # Run ALL E2E tests (regular + filtered)
