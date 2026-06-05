@@ -178,7 +178,7 @@ class McpServer:
         on_error: Callable[[str, str], None] | None = None,
         on_request_completed: Callable[[str, int, float], None] | None = None,
         on_reconnecting: Callable[[int, float], None] | None = None,
-        on_gave_up: Callable[[int, str], None] | None = None,
+        on_stopped: Callable[[int, str], None] | None = None,
     ) -> None:
         """Start the tunnel alongside the HTTP server.
 
@@ -195,8 +195,10 @@ class McpServer:
                 (method_path, status_code, duration_ms).
             on_reconnecting: Called before each reconnection delay
                 (attempt, delay_seconds).
-            on_gave_up: Called when reconnection is permanently abandoned
-                (close_code, reason).
+            on_stopped: Called once when the tunnel stops for good (no
+                further reconnection) — whether a clean disconnect or a
+                permanent failure. Receives (close_code, reason); inspect
+                close_code (NORMAL == clean) to distinguish.
 
         Thread Safety:
             Safe to call from any thread. The actual work runs on the
@@ -216,7 +218,7 @@ class McpServer:
                 on_error=on_error,
                 on_request_completed=on_request_completed,
                 on_reconnecting=on_reconnecting,
-                on_gave_up=on_gave_up,
+                on_stopped=on_stopped,
             ),
             loop,
         )
@@ -272,7 +274,7 @@ class McpServer:
         on_error: Callable[[str, str], None] | None = None,
         on_request_completed: Callable[[str, int, float], None] | None = None,
         on_reconnecting: Callable[[int, float], None] | None = None,
-        on_gave_up: Callable[[int, str], None] | None = None,
+        on_stopped: Callable[[int, str], None] | None = None,
     ) -> None:
         """Internal: start the tunnel on the asyncio loop.
 
@@ -298,18 +300,19 @@ class McpServer:
 
         def _on_disconnected_wrapper(code: int, reason: str) -> None:
             # Don't clear _tunnel_running here — the reconnect manager may
-            # reconnect. Only gave_up and explicit stop clear it.
+            # reconnect. Only on_stopped and explicit stop clear it.
             if original_on_disconnected is not None:
                 original_on_disconnected(code, reason)
 
-        # Wrap on_gave_up to clear _tunnel_running
-        original_on_gave_up = on_gave_up
+        # Wrap on_stopped to clear _tunnel_running. Fires once when the tunnel
+        # stops for good — clean disconnect or permanent failure alike.
+        original_on_stopped = on_stopped
 
-        def _on_gave_up_wrapper(code: int, reason: str) -> None:
+        def _on_stopped_wrapper(code: int, reason: str) -> None:
             self._tunnel_running = False
             self._tunnel_manager = None
-            if original_on_gave_up is not None:
-                original_on_gave_up(code, reason)
+            if original_on_stopped is not None:
+                original_on_stopped(code, reason)
 
         manager = TunnelReconnectManager(
             server_url=self._config.tunnel_server_url,
@@ -321,7 +324,7 @@ class McpServer:
             on_error=on_error,
             on_request_completed=on_request_completed,
             on_reconnecting=on_reconnecting,
-            on_gave_up=_on_gave_up_wrapper,
+            on_stopped=_on_stopped_wrapper,
         )
 
         self._tunnel_manager = manager
@@ -362,10 +365,21 @@ class McpServer:
         if manager is not None:
             await manager.disconnect()
 
+        # Let the task wind down naturally: disconnect() already set the
+        # manager's shutdown flag and closed the active client, so the
+        # reconnect loop will exit and fire on_stopped on its own. Cancelling
+        # here would inject CancelledError mid-unwind and drop that terminal
+        # callback. Only force-cancel as a timeout fallback.
         if task is not None and not task.done():
-            task.cancel()
             try:
-                await task
+                await asyncio.wait_for(task, timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("Tunnel task did not stop within timeout; cancelling")
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
             except asyncio.CancelledError:
                 pass
 

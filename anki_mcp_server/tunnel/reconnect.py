@@ -29,6 +29,7 @@ from .protocol import (
     RECONNECT_JITTER_FACTOR,
     RECONNECT_MAX_ATTEMPTS,
     RECONNECT_MAX_DELAY,
+    CloseCodes,
     should_reconnect,
     should_refresh_token,
 )
@@ -56,7 +57,7 @@ class TunnelReconnectManager:
         on_error: Callable[[str, str], None] | None = None,
         on_request_completed: Callable[[str, int, float], None] | None = None,
         on_reconnecting: Callable[[int, float], None] | None = None,
-        on_gave_up: Callable[[int, str], None] | None = None,
+        on_stopped: Callable[[int, str], None] | None = None,
     ) -> None:
         """Initialize the reconnection manager.
 
@@ -78,8 +79,10 @@ class TunnelReconnectManager:
                 Receives ``(method_path, status_code, duration_ms)``.
             on_reconnecting: Called before each reconnection delay.
                 Receives ``(attempt_number, delay_seconds)``.
-            on_gave_up: Called when reconnection is permanently abandoned.
-                Receives ``(close_code, reason)``.
+            on_stopped: Called once when the tunnel stops for good (no
+                further reconnection) — whether a clean disconnect or a
+                permanent failure. Receives ``(close_code, reason)``.
+                Inspect ``close_code`` (``NORMAL`` == clean) to distinguish.
         """
         self._server_url = server_url
         self._mcp_server = mcp_server
@@ -94,7 +97,7 @@ class TunnelReconnectManager:
 
         # Reconnection-specific callbacks
         self._on_reconnecting = on_reconnecting
-        self._on_gave_up = on_gave_up
+        self._on_stopped = on_stopped
 
         # State
         self._shutdown = False
@@ -106,9 +109,26 @@ class TunnelReconnectManager:
     # ------------------------------------------------------------------
 
     async def run(self) -> None:
-        """Run the tunnel with automatic reconnection.
+        """Run the tunnel with automatic reconnection until it stops for good."""
+        self._shutdown = False
+        try:
+            close_code, reason = await self._run_loop()
+        except Exception as exc:
+            # Any unexpected error is still a terminal stop: fire on_stopped so
+            # the UI/log reflect it. CancelledError (BaseException) must NOT be
+            # caught here — the timeout-cancel path in _stop_tunnel_async relies
+            # on it propagating up to _run_tunnel.
+            logger.error(
+                "Tunnel loop failed unexpectedly: %s", exc, exc_info=True
+            )
+            close_code, reason = (0, f"Tunnel error: {exc}")
+        self._fire_callback(self._on_stopped, close_code, reason)
 
-        This is a long-running coroutine. It keeps reconnecting until:
+    async def _run_loop(self) -> tuple[int, str]:
+        """The reconnect loop. Returns the terminal ``(close_code, reason)``
+        describing why the tunnel stopped. Does NOT fire on_stopped — run() does.
+
+        It keeps reconnecting until:
         - A permanent close code is received (TOKEN_REVOKED, ACCOUNT_DELETED,
           SESSION_REPLACED, NORMAL)
         - Max reconnection attempts exhausted
@@ -116,7 +136,6 @@ class TunnelReconnectManager:
 
         Uses anyio.sleep for cancellation safety.
         """
-        self._shutdown = False
         attempt = 0
 
         while not self._shutdown:
@@ -124,10 +143,7 @@ class TunnelReconnectManager:
             credentials = self._credentials_manager.load()
             if credentials is None:
                 logger.warning("No credentials found, cannot connect tunnel")
-                self._fire_callback(
-                    self._on_gave_up, 0, "No credentials available"
-                )
-                return
+                return (0, "No credentials available")
 
             # --- Step 2: Refresh token if expired ---
             if self._credentials_manager.is_token_expired(credentials):
@@ -143,12 +159,7 @@ class TunnelReconnectManager:
                         logger.warning(
                             "Refresh token revoked, re-login required: %s", exc
                         )
-                        self._fire_callback(
-                            self._on_gave_up,
-                            0,
-                            "Refresh token revoked — re-login required",
-                        )
-                        return
+                        return (0, "Refresh token revoked — re-login required")
                     logger.warning("Token refresh failed: %s", exc)
                     self._fire_callback(
                         self._on_error,
@@ -159,7 +170,7 @@ class TunnelReconnectManager:
                     # the server will tell us if the token is truly dead.
 
             if self._shutdown:
-                return
+                return (CloseCodes.NORMAL, "Disconnected by user")
 
             # --- Step 3: Create a fresh transport and client, then run ---
             # Wrap the on_tunnel_established callback to reset the attempt
@@ -188,18 +199,16 @@ class TunnelReconnectManager:
                 attempt += 1
                 # Fall through to attempt-limit check and backoff below
                 if self._shutdown:
-                    return
+                    return (CloseCodes.NORMAL, "Disconnected by user")
                 if attempt >= RECONNECT_MAX_ATTEMPTS:
                     logger.warning(
                         "Max reconnection attempts (%d) reached, giving up",
                         RECONNECT_MAX_ATTEMPTS,
                     )
-                    self._fire_callback(
-                        self._on_gave_up,
+                    return (
                         0,
                         f"Max reconnection attempts ({RECONNECT_MAX_ATTEMPTS}) exhausted",
                     )
-                    return
                 delay = self._calculate_delay(attempt)
                 logger.info(
                     "Reconnecting in %.1fs (attempt %d/%d)",
@@ -244,10 +253,7 @@ class TunnelReconnectManager:
                         close_code,
                         close_reason,
                     )
-                    self._fire_callback(
-                        self._on_gave_up, close_code, close_reason
-                    )
-                    return
+                    return (close_code, close_reason)
 
                 if should_refresh_token(close_code):
                     logger.info(
@@ -273,12 +279,10 @@ class TunnelReconnectManager:
                                 close_code,
                                 exc,
                             )
-                            self._fire_callback(
-                                self._on_gave_up,
+                            return (
                                 close_code,
                                 "Refresh token revoked — re-login required",
                             )
-                            return
                         logger.warning(
                             "Token refresh failed after close code %d: %s",
                             close_code,
@@ -296,7 +300,7 @@ class TunnelReconnectManager:
                 await transport.stop()
 
             if self._shutdown:
-                return
+                return (CloseCodes.NORMAL, "Disconnected by user")
 
             # --- Check attempt limit ---
             if attempt >= RECONNECT_MAX_ATTEMPTS:
@@ -304,12 +308,10 @@ class TunnelReconnectManager:
                     "Max reconnection attempts (%d) reached, giving up",
                     RECONNECT_MAX_ATTEMPTS,
                 )
-                self._fire_callback(
-                    self._on_gave_up,
+                return (
                     0,
                     f"Max reconnection attempts ({RECONNECT_MAX_ATTEMPTS}) exhausted",
                 )
-                return
 
             # --- Backoff delay ---
             delay = self._calculate_delay(attempt)
@@ -325,6 +327,10 @@ class TunnelReconnectManager:
                 self._sleep_scope = scope
                 await anyio.sleep(delay)
             self._sleep_scope = None
+
+        # The ``while not self._shutdown`` guard fell through — a clean,
+        # user-initiated disconnect.
+        return (CloseCodes.NORMAL, "Disconnected by user")
 
     async def disconnect(self) -> None:
         """Stop the reconnection loop and disconnect the active tunnel.

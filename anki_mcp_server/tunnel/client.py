@@ -145,6 +145,9 @@ class TunnelClient:
         self._last_server_ping: float = 0.0
         self._tunnel_url: str | None = None
         self._pending_requests: set[asyncio.Task] = set()
+        # Cancel scope of the message-loop task group, captured during run()
+        # so disconnect() can proactively wind down the health-check loop.
+        self._cancel_scope: anyio.CancelScope | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -195,8 +198,28 @@ class TunnelClient:
 
         try:
             async with anyio.create_task_group() as tg:
-                tg.start_soon(self._receive_loop, ws)
+                self._cancel_scope = tg.cancel_scope
+                # Run the health check as a sibling, but drive the receive
+                # loop INLINE so we know precisely when the connection ends.
+                #
+                # A clean WebSocket close (code 1000 — what a user-initiated
+                # disconnect produces) makes the receive iterator stop
+                # *silently*: websockets does not raise on normal closure.
+                # anyio task groups only auto-cancel siblings when a child
+                # RAISES; on normal completion they WAIT for all children. So
+                # if both ran via start_soon(), the infinite health-check loop
+                # would block the group forever and run() would never return.
+                #
+                # By awaiting the receive loop inline and cancelling the group
+                # scope once it returns, the health-check loop is cancelled and
+                # run() returns normally with the default NORMAL close code.
+                # The unclean path is unaffected: a dropped connection raises
+                # ConnectionClosed out of the receive loop, the cancel below is
+                # skipped, and the exception tears the group down as before
+                # (so reconnect.py still re-attempts).
                 tg.start_soon(self._health_check_loop, ws)
+                await self._receive_loop(ws)
+                tg.cancel_scope.cancel()
         except* ConnectionClosedOK:
             close_code = CloseCodes.NORMAL
             close_reason = "Normal closure"
@@ -226,6 +249,7 @@ class TunnelClient:
 
             await self._close_ws_quietly(ws)
             self._ws = None
+            self._cancel_scope = None
 
         # --- Step 4: Fire disconnected callback ---
         self._fire_callback(
@@ -235,7 +259,16 @@ class TunnelClient:
         return close_code, close_reason
 
     async def disconnect(self) -> None:
-        """Close the WebSocket gracefully if connected."""
+        """Close the WebSocket gracefully if connected.
+
+        Proactively cancels the message-loop task group so the health-check
+        loop winds down immediately — even before the WebSocket close
+        round-trips with the server. Code after the task group's
+        ``async with`` (the ``on_disconnected`` fire and the ``return``)
+        still runs: the ``CancelledError`` is absorbed at the group boundary.
+        """
+        if self._cancel_scope is not None:
+            self._cancel_scope.cancel()
         ws = self._ws
         if ws is not None:
             await self._close_ws_quietly(ws)

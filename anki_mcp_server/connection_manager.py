@@ -37,6 +37,7 @@ from .queue_bridge import QueueBridge
 from .request_processor import RequestProcessor
 from .tunnel.auth import DeviceFlowAuth
 from .tunnel.log import TunnelLog
+from .tunnel.protocol import CloseCodes
 
 logger = logging.getLogger(__name__)
 
@@ -361,7 +362,7 @@ class ConnectionManager:
             on_error=self._on_tunnel_error,
             on_request_completed=self._on_tunnel_request_completed,
             on_reconnecting=self._on_tunnel_reconnecting,
-            on_gave_up=self._on_tunnel_gave_up,
+            on_stopped=self._on_tunnel_stopped,
         )
 
     def disconnect_tunnel(self) -> None:
@@ -509,8 +510,18 @@ class ConnectionManager:
         )
         logger.info("Tunnel reconnecting: attempt=%d, delay=%.1fs", attempt, delay)
 
-    def _on_tunnel_gave_up(self, code: int, reason: str) -> None:
-        """Called when reconnection is permanently abandoned."""
+    def _on_tunnel_stopped(self, code: int, reason: str) -> None:
+        """Called once when the tunnel stops for good (no further reconnection).
+
+        Fires for every terminal exit — clean disconnect or permanent failure.
+        A clean close (code 1000) is a deliberate user-initiated disconnect,
+        not a failure — log it as such. Everything else (token revoked,
+        account deleted, max attempts exhausted, …) is a genuine give-up.
+        """
         self._tunnel_state = _TunnelState()
-        self._tunnel_log.error(f"Gave up reconnecting: {reason}")
-        logger.warning("Tunnel gave up: code=%d, reason=%s", code, reason)
+        if code == CloseCodes.NORMAL:
+            self._tunnel_log.info("Tunnel disconnected")
+            logger.info("Tunnel stopped: code=%d, reason=%s", code, reason)
+        else:
+            self._tunnel_log.error(f"Gave up reconnecting: {reason}")
+            logger.warning("Tunnel stopped: code=%d, reason=%s", code, reason)
