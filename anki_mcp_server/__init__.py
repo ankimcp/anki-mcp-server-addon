@@ -17,7 +17,7 @@ if sys.version_info < (3, 10):
 
 from pathlib import Path
 
-__version__ = "0.17.1"
+__version__ = "0.18.0"
 
 # Packages we vendor — used for conflict detection AND system-package fallback checks
 _VENDOR_PACKAGES = ['mcp', 'pydantic', 'pydantic_core', 'starlette', 'uvicorn', 'anyio', 'httpx', 'websockets']
@@ -135,6 +135,7 @@ from aqt.utils import showInfo, showWarning
 from .config import Config, ConfigManager
 from .connection_manager import ConnectionManager
 from .tool_decorator import validate_disabled_tools
+from .tunnel.ui import toolbar_indicator
 from .tunnel.ui.settings_section import TunnelSettingsSection
 
 # Global instances
@@ -208,10 +209,22 @@ def _on_app_shutdown() -> None:
 
 
 def _setup_menu() -> None:
-    """Add AnkiMCP Server to Tools menu."""
+    """Add AnkiMCP Server to Tools menu and install the toolbar indicator."""
     action = QAction("AnkiMCP Server Settings...", mw)
     action.triggered.connect(_show_settings)
     mw.form.menuTools.addAction(action)
+
+    # Persistent tunnel-status item in the top toolbar (opt-out via the
+    # show_toolbar_indicator config flag; the change takes effect on restart).
+    # Config is global to the addon, so it's read here directly rather than
+    # via _config_manager, which isn't set until a profile opens. Reads the
+    # live connection manager lazily (recreated per profile, None before the
+    # first profile opens) and reuses _show_settings as the click handler.
+    if ConfigManager(__name__).load().show_toolbar_indicator:
+        toolbar_indicator.register(
+            state_provider=lambda: _connection_manager,
+            on_click=_show_settings,
+        )
 
 
 def _show_settings() -> None:

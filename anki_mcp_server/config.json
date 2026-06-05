@@ -11,5 +11,5 @@
   "media_import_dir": "",
   "media_allowed_types": [],
   "media_allowed_hosts": [],
-  "auto_connect_on_startup": true
+  "show_toolbar_indicator": true
 }

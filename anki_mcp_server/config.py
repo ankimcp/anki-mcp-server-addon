@@ -55,7 +55,10 @@ class Config:
     media_allowed_hosts: List[str] = field(default_factory=list)
 
     # General
-    auto_connect_on_startup: bool = True
+
+    # Show the persistent "● AnkiMCP" tunnel-status indicator in Anki's top
+    # toolbar. Set false to hide it (takes effect after an Anki restart).
+    show_toolbar_indicator: bool = True
 
     def is_valid(self) -> tuple[bool, str]:
         """

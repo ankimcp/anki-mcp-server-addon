@@ -21,6 +21,13 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>Cross-platform</b> - Works on macOS, Windows, and Linux (x64 and ARM)</li>
 <li><b>Tool filtering</b> - Disable specific tools or actions to reduce token usage</li>
 <li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
+<li><b>Toolbar status indicator</b> - A <code>● AnkiMCP</code> item in the top toolbar shows tunnel connection state at a glance (opt out via <code>show_toolbar_indicator</code>)</li>
+</ul>
+
+<h2>What's New in v0.18.0</h2>
+<ul>
+<li><b>Toolbar status indicator</b> - A <code>● AnkiMCP</code> item in the top toolbar shows tunnel connection state at a glance: grey when off, amber while connecting, green when connected. Click it to open the settings dialog. Hide it with the <code>show_toolbar_indicator</code> config option</li>
+<li><b>Cleaner tunnel disconnect</b> - Disconnecting the tunnel now reliably logs "Tunnel disconnected" and shuts the connection down cleanly</li>
 </ul>
 
 <h2>What's New in v0.17.0</h2>
@@ -185,16 +192,19 @@ AI-powered study sessions, card creation, and collection management.</p>
 <p>Edit via Anki's Tools → Add-ons → AnkiMCP Server → Config:</p>
 <pre>
 {
-  "mode": "http",
+  "http_enabled": true,
   "http_port": 3141,
   "http_host": "127.0.0.1",
   "http_path": "",
   "cors_origins": [],
-  "auto_connect_on_startup": true,
+  "cors_expose_headers": ["mcp-protocol-version"],
   "disabled_tools": [],
+  "tunnel_server_url": "wss://tunnel.ankimcp.ai",
+  "tunnel_client_id": "ankimcp-cli",
   "media_import_dir": "",
   "media_allowed_types": [],
-  "media_allowed_hosts": []
+  "media_allowed_hosts": [],
+  "show_toolbar_indicator": true
 }
 </pre>
 

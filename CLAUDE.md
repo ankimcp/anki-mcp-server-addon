@@ -286,7 +286,7 @@ Three config fields control tunnel behavior:
 - `tunnel_server_url: str` — WebSocket URL of the tunnel relay server. Default is `wss://tunnel.ankimcp.ai` (production). Point at `ws://localhost:3004` for local relay development.
 - `tunnel_client_id: str` — OAuth client identifier. Default is `ankimcp-cli` (shared with the TypeScript CLI).
 
-There is no `mode` field and no `auto_connect_on_startup` field. HTTP is always-on by default (controlled by `http_enabled`). Tunnel never auto-connects — the user must explicitly click "Connect Tunnel" in the settings dialog each time.
+There is no `mode` field. HTTP is always-on by default (controlled by `http_enabled`). Tunnel never auto-connects — the user must explicitly click "Connect Tunnel" in the settings dialog each time.
 
 #### Credential Storage
 
@@ -376,9 +376,14 @@ Configured via addon settings (`cors_origins`, `cors_expose_headers`). Empty `co
 
 `Config.http_path` (default `""`) lets the operator move the MCP endpoint off `/` to an obscure prefix like `"my-secret"` → served at `/my-secret/`. Used for security-through-obscurity when exposing the server through a tunnel. Normalization happens in `mcp_server.py` (`streamable_path = f"/{http_path.strip('/')}/"`). Tests live in `tests/e2e/test_secret_path.py`.
 
-### Connection Modes
+### Transports (No Mode Enum)
 
-`Config.mode` is `Literal["http"]` — only one mode is supported today. `is_valid_for_mode()` and the surrounding scaffolding exist for future modes (e.g., tunnel) but are unused right now. Don't conditionalize behavior on `mode` until a second mode actually lands.
+There is no `Config.mode` field and no `is_valid_for_mode()` — the addon does not model connectivity as a single selectable "mode." Instead it has two **independent** transports that can each be on or off at the same time:
+
+- **HTTP** — gated by `http_enabled` (default `True`). When enabled, uvicorn serves the Streamable HTTP endpoint.
+- **Tunnel** — never auto-started. The user explicitly clicks "Connect Tunnel" in the settings dialog; configured via `tunnel_server_url` / `tunnel_client_id`.
+
+Both share one `Server` object and run on the same asyncio loop (see "Tunnel Architecture"). Don't add `mode`-based conditionals — branch on `http_enabled` and the tunnel's connection state instead.
 
 ### Tool Filtering
 

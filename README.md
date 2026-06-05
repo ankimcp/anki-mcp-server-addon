@@ -25,6 +25,7 @@ On first run, this addon downloads `pydantic_core` (~2MB) from PyPI. This is req
 - **MCP protocol** - Compatible with any MCP client (Claude Desktop, etc.)
 - **Auto-start** - HTTP server starts automatically when Anki opens
 - **Tunnel-friendly** - Works with Cloudflare Tunnel, ngrok, or the built-in tunnel
+- **Toolbar indicator** - A `● AnkiMCP` item in the top toolbar shows tunnel connection state at a glance (opt out via `show_toolbar_indicator`)
 - **Cross-platform** - Works on macOS, Windows, and Linux (x64 and ARM)
 
 ## Installation
@@ -196,7 +197,7 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "media_import_dir": "",
   "media_allowed_types": [],
   "media_allowed_hosts": [],
-  "auto_connect_on_startup": true
+  "show_toolbar_indicator": true
 }
 ```
 
@@ -211,6 +212,16 @@ The `http_enabled` setting controls whether the local HTTP server runs. When set
 ```
 
 This is useful if you only use the tunnel and don't want a local HTTP server listening.
+
+### Toolbar Status Indicator
+
+A persistent `● AnkiMCP` item in Anki's top toolbar shows tunnel connection state (grey = off, amber = connecting, green = connected); clicking it opens the settings dialog. It's shown by default. Set `show_toolbar_indicator` to `false` to hide it (takes effect after an Anki restart).
+
+```json
+{
+  "show_toolbar_indicator": false
+}
+```
 
 ### Disabling Tools
 
