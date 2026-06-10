@@ -69,6 +69,9 @@ def update_notes(notes: list[NoteUpdateEntry]) -> dict[str, Any]:
         )
 
     results: list[dict[str, Any]] = []
+    valid_indices: list[int] = []
+    valid_notes: list = []
+    valid_field_names: list[list[str]] = []
 
     for i, entry in enumerate(notes):
         note_id = entry.id
@@ -138,28 +141,36 @@ def update_notes(notes: list[NoteUpdateEntry]) -> dict[str, Any]:
             })
             continue
 
-        # Apply field updates
+        # Apply field updates to the note object (not yet persisted)
+        for field_name, field_value in fields.items():
+            anki_note[field_name] = field_value
+
+        valid_indices.append(i)
+        valid_notes.append(anki_note)
+        valid_field_names.append(list(fields.keys()))
+
+    # --- Batch update via native API (single undo step) ---
+    if valid_notes:
         try:
-            for field_name, field_value in fields.items():
-                anki_note[field_name] = field_value
-            col.update_note(anki_note)
-            results.append({
-                "index": i,
-                "note_id": note_id,
-                "status": "updated",
-                "updated_fields": list(fields.keys()),
-            })
+            col.update_notes(valid_notes)
+            for idx, field_names in zip(valid_indices, valid_field_names):
+                results.append({
+                    "index": idx,
+                    "note_id": notes[idx].id,
+                    "status": "updated",
+                    "updated_fields": field_names,
+                })
         except Exception as e:
-            logger.error("Failed to update note %d: %s", note_id, e, exc_info=True)
-            results.append({
-                "index": i,
-                "note_id": note_id,
-                "status": "failed",
-                "error": str(e),
-                "retryable": True,
-                "retry_hint": "This may be a transient Anki error. Retry this specific note after checking "
-                             "the note isn't open in Anki browser (which can block updates).",
-            })
+            logger.error("col.update_notes() batch failed: %s", e, exc_info=True)
+            for idx in valid_indices:
+                results.append({
+                    "index": idx,
+                    "note_id": notes[idx].id,
+                    "status": "failed",
+                    "error": str(e),
+                    "retryable": True,
+                    "retry_hint": "The batch update failed. Retry with the same notes.",
+                })
 
     # --- Build response ---
     results.sort(key=lambda r: r["index"])

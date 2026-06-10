@@ -35,6 +35,26 @@ def update_model_templates(model_name: str, templates: dict[str, dict[str, str]]
             model_name=model_name,
         )
 
+    # --- Pre-pass: reject unrecognized field keys before any mutation ---
+    _VALID_TEMPLATE_KEYS = {"Front", "Back"}
+    invalid_keys: list[tuple[str, str]] = []
+
+    for card_name, fields in templates.items():
+        for key in fields:
+            if key not in _VALID_TEMPLATE_KEYS:
+                invalid_keys.append((card_name, key))
+
+    if invalid_keys:
+        detail = "; ".join(f'"{key}" in template "{tmpl}"' for tmpl, key in invalid_keys)
+        raise HandlerError(
+            f"Unrecognized template key(s): {detail}",
+            hint=f"Valid template keys are: {', '.join(sorted(_VALID_TEMPLATE_KEYS))}. "
+                 "Only 'Front' and 'Back' are accepted (case-sensitive — 'front' or 'Answer' are rejected).",
+            model_name=model_name,
+            invalid_keys=[{"template": tmpl, "key": key} for tmpl, key in invalid_keys],
+            valid_keys=sorted(_VALID_TEMPLATE_KEYS),
+        )
+
     updated_count = 0
     updated_names: list[str] = []
     not_found: list[str] = []
