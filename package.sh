@@ -12,18 +12,15 @@ PIP="python3 -m pip"
 # Anki 25.x uses Python 3.13
 PYTHON_VERSION="313"
 
-# Pure Python packages (same for all platforms)
-# Let pip resolve all transitive dependencies automatically
-PURE_PACKAGES="mcp uvicorn starlette websockets pydantic pydantic-settings anyio httpx sniffio h11 idna certifi httpcore typing_extensions annotated-types click sse-starlette httpx-sse typing_inspection"
-
 echo "=== Cleaning previous builds ==="
 rm -rf "$WHEELS_DIR" "$VENDOR_DIR" "$OUTPUT"
 mkdir -p "$WHEELS_DIR"
 
 echo "=== Downloading pure Python packages (with transitive deps) ==="
-# Let pip resolve all transitive dependencies automatically
+# Versions come from requirements.txt (single source of truth); pip resolves
+# transitive deps automatically. The mcp<2 pin there keeps us on the v1 SDK.
 # Note: pydantic-core is NOT included here - it will be lazy-loaded at runtime
-$PIP download mcp uvicorn starlette websockets \
+$PIP download -r requirements.txt \
     --dest "$WHEELS_DIR/pure" \
     --only-binary=:all: \
     --python-version $PYTHON_VERSION \
@@ -31,7 +28,7 @@ $PIP download mcp uvicorn starlette websockets \
     2>&1 | grep -v "already satisfied" || true
 
 # Also grab any pure Python wheels we might have missed
-$PIP download mcp uvicorn starlette websockets \
+$PIP download -r requirements.txt \
     --dest "$WHEELS_DIR/pure" \
     2>&1 | grep -v "already satisfied" || true
 

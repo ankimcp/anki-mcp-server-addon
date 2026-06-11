@@ -130,7 +130,7 @@ anki_mcp_server/
 
 **Build (`package.sh`)**: Downloads wheels pinned to `--python-version 313` (Anki 25.07's Python). Deliberately **excludes `pydantic_core`** from the bundle — it has platform-specific binaries and is instead lazy-loaded at runtime via `dependency_loader.py`. If modifying the build, keep this exclusion intact.
 
-**Keeping vendor lists in sync**: When adding or removing a vendored dependency, update **both** `PURE_PACKAGES` in `package.sh` (controls what gets downloaded/bundled) **and** `_VENDOR_PACKAGES` in `__init__.py` (controls conflict detection at startup). They must stay in sync.
+**Keeping vendor lists in sync**: `requirements.txt` is the **vendoring source of truth** — `package.sh` runs `pip download -r requirements.txt`, so its top-level entries (plus transitive deps) are exactly what gets bundled. The `mcp>=1.27.0,<2` ceiling there pins the addon to the v1 MCP SDK (v2 is a breaking rewrite). When adding or removing a vendored dependency, update **both** `requirements.txt` (controls what gets downloaded/bundled) **and** `_VENDOR_PACKAGES` in `__init__.py` (controls conflict detection at startup). They must stay in sync.
 
 ### Decorator Patterns
 

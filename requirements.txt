@@ -1,3 +1,7 @@
+# Vendoring source of truth: these packages (plus their transitive deps) are
+# downloaded and bundled into the .ankiaddon by package.sh. Anything added here
+# ships inside the addon. The mcp<2 ceiling pins us to the v1 SDK — v2 is a
+# breaking rewrite (stable 2026-07-28).
 mcp>=1.27.0,<2
 uvicorn>=0.30.0
 starlette>=0.38.0
