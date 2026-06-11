@@ -35,6 +35,12 @@ _registry: dict[str, dict[str, Any]] = {}
 #   - description: Shown to AI to understand when/how to use the tool
 #   - write: If True, wraps with _write_lock for Anki's undo system
 #   - require_col: If True (default), checks collection is open before running
+#   - destructive: If True, the tool is hidden from MCP clients unless the
+#     operator opts in via the enabled_destructive_tools config allow-list.
+#     Requires write=True (a destructive tool that doesn't modify the
+#     collection is a definition error). For multi-action tools, mark
+#     individual actions instead with `_destructive: ClassVar[bool] = True`
+#     on the action's Params model in the dispatcher module.
 #
 # What happens at import time:
 #   1. Wraps with _write_lock if write=True (Anki undo handling)
@@ -52,11 +58,19 @@ class Tool:
         *,
         write: bool = False,
         require_col: bool = True,
+        destructive: bool = False,
     ):
+        if destructive and not write:
+            raise ValueError(
+                f"Tool '{name}': destructive=True requires write=True "
+                f"(a destructive tool that doesn't modify the collection "
+                f"is a definition error)"
+            )
         self.name = name
         self.description = description
         self.write = write
         self.require_col = require_col
+        self.destructive = destructive
 
         # Support both @Tool(...) decorator and Tool(..., handler=fn) direct call
         if handler is not None:
@@ -92,10 +106,14 @@ class Tool:
         register_handler(self.name, wrapped)
 
         # Store for MCP tool creation later
+        # "write" is stored for future use (MCP ToolAnnotations readOnlyHint);
+        # "destructive" gates registration behind enabled_destructive_tools.
         _registry[self.name] = {
             "name": self.name,
             "description": self.description,
             "original": func,
+            "write": self.write,
+            "destructive": self.destructive,
         }
 
 
@@ -268,14 +286,50 @@ def _get_base_description(original: Any) -> str | None:
     return None
 
 
+def _get_destructive_actions(original: Any) -> set[str]:
+    """Collect action names marked destructive in a multi-action tool.
+
+    Actions opt in to the destructive gate by declaring
+    ``_destructive: ClassVar[bool] = True`` on their Params model
+    (in the dispatcher module, alongside ``_tool_description``).
+
+    Args:
+        original: The unwrapped tool function from the registry.
+
+    Returns:
+        Set of action literal values whose Params model is marked
+        destructive. Empty set for single-action tools or when no
+        action is marked.
+    """
+    annotations = getattr(original, "__annotations__", {})
+    for ann in annotations.values():
+        if _is_annotated_union(ann):
+            args = get_args(ann)
+            union_members = get_args(args[0])
+            return {
+                action
+                for m in union_members
+                if getattr(m, "_destructive", False)
+                and (action := _get_action_literal(m)) is not None
+            }
+    return set()
+
+
 def _validate_disabled_entries(
     disabled_whole: set[str],
     disabled_actions: dict[str, set[str]],
+    config_key: str = "disabled_tools",
 ) -> list[str]:
-    """Validate disabled tool/action names against the registry.
+    """Validate tool/action names against the registry.
 
     Returns list of warning messages for entries that don't match any
     registered tool or action. Pure logic -- no side effects.
+
+    Args:
+        disabled_whole: Whole-tool entries to check.
+        disabled_actions: Per-action entries to check ({tool: {actions}}).
+        config_key: Config field name used as the warning prefix
+            (e.g., "disabled_tools" or "enabled_destructive_tools").
     """
     warnings: list[str] = []
     registered = set(_registry.keys())
@@ -283,14 +337,14 @@ def _validate_disabled_entries(
     for name in sorted(disabled_whole):
         if name not in registered:
             warnings.append(
-                f"disabled_tools: '{name}' does not match any registered tool (typo?)"
+                f"{config_key}: '{name}' does not match any registered tool (typo?)"
             )
 
     for tool_name in sorted(disabled_actions):
         actions = disabled_actions[tool_name]
         if tool_name not in registered:
             warnings.append(
-                f"disabled_tools: '{tool_name}' (from action filter) "
+                f"{config_key}: '{tool_name}' (from action filter) "
                 f"does not match any registered tool (typo?)"
             )
             continue
@@ -307,7 +361,7 @@ def _validate_disabled_entries(
         if union_ann is None:
             for action in sorted(actions):
                 warnings.append(
-                    f"disabled_tools: '{tool_name}:{action}' "
+                    f"{config_key}: '{tool_name}:{action}' "
                     f"-- tool '{tool_name}' is not a multi-action tool"
                 )
             continue
@@ -321,7 +375,7 @@ def _validate_disabled_entries(
             if action not in known_actions:
                 available = ", ".join(sorted(a for a in known_actions if a))
                 warnings.append(
-                    f"disabled_tools: '{tool_name}:{action}' "
+                    f"{config_key}: '{tool_name}:{action}' "
                     f"-- action '{action}' not found in tool '{tool_name}' "
                     f"(available: {available})"
                 )
@@ -361,26 +415,107 @@ def validate_disabled_tools(disabled_list: list[str]) -> list[str]:
     return _validate_disabled_entries(disabled_whole, disabled_actions)
 
 
+def validate_enabled_destructive_tools(enabled_list: list[str]) -> list[str]:
+    """Validate enabled_destructive_tools config entries against registered tools.
+
+    Checks each entry for two problem classes:
+    1. The entry matches no registered tool/action (typo).
+    2. The entry matches a real tool/action that is NOT marked destructive --
+       the entry is a no-op (nothing to opt in to).
+
+    This is meant to be called from the main thread at startup, before
+    the MCP server starts, so users get immediate feedback.
+
+    Args:
+        enabled_list: Raw ``enabled_destructive_tools`` config entries
+            (e.g., ``["delete_decks", "deck_management:rename"]``).
+
+    Returns:
+        List of warning messages. Empty list if everything is valid.
+    """
+    if not enabled_list:
+        return []
+    opted_whole, opted_actions = _parse_disabled(enabled_list)
+
+    # Class 1: unknown tool/action names (typos)
+    warnings = _validate_disabled_entries(
+        opted_whole, opted_actions, config_key="enabled_destructive_tools"
+    )
+
+    # Class 2: real tools/actions that aren't marked destructive (no-ops)
+    for name in sorted(opted_whole):
+        meta = _registry.get(name)
+        if meta is not None and not meta["destructive"]:
+            warnings.append(
+                f"enabled_destructive_tools: no-op: '{name}' "
+                f"is not a destructive tool"
+            )
+
+    for tool_name in sorted(opted_actions):
+        meta = _registry.get(tool_name)
+        if meta is None:
+            continue  # Already warned as unknown above
+        destructive_actions = _get_destructive_actions(meta["original"])
+        annotations = getattr(meta["original"], "__annotations__", {})
+        union_ann = next(
+            (ann for ann in annotations.values() if _is_annotated_union(ann)),
+            None,
+        )
+        if union_ann is None:
+            continue  # Already warned as "not a multi-action tool" above
+        known_actions = {
+            _get_action_literal(m) for m in get_args(get_args(union_ann)[0])
+        }
+        for action in sorted(opted_actions[tool_name]):
+            if action in known_actions and action not in destructive_actions:
+                warnings.append(
+                    f"enabled_destructive_tools: no-op: '{tool_name}:{action}' "
+                    f"is not a destructive action"
+                )
+
+    return warnings
+
+
 # ------------------------------------------------------------------------------
 # register_tools - Create MCP tools from registry
 # ------------------------------------------------------------------------------
 # Called once at server startup. Iterates through all registered tools
 # and creates async MCP wrappers that bridge to main thread via queue.
 # Applies disabled_tools filtering to skip whole tools or remove actions.
+# Applies the enabled_destructive_tools allow-list: destructive tools/actions
+# are hidden unless explicitly opted in (exact match, same "tool" /
+# "tool:action" syntax as disabled_tools; a whole-tool entry does NOT
+# implicitly opt in destructive sub-actions).
 # ------------------------------------------------------------------------------
 def register_tools(
     mcp: Any,
     call_main_thread: Callable[..., Any],
     disabled_tools: list[str] | None = None,
+    enabled_destructive_tools: list[str] | None = None,
 ) -> None:
     disabled_whole, disabled_actions = _parse_disabled(disabled_tools or [])
+    opted_whole, opted_actions = _parse_disabled(enabled_destructive_tools or [])
 
     for name, meta in _registry.items():
         if name in disabled_whole:
             logger.info("Tool disabled by config: %s", name)
             continue
-        tool_disabled_actions = disabled_actions.get(name, set())
-        _make_mcp_tool(mcp, call_main_thread, name, meta, tool_disabled_actions)
+        # Whole-tool destructive gate: hidden unless opted in by the operator
+        if meta["destructive"] and name not in opted_whole:
+            logger.info(
+                "Tool hidden (destructive, not opted in via "
+                "enabled_destructive_tools): %s", name,
+            )
+            continue
+        # Per-action destructive gate: destructive actions not opted in are
+        # hidden; disabled_tools actions union on top (precedence: destructive
+        # -not-opted-in always hidden, disabled always wins over opted-in).
+        hidden_destructive = (
+            _get_destructive_actions(meta["original"])
+            - opted_actions.get(name, set())
+        )
+        effective_disabled = disabled_actions.get(name, set()) | hidden_destructive
+        _make_mcp_tool(mcp, call_main_thread, name, meta, effective_disabled)
 
     # Warn about typos / unknown names after registration
     if disabled_whole or disabled_actions:

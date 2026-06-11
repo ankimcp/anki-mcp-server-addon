@@ -12,6 +12,7 @@ def register_all_tools(
     mcp,
     call_main_thread: Callable[[str, dict], Coroutine[Any, Any, Any]],
     disabled_tools: list[str] | None = None,
+    enabled_destructive_tools: list[str] | None = None,
 ) -> None:
     """Register all MCP tools with the server.
 
@@ -19,5 +20,13 @@ def register_all_tools(
         mcp: FastMCP server instance
         call_main_thread: Async function to bridge calls to Anki's main thread
         disabled_tools: List of tool names or "tool:action" entries to skip
+        enabled_destructive_tools: Allow-list of destructive tool names or
+            "tool:action" entries to expose (destructive tools/actions are
+            hidden unless listed here)
     """
-    register_tools(mcp, call_main_thread, disabled_tools=disabled_tools)
+    register_tools(
+        mcp,
+        call_main_thread,
+        disabled_tools=disabled_tools,
+        enabled_destructive_tools=enabled_destructive_tools,
+    )

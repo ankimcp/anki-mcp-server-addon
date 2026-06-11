@@ -134,7 +134,7 @@ from aqt.utils import showInfo, showWarning
 
 from .config import Config, ConfigManager
 from .connection_manager import ConnectionManager
-from .tool_decorator import validate_disabled_tools
+from .tool_decorator import validate_disabled_tools, validate_enabled_destructive_tools
 from .tunnel.ui import toolbar_indicator
 from .tunnel.ui.settings_section import TunnelSettingsSection
 
@@ -176,6 +176,9 @@ def _on_profile_opened() -> None:
     # Validate config and collect warnings for the user
     warnings: list[str] = []
     warnings.extend(validate_disabled_tools(config.disabled_tools))
+    warnings.extend(
+        validate_enabled_destructive_tools(config.enabled_destructive_tools)
+    )
     _show_startup_warnings(warnings)
 
     _connection_manager = ConnectionManager(config)

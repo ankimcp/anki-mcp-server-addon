@@ -192,6 +192,7 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "cors_origins": [],
   "cors_expose_headers": ["mcp-protocol-version"],
   "disabled_tools": [],
+  "enabled_destructive_tools": [],
   "max_notes_per_batch": 100,
   "tunnel_server_url": "wss://tunnel.ankimcp.ai",
   "tunnel_client_id": "ankimcp-cli",
@@ -242,6 +243,26 @@ Hide specific tools or actions from AI clients to reduce token usage:
 - `"tool_name:action"` — disables a specific action within a multi-action tool
 
 Disabled tools are removed from the MCP schema entirely — AI clients never see them. Typos in tool/action names will produce console warnings.
+
+### Destructive Tools (Opt-In)
+
+Tools or actions classified as destructive (high-risk operations) are **hidden from AI clients by default**. To expose them, add them to the `enabled_destructive_tools` allow-list:
+
+```json
+{
+  "enabled_destructive_tools": [
+    "some_destructive_tool",
+    "some_tool:destructive_action"
+  ]
+}
+```
+
+- `"tool_name"` — opts in an entire destructive tool
+- `"tool_name:action"` — opts in a destructive action within a multi-action tool (a whole-tool entry does not implicitly opt in its destructive actions)
+- `disabled_tools` still applies on top — an opted-in tool can still be disabled
+- Entries that don't match anything, or match a non-destructive tool/action, produce console warnings
+
+This is server-side enforcement: until opted in, destructive tools are absent from the MCP schema, so even a misbehaving client cannot call them. No currently shipped tool is destructive — this mechanism exists for future high-risk tools (e.g., deck deletion).
 
 ### Custom Path
 

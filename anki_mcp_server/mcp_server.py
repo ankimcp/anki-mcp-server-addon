@@ -494,6 +494,7 @@ class McpServer:
         register_all_tools(
             mcp, self._call_main_thread,
             disabled_tools=self._config.disabled_tools,
+            enabled_destructive_tools=self._config.enabled_destructive_tools,
         )
         register_all_resources(mcp, self._call_main_thread)
         register_all_prompts(mcp)

@@ -37,6 +37,11 @@ class Config:
     # Example: ["get_fsrs_params", "card_management:bury", "card_management:unbury"]
     disabled_tools: List[str] = field(default_factory=list)
 
+    # Opt-in allow-list for destructive tools/actions (hidden by default).
+    # Exact match: "tool" opts in a destructive tool, "tool:action" opts in
+    # a destructive action. disabled_tools still applies on top.
+    enabled_destructive_tools: List[str] = field(default_factory=list)
+
     # Batch operation limits
     # Maximum notes per add_notes / update_notes call (default 100)
     max_notes_per_batch: int = 100

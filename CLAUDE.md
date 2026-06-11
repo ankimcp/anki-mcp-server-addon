@@ -162,6 +162,7 @@ def my_tool(arg: str) -> dict[str, Any]:
 Options:
 - `write=True`: Wraps with Anki's undo system (`requireReset`/`maybeReset`)
 - `require_col=True` (default): Checks collection is open before running
+- `destructive=True`: Hides the tool from MCP clients unless the operator opts in via `enabled_destructive_tools` config (see "Tool Filtering"). Requires `write=True` — `ValueError` at import time otherwise. For multi-action tools, mark individual actions with `_destructive: ClassVar[bool] = True` on the action's Params model instead.
 
 #### @Resource Decorator
 
@@ -215,6 +216,8 @@ The dispatcher uses Pydantic `Annotated[Union[...], Field(discriminator="action"
 **Description metadata**: Each Params model has a `_tool_description: ClassVar[str]` with the action's description line, and each tool module has a `_BASE_DESCRIPTION` constant. Descriptions are **always** built dynamically from these — the static string in `@Tool()` is dead code for multi-action tools. This ensures a single source of truth.
 
 **Tool filtering**: The `disabled_tools` config can hide entire tools or specific actions. Per-action filtering rebuilds the Pydantic discriminated union at registration time, removing disabled actions from the JSON schema entirely. See `tool_decorator.py` for the filtering helpers.
+
+**Destructive actions**: An action can be marked destructive by adding `_destructive: ClassVar[bool] = True` to its Params model (in the dispatcher module, alongside `_tool_description`). Destructive actions are hidden from the schema unless the operator opts in via `enabled_destructive_tools` (e.g., `"my_tool:delete"`). Hiding reuses the same union-rebuild machinery as `disabled_tools`.
 
 **Critical**: The `__init__.py` must import the tool module — `pkgutil.walk_packages` discovers subpackages but only triggers `@Tool` registration if the decorated function is actually imported.
 
@@ -393,6 +396,13 @@ Both share one `Server` object and run on the same asyncio loop (see "Tunnel Arc
 ### Tool Filtering
 
 `disabled_tools` config hides tools/actions from AI clients. Supports whole-tool (`"sync"`) and per-action (`"card_management:bury"`) granularity. Typos produce `print()` warnings visible in Anki's console. See `tool_decorator.py` for implementation.
+
+**Destructive tools (opt-in)**: Tools declared with `@Tool(..., destructive=True)` — or actions whose Params model sets `_destructive: ClassVar[bool] = True` — are **hidden from `tools/list` by default**. The operator must opt in via the `enabled_destructive_tools` config allow-list (server-side enforcement, not just an advisory hint). Semantics:
+- Exact match, same syntax as `disabled_tools`: `"tool"` opts in a whole-tool-destructive tool; `"tool:action"` opts in a destructive action. A whole-tool entry does NOT implicitly opt in destructive sub-actions.
+- Composes with `disabled_tools`: destructive-not-opted-in is always hidden; `disabled_tools` applies on top (an opted-in tool/action can still be disabled).
+- `destructive=True` requires `write=True` (`ValueError` at import time otherwise).
+- Startup validation (`validate_enabled_destructive_tools`) warns on typos and on no-op entries that name a real but non-destructive tool/action.
+- Currently no shipped tool is flagged destructive — the mechanism exists for future high-risk tools (e.g., deck deletion/rename).
 
 ## Development Workflow
 
