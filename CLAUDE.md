@@ -99,7 +99,8 @@ anki_mcp_server/
 │   ├── log.py                   # Thread-safe ring buffer with Qt signal
 │   └── ui/
 │       ├── login_dialog.py      # Qt device flow dialog (user code + browser button)
-│       └── settings_section.py  # Tunnel status/controls in settings dialog
+│       ├── settings_section.py  # Tunnel status/controls in settings dialog
+│       └── toolbar_indicator.py # Persistent "● AnkiMCP" dot in Anki's top toolbar
 └── primitives/
     ├── tools.py             # Triggers auto-discovery of tool modules
     ├── resources.py         # Triggers auto-discovery of resource modules
@@ -277,14 +278,16 @@ Each tunnel module has a single responsibility. Dependencies flow one direction 
 - `log.py` — thread-safe ring buffer with Qt signal for cross-thread UI updates.
 - `ui/login_dialog.py` — Qt device flow dialog (user code + "Open Browser" button).
 - `ui/settings_section.py` — tunnel status/controls in the settings dialog.
+- `ui/toolbar_indicator.py` — always-present `● AnkiMCP` item in Anki's top toolbar; its dot color reflects tunnel state (grey=idle, amber=connecting/reconnecting, green=connected), clicking opens the settings dialog. Like `settings_section.py`, it derives state by polling `ConnectionManager` on a 1-second `QTimer` (the established state channel) rather than a Qt signal — this keeps core tunnel modules UI-free. Gated by the `show_toolbar_indicator` config field.
 
 #### Configuration
 
-Three config fields control tunnel behavior:
+These config fields control tunnel behavior:
 
 - `http_enabled: bool = True` — when `False`, uvicorn doesn't start. Only tunnel transport is available. Toggle via the settings dialog checkbox.
 - `tunnel_server_url: str` — WebSocket URL of the tunnel relay server. Default is `wss://tunnel.ankimcp.ai` (production). Point at `ws://localhost:3004` for local relay development.
 - `tunnel_client_id: str` — OAuth client identifier. Default is `ankimcp-cli` (shared with the TypeScript CLI).
+- `show_toolbar_indicator: bool = True` — when `True`, adds the persistent `● AnkiMCP` status dot to Anki's top toolbar (see `ui/toolbar_indicator.py`). Set `False` to hide it.
 
 There is no `mode` field. HTTP is always-on by default (controlled by `http_enabled`). Tunnel never auto-connects — the user must explicitly click "Connect Tunnel" in the settings dialog each time.
 
@@ -300,6 +303,8 @@ The settings dialog (*Tools -> AnkiMCP Server Settings...*) has:
 - **Log section**: scrollable ring buffer of recent tunnel events (connections, requests, errors, auth).
 
 Connect flow: check credentials -> no credentials? launch device flow login dialog -> credentials expired? silent refresh -> connect WebSocket -> show tunnel URL.
+
+Separately, the **top-toolbar indicator** (`ui/toolbar_indicator.py`, gated by `show_toolbar_indicator`) lives outside this dialog — it sits in Anki's main `Decks | Add | Browse | Stats | Sync` strip and clicking it opens this dialog.
 
 #### Known Issues
 
