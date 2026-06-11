@@ -24,6 +24,13 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>Toolbar status indicator</b> - A <code>● AnkiMCP</code> item in the top toolbar shows tunnel connection state at a glance (opt out via <code>show_toolbar_indicator</code>)</li>
 </ul>
 
+<h2>What's New in v0.19.0</h2>
+<ul>
+<li><b>Card template tools</b> - New <code>model_templates</code> reads the Front/Back HTML for each card type, and <code>update_model_templates</code> edits it — mirroring the existing styling tools. Together with <code>model_styling</code> these enable full read → edit → write of a note type's appearance</li>
+<li><b>Batch note updates</b> - New <code>update_notes</code> tool updates many notes in a single atomic undo step, validating every entry first with partial-success reporting</li>
+<li><b>Configurable batch size</b> - New <code>max_notes_per_batch</code> config option (default 100) sets the limit for <code>add_notes</code> and <code>update_notes</code></li>
+</ul>
+
 <h2>What's New in v0.18.0</h2>
 <ul>
 <li><b>Toolbar status indicator</b> - A <code>● AnkiMCP</code> item in the top toolbar shows tunnel connection state at a glance: grey when off, amber while connecting, green when connected. Click it to open the settings dialog. Hide it with the <code>show_toolbar_indicator</code> config option</li>
@@ -128,8 +135,9 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>find_notes</b> - Search for notes using Anki's search syntax</li>
 <li><b>notes_info</b> - Get detailed information about notes (supports <code>include_fields</code> / <code>exclude_fields</code> for response filtering)</li>
 <li><b>add_note</b> - Add a new note to a deck</li>
-<li><b>add_notes</b> - Batch-add up to 100 notes with atomic undo and partial success</li>
+<li><b>add_notes</b> - Batch-add up to <code>max_notes_per_batch</code> notes (default 100) with atomic undo and partial success</li>
 <li><b>update_note_fields</b> - Update fields of existing notes</li>
+<li><b>update_notes</b> - Batch-update fields of multiple notes in one atomic undo step (validates every entry first; partial success)</li>
 <li><b>delete_notes</b> - Delete notes from the collection</li>
 <li><b>get_due_cards</b> - Get cards due for review (supports voice mode)</li>
 <li><b>present_card</b> - Get card content for review</li>
@@ -138,6 +146,8 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>model_field_names</b> - Get field names for a note type</li>
 <li><b>model_styling</b> - Get CSS styling for a note type</li>
 <li><b>update_model_styling</b> - Update CSS styling for a note type</li>
+<li><b>model_templates</b> - Read the Front/Back HTML templates for each card type</li>
+<li><b>update_model_templates</b> - Update Front/Back template HTML (rejects unrecognized keys)</li>
 <li><b>create_model</b> - Create a new note type</li>
 <li><b>store_media_file</b> - Store a media file (image/audio) via base64, file path, or URL. Validates media type and blocks SSRF</li>
 <li><b>get_media_files_names</b> - List media files matching a pattern</li>
@@ -199,6 +209,7 @@ AI-powered study sessions, card creation, and collection management.</p>
   "cors_origins": [],
   "cors_expose_headers": ["mcp-protocol-version"],
   "disabled_tools": [],
+  "max_notes_per_batch": 100,
   "tunnel_server_url": "wss://tunnel.ankimcp.ai",
   "tunnel_client_id": "ankimcp-cli",
   "media_import_dir": "",

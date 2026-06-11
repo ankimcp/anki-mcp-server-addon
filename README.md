@@ -192,6 +192,7 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "cors_origins": [],
   "cors_expose_headers": ["mcp-protocol-version"],
   "disabled_tools": [],
+  "max_notes_per_batch": 100,
   "tunnel_server_url": "wss://tunnel.ankimcp.ai",
   "tunnel_client_id": "ankimcp-cli",
   "media_import_dir": "",
@@ -304,11 +305,12 @@ Optional hardening via config:
 | `find_notes` | Search for notes using Anki's search syntax |
 | `notes_info` | Get detailed information about notes |
 | `add_note` | Add a new note to a deck |
-| `add_notes` | Batch-add up to 100 notes sharing the same deck and model. Uses Anki's native batch API for atomic undo. Supports partial success — individual failures don't affect others |
+| `add_notes` | Batch-add up to `max_notes_per_batch` notes (default 100) sharing the same deck and model. Uses Anki's native batch API for atomic undo. Supports partial success — individual failures don't affect others |
 | `card_management` | Manage cards with 9 actions: `reposition` (set learning order), `change_deck` (move between decks), `bury`/`unbury` (hide until tomorrow), `suspend`/`unsuspend` (indefinitely exclude from review), `set_flag` (color flags 0-7), `set_due_date` (reschedule with days DSL), `forget_cards` (reset to new) |
 | `tag_management` | Manage tags with 5 actions: `add_tags`/`remove_tags` (bulk add/remove on notes), `replace_tags` (swap one tag for another), `get_tags` (list all), `clear_unused_tags` (remove orphans) |
 | `filtered_deck` | Filtered deck lifecycle: `create_or_update` (create or modify filtered decks with search terms), `rebuild` (repopulate), `empty` (return cards to home decks), `delete` |
 | `update_note_fields` | Update fields of existing notes |
+| `update_notes` | Batch-update fields of multiple notes in one atomic undo step (single backend call). Validates every entry first; supports partial success up to `max_notes_per_batch` |
 | `delete_notes` | Delete notes from the collection |
 | `get_due_cards` | Get next due card for review (supports `skip_images`/`skip_audio` for voice mode) |
 | `present_card` | Get card content for review |
@@ -317,6 +319,8 @@ Optional hardening via config:
 | `model_field_names` | Get field names and descriptions for a note type |
 | `model_styling` | Get CSS styling for a note type |
 | `update_model_styling` | Update CSS styling for a note type |
+| `model_templates` | Read the Front/Back HTML templates for each card type in a note type |
+| `update_model_templates` | Update Front/Back template HTML (rejects unrecognized keys, case-sensitive) |
 | `create_model` | Create a new note type |
 | `store_media_file` | Store a media file (image/audio) via base64, file path, or URL. File paths are validated against a media-type allowlist; URLs are checked for SSRF |
 | `get_media_files_names` | List media files matching a pattern |
