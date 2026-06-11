@@ -7,10 +7,21 @@ from pydantic import BaseModel, Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
+from ....config import Config
 
 logger = logging.getLogger(__name__)
 
-_MAX_NOTES = 100
+_DEFAULT_MAX = 100
+
+
+def _get_max_notes() -> int:
+    """Read max_notes_per_batch from addon config, falling back to default."""
+    try:
+        from aqt import mw
+        raw = mw.addonManager.getConfig(__name__.split(".")[0]) or {}
+        return Config.from_dict(raw).max_notes_per_batch
+    except Exception:
+        return _DEFAULT_MAX
 
 
 class NoteEntry(BaseModel):
@@ -28,7 +39,7 @@ class NoteEntry(BaseModel):
 
 @Tool(
     "add_notes",
-    "Add multiple notes to Anki in a single batch. Up to 100 notes sharing the same deck and model. "
+    "Add multiple notes to Anki in a single batch sharing the same deck and model. "
     "Uses Anki's native batch API for atomic undo support. Supports partial success - "
     "individual failures don't affect others. "
     "IMPORTANT: Only create notes that were explicitly requested by the user. "
@@ -46,6 +57,7 @@ def add_notes(
     from anki.collection import AddNoteRequest
 
     col = get_col()
+    max_notes = _get_max_notes()
 
     # --- Batch-level validation ---
 
@@ -56,13 +68,13 @@ def add_notes(
             code="validation_error",
         )
 
-    if len(notes) > _MAX_NOTES:
+    if len(notes) > max_notes:
         raise HandlerError(
-            f"Too many notes: {len(notes)} (maximum is {_MAX_NOTES})",
-            hint=f"Split your request into batches of {_MAX_NOTES} or fewer.",
+            f"Too many notes: {len(notes)} (maximum is {max_notes})",
+            hint=f"Split your request into batches of {max_notes} or fewer.",
             code="limit_exceeded",
             requested=len(notes),
-            maximum=_MAX_NOTES,
+            maximum=max_notes,
         )
 
     # Validate deck exists
@@ -188,6 +200,7 @@ def add_notes(
         "skipped": skipped,
         "failed": failed,
         "total_requested": total,
+        "max_notes_per_batch": max_notes,
         "deck_name": deck_name,
         "model_name": model_name,
         "results": results,

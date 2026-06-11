@@ -37,6 +37,10 @@ class Config:
     # Example: ["get_fsrs_params", "card_management:bury", "card_management:unbury"]
     disabled_tools: List[str] = field(default_factory=list)
 
+    # Batch operation limits
+    # Maximum notes per add_notes / update_notes call (default 100)
+    max_notes_per_batch: int = 100
+
     # Tunnel settings
     tunnel_server_url: str = "wss://tunnel.ankimcp.ai"
     tunnel_client_id: str = "ankimcp-cli"
