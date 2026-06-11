@@ -4,6 +4,7 @@ import logging
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
+from ....config import get_max_notes_per_batch
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +29,12 @@ def notes_info(
             code="validation_error",
         )
 
-    if len(notes) > 100:
+    max_notes = get_max_notes_per_batch()
+    if len(notes) > max_notes:
         raise HandlerError(
-            f"Maximum 100 notes at once (requested: {len(notes)})",
-            hint="Split your request into smaller batches",
+            f"Too many notes: {len(notes)} (maximum is {max_notes})",
+            hint=f"Split your request into batches of {max_notes} or fewer. "
+                 f"You can increase the limit via the 'max_notes_per_batch' addon config option.",
             code="limit_exceeded",
         )
 

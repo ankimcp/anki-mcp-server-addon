@@ -59,7 +59,8 @@ def add_notes(
     if len(notes) > max_notes:
         raise HandlerError(
             f"Too many notes: {len(notes)} (maximum is {max_notes})",
-            hint=f"Split your request into batches of {max_notes} or fewer.",
+            hint=f"Split your request into batches of {max_notes} or fewer. "
+                 f"You can increase the limit via the 'max_notes_per_batch' addon config option.",
             code="limit_exceeded",
             requested=len(notes),
             maximum=max_notes,
