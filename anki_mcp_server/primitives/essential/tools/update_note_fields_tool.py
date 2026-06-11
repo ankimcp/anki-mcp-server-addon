@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
     write=True,
 )
 def update_note_fields(id: int, fields: dict[str, str]) -> dict[str, Any]:
+    from anki.errors import NotFoundError
+
     col = get_col()
 
     if not fields:
@@ -23,7 +25,9 @@ def update_note_fields(id: int, fields: dict[str, str]) -> dict[str, Any]:
 
     try:
         anki_note = col.get_note(id)
-    except KeyError:
+    # Modern Anki raises anki.errors.NotFoundError for missing notes;
+    # KeyError is kept for backward compatibility with older versions.
+    except (NotFoundError, KeyError):
         raise HandlerError(
             f"Note not found with ID {id}. The note ID is invalid or the note has been deleted.",
             hint="Use find_notes to get valid note IDs.",

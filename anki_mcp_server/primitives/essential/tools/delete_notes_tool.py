@@ -21,6 +21,8 @@ def delete_notes(
     confirmDeletion: bool,
     dry_run: bool = False,
 ) -> dict[str, Any]:
+    from anki.errors import NotFoundError
+
     col = get_col()
 
     if not dry_run and not confirmDeletion:
@@ -54,7 +56,9 @@ def delete_notes(
             card_count = len(note.cards())
             valid_notes.append({"noteId": note_id, "cardCount": card_count})
             total_cards += card_count
-        except KeyError:
+        # Modern Anki raises anki.errors.NotFoundError for missing notes;
+        # KeyError is kept for backward compatibility with older versions.
+        except (NotFoundError, KeyError):
             logger.info(f"Note {note_id} not found (already deleted)")
             continue
         except Exception as e:

@@ -120,6 +120,27 @@ class Config:
         )
 
 
+def get_max_notes_per_batch() -> int:
+    """Read max_notes_per_batch from the addon config, falling back to the default.
+
+    Shared by batch tools (add_notes, update_notes). Imports aqt at runtime so
+    pure-logic tests can import this module without Anki installed.
+
+    Note: ``__name__.split(".")[0]`` resolves to the addon's top-level package
+    name (on AnkiWeb installs that is the addon ID directory, e.g. "124672614"),
+    which is exactly what ``mw.addonManager.getConfig()`` expects. This works
+    from any module inside the addon package.
+    """
+    try:
+        from aqt import mw
+
+        raw = mw.addonManager.getConfig(__name__.split(".")[0]) or {}
+        return Config.from_dict(raw).max_notes_per_batch
+    except Exception:
+        # Dataclass default is the single source of truth for the fallback.
+        return Config().max_notes_per_batch
+
+
 class ConfigManager:
     """
     Manages configuration persistence.

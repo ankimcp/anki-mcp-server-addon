@@ -6,6 +6,7 @@
   "cors_origins": [],
   "cors_expose_headers": ["mcp-protocol-version"],
   "disabled_tools": [],
+  "max_notes_per_batch": 100,
   "tunnel_server_url": "wss://tunnel.ankimcp.ai",
   "tunnel_client_id": "ankimcp-cli",
   "media_import_dir": "",

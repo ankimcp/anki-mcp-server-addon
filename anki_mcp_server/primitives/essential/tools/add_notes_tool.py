@@ -7,21 +7,9 @@ from pydantic import BaseModel, Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
-from ....config import Config
+from ....config import get_max_notes_per_batch
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_MAX = 100
-
-
-def _get_max_notes() -> int:
-    """Read max_notes_per_batch from addon config, falling back to default."""
-    try:
-        from aqt import mw
-        raw = mw.addonManager.getConfig(__name__.split(".")[0]) or {}
-        return Config.from_dict(raw).max_notes_per_batch
-    except Exception:
-        return _DEFAULT_MAX
 
 
 class NoteEntry(BaseModel):
@@ -57,7 +45,7 @@ def add_notes(
     from anki.collection import AddNoteRequest
 
     col = get_col()
-    max_notes = _get_max_notes()
+    max_notes = get_max_notes_per_batch()
 
     # --- Batch-level validation ---
 

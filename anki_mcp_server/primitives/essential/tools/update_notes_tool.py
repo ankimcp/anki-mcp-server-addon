@@ -7,22 +7,9 @@ from pydantic import BaseModel, Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
-from ....config import Config
+from ....config import get_max_notes_per_batch
 
 logger = logging.getLogger(__name__)
-
-# Default limit; overridden by max_notes_per_batch in addon config
-_DEFAULT_MAX = 100
-
-
-def _get_max_notes() -> int:
-    """Read max_notes_per_batch from addon config, falling back to default."""
-    try:
-        from aqt import mw
-        raw = mw.addonManager.getConfig(__name__.split(".")[0]) or {}
-        return Config.from_dict(raw).max_notes_per_batch
-    except Exception:
-        return _DEFAULT_MAX
 
 
 class NoteUpdateEntry(BaseModel):
@@ -47,8 +34,10 @@ class NoteUpdateEntry(BaseModel):
     write=True,
 )
 def update_notes(notes: list[NoteUpdateEntry]) -> dict[str, Any]:
+    from anki.errors import NotFoundError
+
     col = get_col()
-    max_notes = _get_max_notes()
+    max_notes = get_max_notes_per_batch()
 
     # --- Batch-level validation ---
     if not notes:
@@ -103,7 +92,9 @@ def update_notes(notes: list[NoteUpdateEntry]) -> dict[str, Any]:
         # Try to get and validate the note
         try:
             anki_note = col.get_note(note_id)
-        except KeyError:
+        # Modern Anki raises anki.errors.NotFoundError for missing notes;
+        # KeyError is kept for backward compatibility with older versions.
+        except (NotFoundError, KeyError):
             results.append({
                 "index": i,
                 "note_id": note_id,

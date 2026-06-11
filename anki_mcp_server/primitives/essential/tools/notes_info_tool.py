@@ -20,6 +20,8 @@ def notes_info(
     include_fields: list[str] | None = None,
     exclude_fields: list[str] | None = None,
 ) -> dict[str, Any]:
+    from anki.errors import NotFoundError
+
     if not notes:
         raise HandlerError(
             "notes parameter cannot be empty",
@@ -78,7 +80,9 @@ def notes_info(
                 "mod": note.mod,
             }
             notes_data.append(note_info)
-        except KeyError as e:
+        # Modern Anki raises anki.errors.NotFoundError for missing notes;
+        # KeyError is kept for backward compatibility with older versions.
+        except (NotFoundError, KeyError) as e:
             logger.warning(f"Note {note_id} not found: {e}")
             continue
         except Exception as e:
