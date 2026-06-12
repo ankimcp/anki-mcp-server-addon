@@ -1,3 +1,4 @@
+import copy
 from typing import Any
 
 from ....tool_decorator import Tool
@@ -15,13 +16,19 @@ from ....handler_wrappers import HandlerError, get_col
 def update_model_templates(model_name: str, templates: dict[str, dict[str, str]]) -> dict[str, Any]:
     col = get_col()
 
-    model = col.models.by_name(model_name)
-    if model is None:
+    cached_model = col.models.by_name(model_name)
+    if cached_model is None:
         raise HandlerError(
             f'Model "{model_name}" not found',
             hint="Use model_names tool to see available models",
             model_name=model_name,
         )
+
+    # by_name() returns a live reference to Anki's cached notetype dict.
+    # Mutate a deepcopy so the cache is never touched until update_dict()'s
+    # backend call accepts the change — if the backend rejects an invalid
+    # template, the live model is left untouched (no partial in-memory leak).
+    model = copy.deepcopy(cached_model)
 
     # Build a name→template lookup for the model's existing templates
     existing_tmpls: dict[str, dict] = {}
@@ -55,15 +62,26 @@ def update_model_templates(model_name: str, templates: dict[str, dict[str, str]]
             valid_keys=sorted(_VALID_TEMPLATE_KEYS),
         )
 
+    # --- Pre-pass: reject unknown card-template names before any mutation ---
+    # Validate every requested name up front so a mixed valid+unknown request
+    # is rejected as a whole, never applying a partial set of updates.
+    not_found = [card_name for card_name in templates if card_name not in existing_tmpls]
+
+    if not_found:
+        available = ", ".join(sorted(existing_tmpls.keys()))
+        raise HandlerError(
+            f'Card template(s) not found in model "{model_name}": {", ".join(sorted(not_found))}',
+            hint=f"Available card templates for this model: {available}. "
+                 f"Use model_templates to see current template names.",
+            model_name=model_name,
+            not_found=not_found,
+            available=list(existing_tmpls.keys()),
+        )
+
     updated_count = 0
     updated_names: list[str] = []
-    not_found: list[str] = []
 
     for card_name, fields in templates.items():
-        if card_name not in existing_tmpls:
-            not_found.append(card_name)
-            continue
-
         tmpl = existing_tmpls[card_name]
         modified = False
         if "Front" in fields:
@@ -76,17 +94,6 @@ def update_model_templates(model_name: str, templates: dict[str, dict[str, str]]
         if modified:
             updated_count += 1
             updated_names.append(card_name)
-
-    if not_found:
-        available = ", ".join(sorted(existing_tmpls.keys()))
-        raise HandlerError(
-            f'Card template(s) not found in model "{model_name}": {", ".join(sorted(not_found))}',
-            hint=f"Available card templates for this model: {available}. "
-                 f"Use model_templates to see current template names.",
-            model_name=model_name,
-            not_found=not_found,
-            available=list(existing_tmpls.keys()),
-        )
 
     if updated_count == 0:
         raise HandlerError(
