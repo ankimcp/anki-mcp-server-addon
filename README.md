@@ -82,7 +82,7 @@ let
 
   anki-mcp-server = pkgs.anki-utils.buildAnkiAddon (finalAttrs: {
     pname = "anki-mcp-server";
-    version = "0.17.0";
+    version = "0.20.0";
     src = pkgs.fetchFromGitHub {
       owner = "ankimcp";
       repo = "anki-mcp-server-addon";
@@ -341,7 +341,7 @@ Optional hardening via config:
 | `model_styling` | Get CSS styling for a note type |
 | `update_model_styling` | Update CSS styling for a note type |
 | `model_templates` | Read the Front/Back HTML templates for each card type in a note type |
-| `update_model_templates` | Update Front/Back template HTML (rejects unrecognized keys, case-sensitive) |
+| `update_model_templates` | Update Front/Back template HTML. Rejects unrecognized keys (case-sensitive) and unknown template names up front, applying all edits atomically — a failed call leaves the model unchanged |
 | `create_model` | Create a new note type |
 | `store_media_file` | Store a media file (image/audio) via base64, file path, or URL. File paths are validated against a media-type allowlist; URLs are checked for SSRF |
 | `get_media_files_names` | List media files matching a pattern |

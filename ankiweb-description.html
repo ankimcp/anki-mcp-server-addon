@@ -24,6 +24,13 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>Toolbar status indicator</b> - A <code>● AnkiMCP</code> item in the top toolbar shows tunnel connection state at a glance (opt out via <code>show_toolbar_indicator</code>)</li>
 </ul>
 
+<h2>What's New in v0.20.0</h2>
+<ul>
+<li><b>Opt-in for destructive tools</b> - New <code>enabled_destructive_tools</code> config allow-list. Tools (or specific actions) flagged as high-risk are hidden from MCP clients by default and must be explicitly opted in — enforced server-side, not just advised (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/46">#46</a>)</li>
+<li><b>Fix: no half-applied edits on failed template updates</b> - <code>update_model_templates</code> previously mutated valid card templates in Anki's in-memory cache even when the call failed on an unknown template name, leaving the note type in a half-updated state until restart. It now validates every template name up front and edits a copy, so a failed call leaves the model untouched (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/47">#47</a>)</li>
+<li><b>Fix: batch limit applies to notes_info</b> - <code>max_notes_per_batch</code> now also bounds <code>notes_info</code>, with consistent batch-limit hints across tools</li>
+</ul>
+
 <h2>What's New in v0.19.0</h2>
 <ul>
 <li><b>Card template tools</b> - New <code>model_templates</code> reads the Front/Back HTML for each card type, and <code>update_model_templates</code> edits it — mirroring the existing styling tools. Together with <code>model_styling</code> these enable full read → edit → write of a note type's appearance</li>
@@ -48,49 +55,6 @@ AI-powered study sessions, card creation, and collection management.</p>
 <h2>v0.16 Highlights</h2>
 <ul>
 <li><b>Stateless HTTP transport</b> - The MCP server no longer issues or requires the <code>mcp-session-id</code> header. This aligns with the upcoming MCP <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2750">2026-07-28 protocol release candidate</a>, which removes session-id from the spec entirely. Existing clients (Claude Desktop, Claude Code, MCP Inspector) keep working unchanged; clients that don't manage session-ids (e.g., opencode's "remote" transport, <a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/42">#42</a>) now work too</li>
-</ul>
-
-<h2>v0.15 Highlights</h2>
-<ul>
-<li><b>Server identity in MCP protocol</b> - Addon now exposes its icon and website URL via the MCP <code>initialize</code> response (<code>serverInfo.icons</code> + <code>websiteUrl</code> per spec 2025-11-25). Spec-aware MCP clients render the AnkiMCP branding</li>
-<li><b>Listed in MCP Registry</b> - Published to the official <a href="https://github.com/modelcontextprotocol/registry">MCP Registry</a> as <code>ai.ankimcp/anki-mcp-server-addon</code>, propagating to PulseMCP, Glama, and MCP.so catalogs</li>
-<li><b>Fix: Distro-packaged Anki compatibility</b> - On Arch, Fedora and other distros where Anki uses system Python with a system-installed <code>pydantic-core</code>, the addon previously crashed at startup if that version differed from what our vendored <code>pydantic</code> required. Now the loader detects the mismatch and downloads the matching version into its private cache, leaving system packages untouched (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/40">#40</a>)</li>
-<li><b>Fix: Clean shutdown on profile switch</b> - Switching Anki profiles previously left uvicorn bound to port 3141, so the next profile open failed with <code>[Errno 48] address already in use</code>. The MCP server now shuts down cleanly on profile close</li>
-</ul>
-
-<h2>v0.14 Highlights</h2>
-<ul>
-<li><b>Security: Media file validation</b> - <code>store_media_file</code> now validates all inputs: file paths are restricted to media types (images, audio, video) via MIME checking, URLs are checked for SSRF (private network blocking), and filenames are sanitized against path traversal</li>
-<li><b>Security: Configurable hardening</b> - New config options <code>media_import_dir</code> (restrict file imports to a directory), <code>media_allowed_types</code> (allow additional MIME types), and <code>media_allowed_hosts</code> (allow specific private hosts for URL imports)</li>
-<li><b>Fix: delete_media_file uses Anki's trash</b> - Files are now moved to Anki's trash folder instead of permanent deletion. Recoverable via Check Media, and deletions propagate correctly on sync</li>
-</ul>
-<p>Thanks to <b><a href="https://github.com/Koukyosyumei">Hideaki Takahashi</a></b> (Columbia University) for responsibly disclosing the media path traversal vulnerability.</p>
-
-<h2>v0.13 Highlights</h2>
-<ul>
-<li><b>NixOS support</b> - Ships a <code>flake.nix</code> for one-line NixOS installs. Source-based installs now detect system-provided packages instead of crashing</li>
-<li><b>Source install support</b> - When <code>vendor/</code> is missing (pip from source, Nix, Guix), the addon falls back to system packages with a clear error if any are missing</li>
-<li><b>Fix: Better error handling</b> - A corrupted or missing vendor file now shows a friendly error dialog instead of an ugly traceback</li>
-</ul>
-
-<h2>v0.12 Highlights</h2>
-<ul>
-<li><b>Filtered deck inspection</b> - New <code>get_info</code> action for <code>filtered_deck</code> retrieves search terms, order, card count, and reschedule settings for up to 50 decks at once</li>
-<li><b>Fix: Invalid deck ID handling</b> - Filtered deck actions now correctly report "Deck not found" for non-existent IDs</li>
-</ul>
-
-<h2>v0.11 Highlights</h2>
-<ul>
-<li><b>Dry-run deletions</b> - <code>delete_notes</code> supports <code>dry_run=true</code> to preview deletions</li>
-<li><b>Structured error codes</b> - Machine-readable codes like <code>[not_found]</code>, <code>[validation_error]</code>, <code>[limit_exceeded]</code></li>
-<li><b>Improved tool descriptions</b> - All tools document their response fields for better AI chaining</li>
-</ul>
-
-<h2>v0.10 Highlights</h2>
-<ul>
-<li><b>Multi-session support</b> - Multiple AI clients can connect simultaneously. Tested with 29 concurrent sessions</li>
-<li><b>Batch tag operations</b> - <code>batch_tags</code> action: up to 50 mixed add/remove tag operations in a single call</li>
-<li><b>Field filtering on notes_info</b> - <code>include_fields</code> / <code>exclude_fields</code> parameters reduce response size for bulk queries</li>
 </ul>
 
 <h2>Installation</h2>
