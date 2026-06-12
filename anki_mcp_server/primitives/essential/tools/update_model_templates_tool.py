@@ -1,8 +1,8 @@
-import copy
 from typing import Any
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
+from ._model_helpers import get_model_copy_or_raise
 
 
 @Tool(
@@ -16,19 +16,7 @@ from ....handler_wrappers import HandlerError, get_col
 def update_model_templates(model_name: str, templates: dict[str, dict[str, str]]) -> dict[str, Any]:
     col = get_col()
 
-    cached_model = col.models.by_name(model_name)
-    if cached_model is None:
-        raise HandlerError(
-            f'Model "{model_name}" not found',
-            hint="Use model_names tool to see available models",
-            model_name=model_name,
-        )
-
-    # by_name() returns a live reference to Anki's cached notetype dict.
-    # Mutate a deepcopy so the cache is never touched until update_dict()'s
-    # backend call accepts the change — if the backend rejects an invalid
-    # template, the live model is left untouched (no partial in-memory leak).
-    model = copy.deepcopy(cached_model)
+    model = get_model_copy_or_raise(col, model_name)
 
     # Build a name→template lookup for the model's existing templates
     existing_tmpls: dict[str, dict] = {}
