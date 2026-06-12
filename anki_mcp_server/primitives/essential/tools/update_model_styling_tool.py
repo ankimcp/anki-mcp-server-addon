@@ -1,7 +1,8 @@
 from typing import Any
 
 from ....tool_decorator import Tool
-from ....handler_wrappers import HandlerError, get_col
+from ....handler_wrappers import get_col
+from ._model_helpers import get_model_copy_or_raise
 
 
 @Tool(
@@ -12,13 +13,7 @@ from ....handler_wrappers import HandlerError, get_col
 def update_model_styling(model_name: str, css: str) -> dict[str, Any]:
     col = get_col()
 
-    model = col.models.by_name(model_name)
-    if model is None:
-        raise HandlerError(
-            f'Model "{model_name}" not found',
-            hint="Model not found. Use model_names tool to see available models.",
-            model_name=model_name,
-        )
+    model = get_model_copy_or_raise(col, model_name)
 
     old_css = model.get("css", "")
     old_css_length = len(old_css)
