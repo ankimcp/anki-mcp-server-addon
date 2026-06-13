@@ -188,6 +188,52 @@ def get_mw() -> Any:
 # Use this in tool functions instead of accessing mw.col directly.
 # Raises HandlerError with helpful hint if collection not available.
 # ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# require_human_confirm - Hard human-in-the-loop gate via Qt dialog
+# ------------------------------------------------------------------------------
+# Pops up a modal Qt confirmation dialog that blocks until the human clicks
+# Yes or No. Unlike confirm=true (which the AI sets on itself), this is a
+# REAL control — the AI cannot bypass a Qt dialog.
+#
+# Use this in destructive tools (delete_decks, install_addon, etc.) as the
+# innermost gate before executing the actual operation.
+#
+# Usage:
+#   require_human_confirm("Delete Decks", f"Delete {n} decks and {m} cards?")
+# ------------------------------------------------------------------------------
+def require_human_confirm(title: str, message: str) -> None:
+    """Pop up a Qt modal confirmation dialog. AI cannot bypass.
+
+    This is a hard human-in-the-loop gate. The dialog blocks the calling
+    thread until the human physically clicks Yes or No in the Anki window.
+    If the user clicks No or closes the dialog, a HandlerError is raised.
+
+    Args:
+        title: Dialog window title (keep short, e.g. "Delete Decks")
+        message: Body text explaining the consequences
+
+    Raises:
+        HandlerError: User clicked No or dismissed the dialog
+    """
+    from PyQt6.QtWidgets import QMessageBox
+    from aqt import mw
+
+    reply = QMessageBox.question(
+        mw,
+        title,
+        message,
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,  # default to No for safety
+    )
+    if reply != QMessageBox.StandardButton.Yes:
+        raise HandlerError(
+            "Operation cancelled by user",
+            hint="The user clicked No in the Qt confirmation dialog. "
+                 "Do not retry without asking the user again.",
+            code="user_cancelled",
+        )
+
+
 def get_col() -> Any:
     """Get Anki collection with validation.
 
