@@ -27,10 +27,10 @@ from typing import Any, Callable, Optional
 
 import uvicorn
 from mcp.server.fastmcp import FastMCP
-from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import Icon
 
 from .config import Config
+from .transport_security_config import build_transport_security
 from .queue_bridge import BridgeError, QueueBridge, ToolRequest
 from .primitives import register_all_tools, register_all_resources, register_all_prompts
 
@@ -466,11 +466,9 @@ class McpServer:
         # on the event loop, not in __init__.
         self._async_shutdown = asyncio.Event()
 
-        # Disable DNS rebinding protection to allow tunnels/proxies (ngrok, Cloudflare, etc.)
-        # The addon runs locally and users explicitly configure tunnel access
-        security_settings = TransportSecuritySettings(
-            enable_dns_rebinding_protection=False
-        )
+        # Build the Host/Origin transport-security policy from config.
+        # See transport_security_config.build_transport_security.
+        security_settings = build_transport_security(self._config)
         # Use http_path if configured, otherwise default to root "/"
         streamable_path = f"/{self._config.http_path.strip('/')}/" if self._config.http_path else "/"
         mcp = FastMCP(

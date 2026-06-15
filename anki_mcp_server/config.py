@@ -23,6 +23,14 @@ class Config:
     http_host: str = "127.0.0.1"
     http_path: str = ""
 
+    # Extra Host/Origin header values allowed by DNS-rebinding protection,
+    # on top of the built-in loopback allowlist (127.0.0.1/localhost/[::1]).
+    # Use these when exposing the HTTP transport through a tunnel or reverse
+    # proxy that rewrites Host/Origin (e.g. ["myapp.ngrok.io"] /
+    # ["https://myapp.example"]). Empty = loopback-only (the secure default).
+    http_allowed_hosts: List[str] = field(default_factory=list)
+    http_allowed_origins: List[str] = field(default_factory=list)
+
     # CORS settings (list of allowed origins, empty = CORS disabled)
     # Example: ["https://inspector.example.com", "http://localhost:5173"]
     # Use ["*"] to allow all origins (not recommended for production)
