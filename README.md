@@ -25,6 +25,8 @@ On first run, this addon downloads `pydantic_core` (~2MB) from PyPI. This is req
 - **MCP protocol** - Compatible with any MCP client (Claude Desktop, etc.)
 - **Auto-start** - HTTP server starts automatically when Anki opens
 - **Tunnel-friendly** - Works with Cloudflare Tunnel, ngrok, or the built-in tunnel (exposing the HTTP server this way also requires extending the [allowed hosts/origins](#allowed-hosts-and-origins-dns-rebinding-protection))
+- **DNS-rebinding protection** - The HTTP server validates `Host`/`Origin` headers against a loopback allowlist by default; [extend it](#allowed-hosts-and-origins-dns-rebinding-protection) for tunnel/reverse-proxy exposure
+- **Optional API key** - Require an `Authorization: Bearer` token on the HTTP transport via [`http_api_key`](#api-key-optional-http-auth) (AnkiConnect-style; empty = disabled)
 - **Toolbar indicator** - A `● AnkiMCP` item in the top toolbar shows tunnel connection state at a glance (opt out via `show_toolbar_indicator`)
 - **Cross-platform** - Works on macOS, Windows, and Linux (x64 and ARM)
 

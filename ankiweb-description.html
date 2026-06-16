@@ -18,6 +18,8 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>MCP protocol</b> - Compatible with any MCP client (Claude Desktop, etc.)</li>
 <li><b>Auto-start</b> - Server starts automatically when Anki opens</li>
 <li><b>Tunnel-friendly</b> - Works with Cloudflare Tunnel, ngrok, etc.</li>
+<li><b>DNS-rebinding protection</b> - The HTTP server validates <code>Host</code>/<code>Origin</code> headers against a loopback allowlist by default; extend it via <code>http_allowed_hosts</code> / <code>http_allowed_origins</code> for tunnel/reverse-proxy exposure</li>
+<li><b>Optional API key</b> - Require an <code>Authorization: Bearer</code> token on the HTTP transport via <code>http_api_key</code> (AnkiConnect-style; empty = disabled)</li>
 <li><b>Cross-platform</b> - Works on macOS, Windows, and Linux (x64 and ARM)</li>
 <li><b>Tool filtering</b> - Disable specific tools or actions to reduce token usage</li>
 <li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
@@ -170,6 +172,9 @@ AI-powered study sessions, card creation, and collection management.</p>
   "http_port": 3141,
   "http_host": "127.0.0.1",
   "http_path": "",
+  "http_allowed_hosts": [],
+  "http_allowed_origins": [],
+  "http_api_key": "",
   "cors_origins": [],
   "cors_expose_headers": ["mcp-protocol-version"],
   "disabled_tools": [],
