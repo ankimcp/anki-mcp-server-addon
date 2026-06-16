@@ -6,14 +6,14 @@ free of any aqt / uvicorn / FastMCP imports so it can be unit-tested without a
 running Anki.
 
 The defaults mirror the MCP SDK's own loopback auto-default (see
-``vendor/shared/mcp/server/fastmcp/server.py`` lines 181-182) so that re-enabling
+``vendor/shared/mcp/server/fastmcp/server.py`` lines 181-182) so that DNS-rebinding
 protection does not change behavior for ordinary localhost clients. Operators
 can widen the allowlist for tunnel / reverse-proxy setups via the
 ``http_allowed_hosts`` / ``http_allowed_origins`` config fields.
 
-NOTE (TDD staging): ``build_transport_security`` is intentionally NOT yet wired
-into ``mcp_server.py``'s ``run()`` — that wiring is a later step of the
-advisory fix. For now the function exists and is unit-tested in isolation.
+``build_transport_security`` is wired into ``mcp_server.py``'s ``run()``: its
+returned ``TransportSecuritySettings`` are passed to ``FastMCP`` so the local
+HTTP transport enforces the policy. DNS-rebinding protection is always enabled.
 """
 
 from __future__ import annotations
@@ -37,27 +37,77 @@ DEFAULT_ALLOWED_ORIGINS = [
 
 
 def build_transport_security(config: "Config") -> TransportSecuritySettings:
-    """Build ``TransportSecuritySettings`` preserving the addon's CURRENT behavior.
+    """Build ``TransportSecuritySettings`` with DNS-rebinding protection ENABLED.
 
-    This is a behavior-preserving structural extraction only. It returns exactly
-    what ``mcp_server.py``'s ``run()`` constructs today: DNS-rebinding protection
-    DISABLED, with no Host/Origin allowlist. The ``config`` argument is
-    deliberately unused for now.
+    Returns settings that enable DNS-rebinding protection and apply the loopback
+    allowlist (``DEFAULT_ALLOWED_HOSTS`` / ``DEFAULT_ALLOWED_ORIGINS``) so that
+    ordinary localhost clients keep working, while rejecting forged Host/Origin
+    headers from DNS-rebinding attacks. Operators can widen the allowlist for
+    tunnel / reverse-proxy setups by populating the ``http_allowed_hosts`` /
+    ``http_allowed_origins`` config fields, which are appended to the defaults.
 
-    The secure policy (re-enabling protection and applying the loopback
-    allowlist via ``DEFAULT_ALLOWED_HOSTS`` / ``DEFAULT_ALLOWED_ORIGINS`` plus
-    operator extras) is intentionally NOT yet implemented — a later commit of
-    the advisory fix fills in the body. Until then the unit tests asserting the
-    secure policy are expected to be RED (TDD).
+    The module-level default lists are never mutated: each call produces fresh
+    lists via concatenation.
 
     Args:
-        config: Addon configuration (currently unused; the secure policy that
-            reads ``http_allowed_hosts`` / ``http_allowed_origins`` is not yet
-            implemented).
+        config: Addon configuration. ``http_allowed_hosts`` and
+            ``http_allowed_origins`` provide operator-supplied additions to the
+            built-in loopback allowlist.
 
     Returns:
         A ``TransportSecuritySettings`` instance with
-        ``enable_dns_rebinding_protection=False`` and no allowlist — matching
-        current insecure behavior.
+        ``enable_dns_rebinding_protection=True`` and an allowlist combining the
+        loopback defaults with the operator-configured extras.
     """
-    return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[*DEFAULT_ALLOWED_HOSTS, *config.http_allowed_hosts],
+        allowed_origins=[*DEFAULT_ALLOWED_ORIGINS, *config.http_allowed_origins],
+    )
+
+
+def validate_http_allowlist(config: "Config") -> list[str]:
+    """Detect the two scheme-format mistakes in the HTTP allowlist config.
+
+    Both ``http_allowed_hosts`` and ``http_allowed_origins`` fail CLOSED but
+    SILENTLY on an easy operator mistake: a Host allowlist entry written WITH a
+    scheme never matches a (scheme-less) Host header, and an Origin allowlist
+    entry written WITHOUT a scheme never matches a (scheme-bearing) Origin
+    header. Either mistake produces a confusing "why is my proxy 403'd" debug
+    session. This validator surfaces those mistakes as advisory warnings.
+
+    This function is pure: it has no side effects and never prints. The caller
+    (startup wiring in ``__init__.py``) is responsible for surfacing the
+    returned strings, mirroring ``validate_disabled_tools`` /
+    ``validate_enabled_destructive_tools``. It does NOT reject or alter any
+    setting -- ``build_transport_security`` still uses the raw config verbatim.
+
+    Args:
+        config: Addon configuration. ``http_allowed_hosts`` should hold
+            ``host[:port]`` values WITHOUT a scheme; ``http_allowed_origins``
+            should hold full origins WITH a scheme.
+
+    Returns:
+        List of human-readable warning messages, one per misconfigured entry.
+        Empty list when both fields are empty or every entry is well-formed.
+    """
+    warnings: list[str] = []
+
+    for host in config.http_allowed_hosts:
+        if "://" in host:
+            warnings.append(
+                f"http_allowed_hosts: '{host}' looks like an origin "
+                f"(it has a scheme). Host allowlist entries must be "
+                f"host[:port] without a scheme (e.g. 'myapp.ngrok.io' or "
+                f"'myapp.ngrok.io:443')."
+            )
+
+    for origin in config.http_allowed_origins:
+        if "://" not in origin:
+            warnings.append(
+                f"http_allowed_origins: '{origin}' is missing a scheme. "
+                f"Origin allowlist entries must be full origins with a scheme "
+                f"(e.g. 'https://myapp.example')."
+            )
+
+    return warnings

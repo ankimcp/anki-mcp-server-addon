@@ -24,6 +24,7 @@ from anki_mcp_server.transport_security_config import (
     DEFAULT_ALLOWED_HOSTS,
     DEFAULT_ALLOWED_ORIGINS,
     build_transport_security,
+    validate_http_allowlist,
 )
 
 
@@ -86,3 +87,45 @@ class TestBuildTransportSecurity:
         build_transport_security(Config(http_allowed_hosts=["myapp.ngrok.io"]))
         assert DEFAULT_ALLOWED_HOSTS == ["127.0.0.1:*", "localhost:*", "[::1]:*"]
         assert "myapp.ngrok.io" not in DEFAULT_ALLOWED_HOSTS
+
+
+class TestValidateHttpAllowlist:
+    """Tests for the advisory ``validate_http_allowlist`` misconfig detector.
+
+    These guard the two silent fail-closed mistakes: a Host allowlist entry
+    written WITH a scheme, and an Origin allowlist entry written WITHOUT one.
+    The function is advisory-only -- it returns warning strings and never
+    rejects or alters settings.
+    """
+
+    def test_default_config_no_warnings(self) -> None:
+        """Default config (both lists empty) -> no warnings."""
+        assert validate_http_allowlist(Config()) == []
+
+    def test_host_entry_with_scheme_warns(self) -> None:
+        """A host entry carrying a scheme looks like an origin -> one warning."""
+        warnings = validate_http_allowlist(
+            Config(http_allowed_hosts=["https://bad.example"])
+        )
+        assert len(warnings) == 1
+        assert "http_allowed_hosts" in warnings[0]
+        assert "https://bad.example" in warnings[0]
+
+    def test_origin_entry_without_scheme_warns(self) -> None:
+        """An origin entry missing a scheme -> one warning."""
+        warnings = validate_http_allowlist(
+            Config(http_allowed_origins=["bad.example"])
+        )
+        assert len(warnings) == 1
+        assert "http_allowed_origins" in warnings[0]
+        assert "bad.example" in warnings[0]
+
+    def test_correct_entries_no_warnings(self) -> None:
+        """Well-formed host and origin entries -> no warnings."""
+        warnings = validate_http_allowlist(
+            Config(
+                http_allowed_hosts=["ok.ngrok.io"],
+                http_allowed_origins=["https://ok.example"],
+            )
+        )
+        assert warnings == []

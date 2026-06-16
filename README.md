@@ -24,7 +24,7 @@ On first run, this addon downloads `pydantic_core` (~2MB) from PyPI. This is req
 - **Remote tunnel** - Access your collection from anywhere via a public HTTPS URL
 - **MCP protocol** - Compatible with any MCP client (Claude Desktop, etc.)
 - **Auto-start** - HTTP server starts automatically when Anki opens
-- **Tunnel-friendly** - Works with Cloudflare Tunnel, ngrok, or the built-in tunnel
+- **Tunnel-friendly** - Works with Cloudflare Tunnel, ngrok, or the built-in tunnel (exposing the HTTP server this way also requires extending the [allowed hosts/origins](#allowed-hosts-and-origins-dns-rebinding-protection))
 - **Toolbar indicator** - A `● AnkiMCP` item in the top toolbar shows tunnel connection state at a glance (opt out via `show_toolbar_indicator`)
 - **Cross-platform** - Works on macOS, Windows, and Linux (x64 and ARM)
 
@@ -189,6 +189,8 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "http_port": 3141,
   "http_host": "127.0.0.1",
   "http_path": "",
+  "http_allowed_hosts": [],
+  "http_allowed_origins": [],
   "cors_origins": [],
   "cors_expose_headers": ["mcp-protocol-version"],
   "disabled_tools": [],
@@ -276,6 +278,24 @@ Set `http_path` to serve the MCP endpoint under a custom path. Useful when expos
 
 The server will be accessible at `http://localhost:3141/my-secret-path/` instead of the root. Leave empty for default behavior.
 
+> **Note:** A custom path alone is not enough to expose the HTTP server through a tunnel or reverse proxy. You must also populate `http_allowed_hosts`/`http_allowed_origins`, or requests are rejected with `403` — see [Allowed Hosts and Origins (DNS-Rebinding Protection)](#allowed-hosts-and-origins-dns-rebinding-protection).
+
+### Allowed Hosts and Origins (DNS-Rebinding Protection)
+
+The HTTP server enables DNS-rebinding protection with a built-in loopback allowlist (`127.0.0.1`, `localhost`, `[::1]`), so ordinary localhost clients work out of the box. If you expose the HTTP server through a tunnel or reverse proxy (e.g. ngrok, Cloudflare), requests arrive with a non-loopback `Host`/`Origin` header and are rejected with `403` unless you extend the allowlist:
+
+```json
+{
+  "http_allowed_hosts": ["myapp.ngrok.io", "myapp.ngrok.io:443"],
+  "http_allowed_origins": ["https://myapp.example"]
+}
+```
+
+- `http_allowed_hosts` — `Host`-header values **without** a scheme (e.g. `"myapp.ngrok.io"` or `"myapp.ngrok.io:443"`)
+- `http_allowed_origins` — full origins **with** a scheme (e.g. `"https://myapp.example"`)
+
+Both lists are appended to the built-in loopback defaults (the defaults are not replaced). Changing these requires an Anki restart, consistent with the other `http_*` settings.
+
 ### CORS Configuration
 
 To allow browser-based MCP clients (like web-hosted MCP Inspector), add allowed origins:
@@ -287,6 +307,8 @@ To allow browser-based MCP clients (like web-hosted MCP Inspector), add allowed 
 ```
 
 Use `["*"]` to allow all origins (not recommended for production).
+
+> **Note:** A browser origin allowed via `cors_origins` must **also** be added to `http_allowed_origins`. CORS and the DNS-rebinding allowlist are separate layers: even with CORS configured, a non-loopback `Origin` is rejected with `403` by DNS-rebinding protection unless it is in `http_allowed_origins`.
 
 The `cors_expose_headers` setting controls which response headers browsers can read. The default (`mcp-protocol-version`) lets browser-based MCP clients negotiate the protocol version. Since v0.16.0 the server runs in stateless mode, so `mcp-session-id` is no longer emitted and no longer needs to be exposed.
 

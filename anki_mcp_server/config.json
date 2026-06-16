@@ -3,6 +3,8 @@
   "http_port": 3141,
   "http_host": "127.0.0.1",
   "http_path": "",
+  "http_allowed_hosts": [],
+  "http_allowed_origins": [],
   "cors_origins": [],
   "cors_expose_headers": ["mcp-protocol-version"],
   "disabled_tools": [],

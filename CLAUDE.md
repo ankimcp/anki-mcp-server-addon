@@ -374,7 +374,7 @@ This project has no pyproject.toml, ruff, flake8, or any configured linter. Don'
 
 ### DNS Rebinding Protection
 
-Disabled in `mcp_server.py` to allow tunnel/proxy access (Cloudflare, ngrok).
+ENABLED on the HTTP transport with a loopback Host/Origin allowlist, built in `transport_security_config.build_transport_security(config)` and passed to `FastMCP` in `mcp_server.py`. The defaults (`DEFAULT_ALLOWED_HOSTS` / `DEFAULT_ALLOWED_ORIGINS`) mirror the MCP SDK loopback auto-default so ordinary localhost clients keep working. To expose the HTTP server through a tunnel/reverse proxy (Cloudflare, ngrok), operators ADD their hostname/origin to the `http_allowed_hosts` / `http_allowed_origins` config fields (which are appended to the defaults) — NOT by disabling protection. The tunnel (WebSocket) transport bypasses HTTP middleware entirely and is unaffected by this policy.
 
 ### CORS Configuration
 
