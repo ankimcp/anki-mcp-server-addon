@@ -26,6 +26,12 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>Toolbar status indicator</b> - A <code>● AnkiMCP</code> item in the top toolbar shows tunnel connection state at a glance (opt out via <code>show_toolbar_indicator</code>)</li>
 </ul>
 
+<h2>What's New in v0.21.0</h2>
+<ul>
+<li><b>Security: DNS-rebinding protection</b> - The local HTTP transport now validates <code>Host</code>/<code>Origin</code> headers against a loopback allowlist by default, closing a DNS-rebinding vector where a malicious web page could reach the local MCP server and invoke tools (<a href="https://github.com/ankimcp/anki-mcp-server-addon/security/advisories/GHSA-j9xx-59ph-wmr6">GHSA-j9xx-59ph-wmr6</a>). To expose the HTTP server through a tunnel or reverse proxy, add your host/origin to the new <code>http_allowed_hosts</code> / <code>http_allowed_origins</code> config fields. The tunnel transport is unaffected</li>
+<li><b>Optional API key</b> - New <code>http_api_key</code> config adds an AnkiConnect-style shared-secret auth layer for the HTTP transport: when set, every request must send an <code>Authorization: Bearer &lt;key&gt;</code> header. Empty by default (disabled), so existing setups are unchanged</li>
+</ul>
+
 <h2>What's New in v0.20.0</h2>
 <ul>
 <li><b>Opt-in for destructive tools</b> - New <code>enabled_destructive_tools</code> config allow-list. Tools (or specific actions) flagged as high-risk are hidden from MCP clients by default and must be explicitly opted in — enforced server-side, not just advised (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/46">#46</a>)</li>
