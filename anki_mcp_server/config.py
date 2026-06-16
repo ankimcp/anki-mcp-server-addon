@@ -23,6 +23,13 @@ class Config:
     http_host: str = "127.0.0.1"
     http_path: str = ""
 
+    # Optional shared API key for the HTTP transport (AnkiConnect-style).
+    # When non-empty, the HTTP transport requires every request to carry an
+    # "Authorization: Bearer <key>" header matching this value (constant-time
+    # compared). Empty string = auth DISABLED (default; preserves current
+    # behavior). Only affects the HTTP transport; the tunnel does its own OAuth.
+    http_api_key: str = ""
+
     # Extra Host/Origin header values allowed by DNS-rebinding protection,
     # on top of the built-in loopback allowlist (127.0.0.1/localhost/[::1]).
     # Use these when exposing the HTTP transport through a tunnel or reverse

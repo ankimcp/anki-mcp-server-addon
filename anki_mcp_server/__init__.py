@@ -134,6 +134,7 @@ from aqt.utils import showInfo, showWarning
 
 from .config import Config, ConfigManager
 from .connection_manager import ConnectionManager
+from .http_auth import validate_http_api_key
 from .tool_decorator import validate_disabled_tools, validate_enabled_destructive_tools
 from .transport_security_config import validate_http_allowlist
 from .tunnel.ui import toolbar_indicator
@@ -181,6 +182,7 @@ def _on_profile_opened() -> None:
         validate_enabled_destructive_tools(config.enabled_destructive_tools)
     )
     warnings.extend(validate_http_allowlist(config))
+    warnings.extend(validate_http_api_key(config))
     _show_startup_warnings(warnings)
 
     _connection_manager = ConnectionManager(config)

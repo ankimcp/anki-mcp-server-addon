@@ -30,6 +30,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import Icon
 
 from .config import Config
+from .http_auth import ApiKeyAuthMiddleware
 from .transport_security_config import build_transport_security
 from .queue_bridge import BridgeError, QueueBridge, ToolRequest
 from .primitives import register_all_tools, register_all_resources, register_all_prompts
@@ -525,6 +526,13 @@ class McpServer:
             Runs in background thread. Never accesses Qt or Anki APIs directly.
         """
         app = mcp.streamable_http_app()
+
+        # Apply optional shared-API-key auth (AnkiConnect-style) when a key is
+        # configured. Applied to the MCP app FIRST so that CORS (below) ends up
+        # outermost: CORS handles OPTIONS preflight before auth, and actual
+        # requests flow CORS -> Auth -> MCP. Empty key = layer not applied.
+        if self._config.http_api_key:
+            app = ApiKeyAuthMiddleware(app, self._config.http_api_key)
 
         # Apply CORS middleware if configured
         if self._config.cors_origins:

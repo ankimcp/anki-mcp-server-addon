@@ -191,6 +191,7 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "http_path": "",
   "http_allowed_hosts": [],
   "http_allowed_origins": [],
+  "http_api_key": "",
   "cors_origins": [],
   "cors_expose_headers": ["mcp-protocol-version"],
   "disabled_tools": [],
@@ -295,6 +296,48 @@ The HTTP server enables DNS-rebinding protection with a built-in loopback allowl
 - `http_allowed_origins` — full origins **with** a scheme (e.g. `"https://myapp.example"`)
 
 Both lists are appended to the built-in loopback defaults (the defaults are not replaced). Changing these requires an Anki restart, consistent with the other `http_*` settings.
+
+### API Key (Optional HTTP Auth)
+
+`http_api_key` adds an optional shared-secret auth layer on top of the HTTP transport (AnkiConnect-style). It is **empty by default**, which disables the layer and leaves the default behavior unchanged. When set to a non-empty value, **every** HTTP request must send an `Authorization: Bearer <key>` header matching that value, or it is rejected with `403`:
+
+```json
+{
+  "http_api_key": "a-long-random-secret-key"
+}
+```
+
+Configure your client to send the header. With Claude Code:
+
+```bash
+claude mcp add anki --transport http http://127.0.0.1:3141/ --header "Authorization: Bearer a-long-random-secret-key"
+```
+
+With `mcp-remote` (e.g. Claude Desktop):
+
+```json
+{
+  "mcpServers": {
+    "anki": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://127.0.0.1:3141",
+        "--header",
+        "Authorization: Bearer a-long-random-secret-key"
+      ]
+    }
+  }
+}
+```
+
+Notes:
+
+- **HTTP-only.** The key applies only to the local HTTP transport. The tunnel does its own OAuth login and is unaffected by `http_api_key`.
+- **Complementary, not a replacement.** It sits alongside DNS-rebinding protection (Allowed Hosts and Origins) — it does not replace it. Both layers apply independently.
+- **Pairs naturally with `http_path` + `http_allowed_hosts`** when exposing the HTTP server through a tunnel or reverse proxy: a secret path obscures the endpoint, the allowlist permits the proxy host, and the API key authenticates each request.
+- Use a long, random key (at least 16 characters). Leading/trailing whitespace is stripped from the presented token, so a configured key with surrounding whitespace will never match.
+- Changing this requires an Anki restart, consistent with the other `http_*` settings.
 
 ### CORS Configuration
 

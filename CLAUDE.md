@@ -380,6 +380,10 @@ ENABLED on the HTTP transport with a loopback Host/Origin allowlist, built in `t
 
 Configured via addon settings (`cors_origins`, `cors_expose_headers`). Empty `cors_origins` = CORS disabled. The `mcp-session-id` and `mcp-protocol-version` headers must be exposed for browser-based MCP clients (Streamable HTTP protocol requirement). See `config.py` for the full `Config` dataclass. CORS only applies to the HTTP transport — the tunnel path bypasses HTTP entirely.
 
+### API Key (Optional HTTP Auth)
+
+`Config.http_api_key` (default `""`) adds an OPTIONAL shared-secret auth layer on the HTTP transport, gated by a non-empty value. Implemented in `http_auth.py`: the pure `is_authorized` helper (constant-time `hmac.compare_digest`, Bearer scheme) plus `ApiKeyAuthMiddleware`, a RAW ASGI middleware — NOT `BaseHTTPMiddleware`, which would buffer the full response and break SSE (`text/event-stream`) streaming. Wired in `mcp_server.py` `_run_http_mode`, applied to the MCP app FIRST so CORS ends up OUTERMOST (CORS → Auth → MCP); empty key = middleware not applied. ALL http methods (including `OPTIONS`) require the key — genuine CORS preflight is short-circuited by the outer CORS layer and never reaches auth. On failure it returns `403` with NO `WWW-Authenticate` header (never `401`, which would trigger MCP OAuth 2.1 discovery and fail confusingly). HTTP-only: it does not touch the tunnel / in-memory transport path, which has its own OAuth. `validate_http_api_key` (advisory, never rejects) warns on a whitespace-bearing key (never authenticates) or a short/weak key, wired into the startup-validation site in `__init__.py` alongside `validate_http_allowlist`.
+
 ### HTTP Path Prefix (Secret Path)
 
 `Config.http_path` (default `""`) lets the operator move the MCP endpoint off `/` to an obscure prefix like `"my-secret"` → served at `/my-secret/`. Used for security-through-obscurity when exposing the server through a tunnel. Normalization happens in `mcp_server.py` (`streamable_path = f"/{http_path.strip('/')}/"`). Tests live in `tests/e2e/test_secret_path.py`.
