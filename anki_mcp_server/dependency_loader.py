@@ -8,6 +8,7 @@ the Anki runtime still gets a progress dialog.
 
 import sys
 import sysconfig
+import platform as _platform_mod
 import json
 import urllib.request
 import zipfile
@@ -42,8 +43,18 @@ def _find_wheel_url(pypi_data: dict) -> str:
     py_tag = _get_python_tag()
     platform = sysconfig.get_platform()
 
-    # Determine what we're looking for
-    is_arm = "arm64" in platform or "aarch64" in platform
+    # Determine what we're looking for.
+    # sysconfig.get_platform() can return "macosx-10.13-universal2" on Apple
+    # Silicon when Anki uses a universal2 framework Python — neither "arm64"
+    # nor "aarch64" appears in that string, which would wrongly select the
+    # x86_64 wheel. platform.machine() always reflects the actual running
+    # process architecture (arm64 on Apple Silicon, x86_64 under Rosetta).
+    machine = _platform_mod.machine()
+    is_arm = (
+        "arm64" in platform
+        or "aarch64" in platform
+        or machine in ("arm64", "aarch64")
+    )
     is_windows = platform.startswith("win")
     is_macos = "macos" in platform
     is_linux = "linux" in platform
