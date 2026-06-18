@@ -281,11 +281,17 @@ Set `http_path` to serve the MCP endpoint under a custom path. Useful when expos
 
 The server will be accessible at `http://localhost:3141/my-secret-path/` instead of the root. Leave empty for default behavior.
 
-> **Note:** A custom path alone is not enough to expose the HTTP server through a tunnel or reverse proxy. You must also populate `http_allowed_hosts`/`http_allowed_origins`, or requests are rejected with `403` — see [Allowed Hosts and Origins (DNS-Rebinding Protection)](#allowed-hosts-and-origins-dns-rebinding-protection).
+> **Note:** A custom path alone is not enough to expose the HTTP server through a tunnel or reverse proxy. You must also populate `http_allowed_hosts`/`http_allowed_origins`, or requests are rejected (`421` for a non-loopback `Host`, `403` for a non-loopback `Origin`) — see [Allowed Hosts and Origins (DNS-Rebinding Protection)](#allowed-hosts-and-origins-dns-rebinding-protection).
+
+## Security
+
+The local HTTP server accepts requests only from loopback `Host`/`Origin` values by default, so **ordinary local use needs no setup** — localhost clients work out of the box. The sections below cover the available hardening layers (DNS-rebinding allowlist, optional API key, CORS, and media-import validation) for when you expose the server beyond your machine.
+
+**Upgrading from ≤ 0.20.0:** if you reach the server through a tunnel, reverse proxy, or by binding to `0.0.0.0`, requests now arrive with a non-loopback `Host` and are rejected with `421` until you allowlist that host — see [Allowed Hosts and Origins (DNS-Rebinding Protection)](#allowed-hosts-and-origins-dns-rebinding-protection). (Browser clients additionally need their `Origin` allowlisted, otherwise `403`.) Plain localhost setups are unaffected.
 
 ### Allowed Hosts and Origins (DNS-Rebinding Protection)
 
-The HTTP server enables DNS-rebinding protection with a built-in loopback allowlist (`127.0.0.1`, `localhost`, `[::1]`), so ordinary localhost clients work out of the box. If you expose the HTTP server through a tunnel or reverse proxy (e.g. ngrok, Cloudflare), requests arrive with a non-loopback `Host`/`Origin` header and are rejected with `403` unless you extend the allowlist:
+The HTTP server enables DNS-rebinding protection with a built-in loopback allowlist (`127.0.0.1`, `localhost`, `[::1]`), so ordinary localhost clients work out of the box. If you expose the HTTP server through a tunnel or reverse proxy (e.g. ngrok, Cloudflare), requests arrive with a non-loopback `Host` (rejected with `421`) — and, for browser clients, a non-loopback `Origin` (rejected with `403`) — unless you extend the allowlist:
 
 ```json
 {
@@ -298,6 +304,8 @@ The HTTP server enables DNS-rebinding protection with a built-in loopback allowl
 - `http_allowed_origins` — full origins **with** a scheme (e.g. `"https://myapp.example"`)
 
 Both lists are appended to the built-in loopback defaults (the defaults are not replaced). Changing these requires an Anki restart, consistent with the other `http_*` settings.
+
+> DNS-rebinding vulnerability reported by [avishaigo-commits](https://github.com/avishaigo-commits).
 
 ### API Key (Optional HTTP Auth)
 

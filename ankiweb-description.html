@@ -9,6 +9,8 @@
 <p>AnkiMCP Server runs a local MCP server inside Anki, allowing AI assistants like Claude to interact with your flashcard collection. This enables
 AI-powered study sessions, card creation, and collection management.</p>
 
+<p>The local HTTP server is protected against DNS rebinding by default — it only accepts loopback <code>Host</code>/<code>Origin</code> requests, so ordinary local use needs no setup.</p>
+
 <p>Part of the <a href="https://ankimcp.ai">ankimcp.ai</a> project.</p>
 
 <h2>Features</h2>
