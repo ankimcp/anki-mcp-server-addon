@@ -1,0 +1,111 @@
+# Cross-platform smoke tests.
+#
+# The .ankiaddon bundle is now fully platform-agnostic (it carries NO native
+# binaries — pydantic_core and rpds are downloaded at runtime per-platform, see
+# dependency_loader.py and issues #52 / #54). This workflow proves that the SAME
+# bundle, built once, bootstraps its native deps correctly on every OS/arch and
+# Python combo a current or near-future Anki can ship.
+#
+# Strategy: build-once, test-everywhere. Job A builds the bundle on Linux and
+# uploads it as an artifact; Job B downloads that one artifact and runs the
+# headless smoke script (tests/smoke/import_smoke.py) across the matrix.
+
+name: Cross-platform Smoke
+
+on:
+  # Run on PRs to main and on main itself (not every feature-branch push) —
+  # this matrix spans 12 jobs incl. paid macOS/ARM runners, so it's scoped to
+  # avoid firing on every WIP commit. Use workflow_dispatch for ad-hoc runs.
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:  # Manual trigger (any branch)
+
+concurrency:
+  group: cross-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # The bundle is platform-agnostic, so building on Linux is sufficient.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Build addon
+        run: ./package.sh
+
+      - name: Upload .ankiaddon artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: anki_mcp_server.ankiaddon
+          path: anki_mcp_server.ankiaddon
+          retention-days: 7
+
+  smoke:
+    needs: build
+    timeout-minutes: 15
+
+    strategy:
+      # Don't let one platform's failure cancel the others — we want the full
+      # cross-platform picture in a single run.
+      fail-fast: false
+      matrix:
+        # 6 OS/arch runners x 2 Python = 12 smoke jobs.
+        os:
+          - ubuntu-latest      # Linux x86_64
+          - ubuntu-24.04-arm   # Linux aarch64
+          - windows-latest     # Windows x86_64
+          - windows-11-arm     # Windows arm64
+          - macos-latest       # macOS arm64 (Apple Silicon)
+          - macos-13           # macOS x86_64 (Intel)
+        python-version:
+          - "3.13"
+          - "3.14"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # We only need the smoke script from the repo — the addon itself comes
+      # from the built artifact (to test the real shipped bundle, not the source
+      # tree).
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          # 3.14 may only be available as a prerelease on some runners; allow it
+          # so the matrix doesn't fail to provision the interpreter.
+          allow-prereleases: true
+
+      - name: Download .ankiaddon artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: anki_mcp_server.ankiaddon
+          path: artifact
+
+      - name: Extract addon bundle (portable unzip)
+        # The .ankiaddon is a zip whose contents are FLAT (the zip is built from
+        # inside anki_mcp_server/), so the extraction dir IS the addon package
+        # dir. Use Python's zipfile for a cross-platform unzip (no unzip.exe on
+        # Windows runners).
+        shell: bash
+        run: |
+          python -c "import zipfile; zipfile.ZipFile('artifact/anki_mcp_server.ankiaddon').extractall('addon')"
+          ls addon
+
+      - name: Run headless dependency-loading smoke test
+        shell: bash
+        run: |
+          python tests/smoke/import_smoke.py "$PWD/addon"

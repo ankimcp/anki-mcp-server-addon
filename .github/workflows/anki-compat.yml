@@ -1,0 +1,212 @@
+# Anki compatibility canary.
+#
+# Proactively tests the addon's import chain against the *latest* (incl. beta)
+# `aqt` release from PyPI, so host-side regressions are caught before users hit
+# a stable Anki. This guards against the exact #54-class bug: in aqt 26.5b2 a
+# lazy-import change meant Anki no longer eagerly provided `rpds`/`jsonschema`,
+# which broke the addon on platforms where the vendored binary was wrong.
+#
+# Unlike cross-platform.yml (which exercises the runtime DOWNLOAD fallback with
+# Anki absent), this workflow installs real aqt so `rpds` resolves from Anki's
+# own environment — i.e. the NORMAL production path — and verifies the
+# mcp -> jsonschema -> referencing -> rpds chain still imports under it.
+#
+# NOTE: scheduled (cron) workflows only run from the repository's DEFAULT
+# branch, so the daily run activates only after this file is merged to main.
+# Until then, use the workflow_dispatch trigger to run it manually.
+
+name: Anki Compatibility
+
+on:
+  schedule:
+    # Daily at 05:17 UTC (a quiet, off-the-hour time to avoid cron congestion).
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+    inputs:
+      aqt_version:
+        description: "Optional exact aqt version to test (e.g. 26.5b2). Empty = latest --pre."
+        required: false
+        default: ""
+
+concurrency:
+  group: anki-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write  # Needed for `gh issue create` on failure.
+
+jobs:
+  # Build the platform-agnostic bundle once on Linux and share it with both
+  # compat jobs (Windows can't run package.sh's bash/zip pipeline as-is, and the
+  # bundle is platform-agnostic anyway).
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Build addon
+        run: ./package.sh
+
+      - name: Upload .ankiaddon artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: anki_mcp_server.ankiaddon
+          path: anki_mcp_server.ankiaddon
+          retention-days: 7
+
+  compat:
+    needs: build
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Platforms where the #54-class bug actually manifests. macOS-arm64
+        # masks it (its vendored binary happened to match), so it's omitted;
+        # macOS-13 Intel is included as the x86_64 macOS canary.
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-13
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Download .ankiaddon artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: anki_mcp_server.ankiaddon
+          path: artifact
+
+      - name: Extract addon bundle (portable unzip)
+        # Flat zip — extraction dir is the addon package dir (see package.sh).
+        shell: bash
+        run: |
+          python -c "import zipfile; zipfile.ZipFile('artifact/anki_mcp_server.ankiaddon').extractall('addon')"
+
+      - name: Create venv and install aqt (latest or pinned --pre)
+        # Install real Anki desktop deps (aqt pulls jsonschema/referencing/rpds
+        # for THIS runner's platform). The aqt version is passed via env (never
+        # inlined into the shell from ${{ }}) to avoid script injection.
+        shell: bash
+        env:
+          AQT_VERSION: ${{ github.event.inputs.aqt_version }}
+        run: |
+          python -m venv .anki-venv
+          # Resolve the venv's python in a cross-platform way.
+          if [ -f .anki-venv/bin/python ]; then
+            VENV_PY=.anki-venv/bin/python
+          else
+            VENV_PY=.anki-venv/Scripts/python
+          fi
+          echo "VENV_PY=$VENV_PY" >> "$GITHUB_ENV"
+
+          "$VENV_PY" -m pip install --upgrade pip
+
+          # Validate any user-supplied version against a strict allowlist pattern
+          # before use (defense-in-depth, even though it's passed via env).
+          if [ -n "$AQT_VERSION" ]; then
+            if ! printf '%s' "$AQT_VERSION" | grep -Eq '^[0-9]+(\.[0-9]+)*([a-z]+[0-9]+)?$'; then
+              echo "::error::Invalid aqt_version format: $AQT_VERSION"
+              exit 1
+            fi
+            echo "Installing pinned aqt==$AQT_VERSION"
+            "$VENV_PY" -m pip install --pre "aqt==$AQT_VERSION"
+          else
+            echo "Installing latest aqt (--pre)"
+            "$VENV_PY" -m pip install --pre aqt
+          fi
+
+      - name: Print resolved aqt version
+        shell: bash
+        run: |
+          RESOLVED=$("$VENV_PY" -c "import importlib.metadata as m; print(m.version('aqt'))")
+          echo "Resolved aqt version: $RESOLVED"
+          echo "AQT_RESOLVED=$RESOLVED" >> "$GITHUB_ENV"
+          echo "### aqt $RESOLVED on ${{ matrix.os }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Canary — does aqt eagerly load rpds/jsonschema?
+        # Informational only (never fails the job). After `import aqt.addons`,
+        # report whether rpds/jsonschema are already in sys.modules — the exact
+        # signal that flipped in aqt 26.5b2 and triggered #54. On Linux, Qt may
+        # need a display to import; xvfb-run provides a virtual one.
+        shell: bash
+        continue-on-error: true
+        run: |
+          SNIPPET='import sys; import aqt.addons; print("rpds in sys.modules:", "rpds" in sys.modules); print("jsonschema in sys.modules:", "jsonschema" in sys.modules)'
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo apt-get update -y && sudo apt-get install -y xvfb
+            xvfb-run -a "$VENV_PY" -c "$SNIPPET" | tee canary.txt
+          else
+            "$VENV_PY" -c "$SNIPPET" | tee canary.txt
+          fi
+          {
+            echo "#### aqt lazy-import canary (informational)"
+            echo '```'
+            cat canary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run import-chain check under the aqt environment
+        id: import_check
+        # Reuse the shared smoke script, but run it with the AQT venv's python so
+        # rpds resolves from aqt's site-packages (the normal production path).
+        # The script prepends the addon's vendor/shared and walks the
+        # mcp -> jsonschema -> referencing -> rpds chain.
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            xvfb-run -a "$VENV_PY" tests/smoke/import_smoke.py "$PWD/addon"
+          else
+            "$VENV_PY" tests/smoke/import_smoke.py "$PWD/addon"
+          fi
+
+      - name: Open issue on failure
+        # Only fire on a real failure of the import check, and only from the
+        # scheduled run or a dispatch on the default branch — never from feature
+        # branch dispatches (which would spam issues during development).
+        if: >-
+          failure() &&
+          steps.import_check.outcome == 'failure' &&
+          (github.event_name == 'schedule' ||
+           github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # All dynamic values go through env (not inlined ${{ }} in the script)
+          # to avoid command injection.
+          MATRIX_OS: ${{ matrix.os }}
+          AQT_RESOLVED: ${{ env.AQT_RESOLVED }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          TITLE="Anki compat: import chain broke under aqt ${AQT_RESOLVED:-unknown} on ${MATRIX_OS}"
+          BODY=$(printf '%s\n' \
+            "The scheduled Anki compatibility canary failed." \
+            "" \
+            "- **aqt version**: \`${AQT_RESOLVED:-unknown}\`" \
+            "- **Platform**: \`${MATRIX_OS}\`" \
+            "- **Run**: ${RUN_URL}" \
+            "" \
+            "The \`mcp -> jsonschema -> referencing -> rpds\` import chain failed to load" \
+            "under this aqt release. This may be an upstream host-side change (cf. the" \
+            "aqt 26.5b2 lazy-import regression, issue #54). See the run logs for details.")
+          gh issue create \
+            --title "$TITLE" \
+            --body "$BODY" \
+            --label "bug" || echo "::warning::Failed to create issue (label may not exist or perms)"
