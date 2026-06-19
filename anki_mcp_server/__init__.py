@@ -20,7 +20,7 @@ from pathlib import Path
 __version__ = "0.21.1"
 
 # Packages we vendor — used for conflict detection AND system-package fallback checks
-_VENDOR_PACKAGES = ['mcp', 'pydantic', 'pydantic_core', 'starlette', 'uvicorn', 'anyio', 'httpx', 'websockets']
+_VENDOR_PACKAGES = ['mcp', 'pydantic', 'pydantic_core', 'starlette', 'uvicorn', 'anyio', 'httpx', 'websockets', 'packaging']
 
 # Set to True when running from source with system-provided packages (e.g. Nix)
 _USING_SYSTEM_PACKAGES = False

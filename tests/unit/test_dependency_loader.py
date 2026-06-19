@@ -1,12 +1,24 @@
 """Unit tests for anki_mcp_server.dependency_loader._find_wheel_url.
 
-Regression coverage for issue #52: Anki's universal2 framework Python returns
-sysconfig.get_platform() == "macosx-10.13-universal2", which contains neither
-"arm64" nor "aarch64".  On Apple Silicon this caused the x86_64 wheel to be
-selected, producing "ImportError: incompatible architecture" at startup.
+Wheel selection now defers to ``packaging.tags.sys_tags()`` — the same
+interpreter-tag machinery pip uses — instead of ad-hoc substring matching.
+``_find_wheel_url`` parses each candidate filename with
+``packaging.utils.parse_wheel_filename`` and returns the wheel carrying the tag
+with the highest priority (smallest index) in ``sys_tags()``.
 
-The fix consults platform.machine() (imported as _platform_mod), which always
-reflects the actual running-process architecture regardless of the build type.
+These tests drive selection deterministically by monkeypatching
+``_dep_loader.sys_tags`` to return a controlled, ordered list of
+``packaging.tags.Tag`` objects representing a specific target interpreter, so
+the assertions don't depend on the machine the tests happen to run on.
+
+Regression coverage:
+
+* Issue #52 — Anki's universal2 framework Python on Apple Silicon must pick the
+  arm64 wheel, never the x86_64 one. ``sys_tags()`` reports macosx arm64 +
+  universal2 tags for such an interpreter, so the arm64 wheel wins on priority.
+* Issue #54 — a STANDARD ``cp313`` interpreter must NOT select a free-threaded
+  ``cp313t`` wheel (loose ``"cp313" in filename`` matching used to). Tag-based
+  selection distinguishes the ``cp313``/``cp313`` ABI from ``cp313t``/``cp313t``.
 """
 from __future__ import annotations
 
@@ -15,6 +27,8 @@ import sys
 from pathlib import Path
 
 import pytest
+
+from packaging.tags import Tag
 
 # ---------------------------------------------------------------------------
 # Load dependency_loader.py as a standalone module.
@@ -39,6 +53,7 @@ _find_wheel_url = _dep_loader._find_wheel_url
 
 _VERSION = "2.46.4"
 
+
 def _make_pypi_data(filenames: list[str]) -> dict:
     """Build a minimal PyPI JSON dict from a list of filenames."""
     return {
@@ -50,30 +65,208 @@ def _make_pypi_data(filenames: list[str]) -> dict:
     }
 
 
-# Wheel filenames from a realistic pydantic_core release
+def _url(filename: str) -> str:
+    return f"https://files.example.com/{filename}"
+
+
+def _use_tags(monkeypatch: pytest.MonkeyPatch, tags: list[Tag]) -> None:
+    """Make ``_find_wheel_url`` see ``tags`` (highest-priority-first) as the
+    current interpreter's supported tags."""
+    monkeypatch.setattr(_dep_loader, "sys_tags", lambda: iter(tags))
+
+
+# Wheel filenames from a realistic pydantic_core release (standard cp313 ABI).
 _MACOS_X86 = f"pydantic_core-{_VERSION}-cp313-cp313-macosx_10_12_x86_64.whl"
 _MACOS_ARM = f"pydantic_core-{_VERSION}-cp313-cp313-macosx_11_0_arm64.whl"
 _MACOS_UNI = f"pydantic_core-{_VERSION}-cp313-cp313-macosx_10_12_universal2.whl"
 _LINUX_X86 = f"pydantic_core-{_VERSION}-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
 _LINUX_ARM = f"pydantic_core-{_VERSION}-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
 _WIN_AMD64 = f"pydantic_core-{_VERSION}-cp313-cp313-win_amd64.whl"
-_SDIST     = f"pydantic_core-{_VERSION}.tar.gz"
+_SDIST = f"pydantic_core-{_VERSION}.tar.gz"
 
-_ALL_WHEELS = [
-    _MACOS_X86,
-    _MACOS_ARM,
-    _MACOS_UNI,
-    _LINUX_X86,
-    _LINUX_ARM,
-    _WIN_AMD64,
-    _SDIST,
+# Free-threaded (PEP 703) cp313t wheels — the issue #54 trap. The interpreter,
+# ABI, and (for win) the same platform differ only by the trailing "t".
+_WIN_AMD64_FT = f"pydantic_core-{_VERSION}-cp313-cp313t-win_amd64.whl"
+_MACOS_ARM_FT = f"pydantic_core-{_VERSION}-cp313-cp313t-macosx_11_0_arm64.whl"
+
+
+# ---------------------------------------------------------------------------
+# Interpreter tag sets (highest-priority-first), mirroring what
+# packaging.tags.sys_tags() yields on each target. We keep them short — only
+# the tags relevant to the candidate wheels need to be present and ordered.
+# ---------------------------------------------------------------------------
+
+# Standard cp313 on Windows x86_64.
+_TAGS_WIN_AMD64 = [
+    Tag("cp313", "cp313", "win_amd64"),
+    Tag("cp313", "abi3", "win_amd64"),
+    Tag("cp313", "none", "win_amd64"),
 ]
 
-_PYPI_DATA = _make_pypi_data(_ALL_WHEELS)
+# Standard cp313 on Apple-Silicon macOS. A universal2 framework build (issue
+# #52) reports BOTH arm64 and universal2 platform tags, with arm64 ranked
+# higher — so the arm64 wheel must win over universal2 and x86_64.
+_TAGS_MACOS_ARM = [
+    Tag("cp313", "cp313", "macosx_11_0_arm64"),
+    Tag("cp313", "cp313", "macosx_11_0_universal2"),
+    Tag("cp313", "cp313", "macosx_10_12_universal2"),
+]
+
+# Standard cp313 on Intel macOS.
+_TAGS_MACOS_X86 = [
+    Tag("cp313", "cp313", "macosx_10_12_x86_64"),
+    Tag("cp313", "cp313", "macosx_10_12_universal2"),
+]
+
+# Standard cp313 on Linux aarch64.
+_TAGS_LINUX_ARM = [
+    Tag("cp313", "cp313", "manylinux_2_17_aarch64"),
+    Tag("cp313", "cp313", "manylinux2014_aarch64"),
+]
+
+# Standard cp313 on Linux x86_64.
+_TAGS_LINUX_X86 = [
+    Tag("cp313", "cp313", "manylinux_2_17_x86_64"),
+    Tag("cp313", "cp313", "manylinux2014_x86_64"),
+]
+
+# Free-threaded cp313t on Windows x86_64. A free-threaded interpreter ONLY
+# supports the cp313t ABI — the standard cp313 ABI is absent from its tags.
+_TAGS_WIN_AMD64_FT = [
+    Tag("cp313", "cp313t", "win_amd64"),
+    Tag("cp313", "none", "win_amd64"),
+]
 
 
-def _url(filename: str) -> str:
-    return f"https://files.example.com/{filename}"
+# ---------------------------------------------------------------------------
+# Platform / arch selection
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("tags, expected_filename", [
+    (_TAGS_WIN_AMD64, _WIN_AMD64),
+    (_TAGS_MACOS_X86, _MACOS_X86),
+    (_TAGS_LINUX_X86, _LINUX_X86),
+    (_TAGS_LINUX_ARM, _LINUX_ARM),
+], ids=[
+    "win-amd64",
+    "intel-mac",
+    "linux-x86_64",
+    "linux-aarch64",
+])
+def test_find_wheel_url_picks_platform_arch(
+    monkeypatch: pytest.MonkeyPatch,
+    tags: list[Tag],
+    expected_filename: str,
+) -> None:
+    """_find_wheel_url selects the wheel matching the interpreter's top tag."""
+    _use_tags(monkeypatch, tags)
+
+    result = _find_wheel_url(_make_pypi_data(
+        [_MACOS_X86, _MACOS_ARM, _MACOS_UNI, _LINUX_X86, _LINUX_ARM, _WIN_AMD64, _SDIST]
+    ))
+
+    assert result == _url(expected_filename)
+
+
+def test_find_wheel_url_universal2_arm64_regression(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #52: a universal2 Apple-Silicon interpreter picks the arm64 wheel.
+
+    With arm64, universal2 AND x86_64 wheels all present, the arm64 tag ranks
+    highest in sys_tags(), so the arm64 wheel must win — never x86_64.
+    """
+    _use_tags(monkeypatch, _TAGS_MACOS_ARM)
+
+    result = _find_wheel_url(_make_pypi_data([_MACOS_X86, _MACOS_ARM, _MACOS_UNI]))
+
+    assert result == _url(_MACOS_ARM)
+
+
+def test_find_wheel_url_universal2_when_no_native_arm64(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An Apple-Silicon interpreter falls back to the universal2 wheel when no
+    dedicated arm64 wheel exists (universal2 carries the arm64 slice)."""
+    _use_tags(monkeypatch, _TAGS_MACOS_ARM)
+
+    result = _find_wheel_url(_make_pypi_data([_MACOS_X86, _MACOS_UNI]))
+
+    assert result == _url(_MACOS_UNI)
+
+
+# ---------------------------------------------------------------------------
+# Free-threaded (cp313t) vs standard (cp313) — issue #54
+# ---------------------------------------------------------------------------
+
+def test_standard_cp313_does_not_pick_freethreaded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #54: a STANDARD cp313 interpreter must pick the cp313 wheel, NOT the
+    cp313t (free-threaded) one, even when both win_amd64 wheels are present."""
+    _use_tags(monkeypatch, _TAGS_WIN_AMD64)
+
+    result = _find_wheel_url(_make_pypi_data([_WIN_AMD64_FT, _WIN_AMD64]))
+
+    assert result == _url(_WIN_AMD64)
+
+
+def test_freethreaded_cp313t_picks_freethreaded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A free-threaded cp313t interpreter DOES select the cp313t wheel and must
+    NOT fall back to the standard cp313 wheel (its ABI is incompatible)."""
+    _use_tags(monkeypatch, _TAGS_WIN_AMD64_FT)
+
+    result = _find_wheel_url(_make_pypi_data([_WIN_AMD64, _WIN_AMD64_FT]))
+
+    assert result == _url(_WIN_AMD64_FT)
+
+
+# ---------------------------------------------------------------------------
+# Skipping / no-match behaviour
+# ---------------------------------------------------------------------------
+
+def test_find_wheel_url_skips_sdists_and_unparseable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sdists (.tar.gz) and unparseable .whl filenames are skipped; the one
+    matching wheel is still returned."""
+    _use_tags(monkeypatch, _TAGS_MACOS_X86)
+
+    pypi_data = _make_pypi_data([
+        _SDIST,                       # not a wheel
+        "totally-not-a-wheel.whl",    # .whl but unparseable -> InvalidWheelFilename
+        _LINUX_ARM,                   # wheel, but wrong platform
+        _MACOS_X86,                   # the match
+    ])
+    result = _find_wheel_url(pypi_data)
+    assert result == _url(_MACOS_X86)
+
+
+def test_find_wheel_url_raises_when_no_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RuntimeError is raised when no wheel matches the interpreter's tags."""
+    _use_tags(monkeypatch, _TAGS_MACOS_ARM)
+
+    # Only an x86_64 mac wheel and an sdist — no arm64/universal2 candidate.
+    pypi_data = _make_pypi_data([_MACOS_X86, _SDIST])
+    with pytest.raises(RuntimeError, match="No matching wheel found"):
+        _find_wheel_url(pypi_data)
+
+
+# ---------------------------------------------------------------------------
+# rpds ensure-path (issue #54 vendoring decision)
+#
+# rpds is the only compiled dep in the mcp -> jsonschema -> referencing chain.
+# It is no longer vendored: ensure_rpds() imports it (Anki provides it on every
+# supported version) and only downloads a pinned wheel as a fallback. These
+# tests cover the no-download fast path and the warm-cache reuse path — they
+# exercise _ensure_rpds_with_callbacks, not _find_wheel_url.
+# ---------------------------------------------------------------------------
+
+_RPDS_VERSION = _dep_loader._RPDS_VERSION  # pinned fallback download version
 
 
 def _exposes_rpds(path_entry: str) -> bool:
@@ -85,171 +278,6 @@ def _exposes_rpds(path_entry: str) -> bool:
     """
     base = Path(path_entry)
     return (base / "rpds" / "__init__.py").exists() or (base / "rpds.py").exists()
-
-
-# ---------------------------------------------------------------------------
-# Parametrized test cases
-# ---------------------------------------------------------------------------
-
-@pytest.mark.parametrize("get_platform_val, machine_val, expected_filename", [
-    # --- Issue #52 regression ---
-    # universal2 build: get_platform() says "universal2", machine() says "arm64"
-    (
-        "macosx-10.13-universal2",
-        "arm64",
-        _MACOS_ARM,
-    ),
-    # Native arm64 Mac (non-universal2 build)
-    (
-        "macosx-11.0-arm64",
-        "arm64",
-        _MACOS_ARM,
-    ),
-    # Intel Mac
-    (
-        "macosx-10.13-x86_64",
-        "x86_64",
-        _MACOS_X86,
-    ),
-    # Rosetta: get_platform() reports x86_64 (process runs as x86_64), machine()
-    # also x86_64 — so we correctly pick the x86_64 wheel (no false arm positive)
-    (
-        "macosx-10.13-x86_64",
-        "x86_64",
-        _MACOS_X86,
-    ),
-    # Linux x86_64
-    (
-        "linux-x86_64",
-        "x86_64",
-        _LINUX_X86,
-    ),
-    # Linux aarch64
-    (
-        "linux-aarch64",
-        "aarch64",
-        _LINUX_ARM,
-    ),
-], ids=[
-    "regression-universal2-arm64",
-    "native-arm64-mac",
-    "intel-mac",
-    "rosetta-x86_64",
-    "linux-x86_64",
-    "linux-aarch64",
-])
-def test_find_wheel_url(
-    monkeypatch: pytest.MonkeyPatch,
-    get_platform_val: str,
-    machine_val: str,
-    expected_filename: str,
-) -> None:
-    """_find_wheel_url selects the wheel matching the actual running architecture."""
-    monkeypatch.setattr(_dep_loader.sysconfig, "get_platform", lambda: get_platform_val)
-    monkeypatch.setattr(_dep_loader._platform_mod, "machine", lambda: machine_val)
-    monkeypatch.setattr(_dep_loader, "_get_python_tag", lambda: "cp313")
-
-    result = _find_wheel_url(_PYPI_DATA)
-
-    assert result == _url(expected_filename), (
-        f"Expected wheel {expected_filename!r} for "
-        f"get_platform={get_platform_val!r}, machine={machine_val!r}, "
-        f"but got {result!r}"
-    )
-
-
-def test_find_wheel_url_excludes_non_wheels(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Sdists and unrelated wheels are skipped; only matching .whl is returned."""
-    monkeypatch.setattr(_dep_loader.sysconfig, "get_platform", lambda: "macosx-10.13-x86_64")
-    monkeypatch.setattr(_dep_loader._platform_mod, "machine", lambda: "x86_64")
-    monkeypatch.setattr(_dep_loader, "_get_python_tag", lambda: "cp313")
-
-    # Dataset contains ONLY the sdist, the linux wheel, and the x86_64 mac wheel
-    pypi_data = _make_pypi_data([_SDIST, _LINUX_ARM, _MACOS_X86])
-    result = _find_wheel_url(pypi_data)
-    assert result == _url(_MACOS_X86)
-
-
-def test_find_wheel_url_raises_when_no_match(monkeypatch: pytest.MonkeyPatch) -> None:
-    """RuntimeError is raised when no wheel matches the current platform."""
-    monkeypatch.setattr(_dep_loader.sysconfig, "get_platform", lambda: "macosx-11.0-arm64")
-    monkeypatch.setattr(_dep_loader._platform_mod, "machine", lambda: "arm64")
-    monkeypatch.setattr(_dep_loader, "_get_python_tag", lambda: "cp313")
-
-    # Dataset has only the x86_64 mac wheel — no arm64 candidate
-    pypi_data = _make_pypi_data([_MACOS_X86, _SDIST])
-    with pytest.raises(RuntimeError, match="No matching wheel found"):
-        _find_wheel_url(pypi_data)
-
-
-# ---------------------------------------------------------------------------
-# rpds (issue #54)
-#
-# rpds is the only compiled dep in the mcp -> jsonschema -> referencing chain.
-# It is no longer vendored: ensure_rpds() imports it (Anki provides it on every
-# supported version) and only downloads a pinned wheel as a fallback. These
-# tests cover (a) the no-download fast path and (b) rpds wheel selection, which
-# reuses the same _find_wheel_url as pydantic_core.
-# ---------------------------------------------------------------------------
-
-_RPDS_VERSION = _dep_loader._RPDS_VERSION  # pinned fallback download version
-
-# rpds-py wheel filenames follow the same scheme as pydantic_core.
-_RPDS_MACOS_X86 = f"rpds_py-{_RPDS_VERSION}-cp313-cp313-macosx_10_12_x86_64.whl"
-_RPDS_MACOS_ARM = f"rpds_py-{_RPDS_VERSION}-cp313-cp313-macosx_11_0_arm64.whl"
-_RPDS_LINUX_X86 = f"rpds_py-{_RPDS_VERSION}-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
-_RPDS_LINUX_ARM = f"rpds_py-{_RPDS_VERSION}-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
-_RPDS_WIN_AMD64 = f"rpds_py-{_RPDS_VERSION}-cp313-cp313-win_amd64.whl"
-_RPDS_WIN_ARM64 = f"rpds_py-{_RPDS_VERSION}-cp313-cp313-win_arm64.whl"
-_RPDS_SDIST     = f"rpds_py-{_RPDS_VERSION}.tar.gz"
-
-_RPDS_ALL_WHEELS = [
-    _RPDS_MACOS_X86,
-    _RPDS_MACOS_ARM,
-    _RPDS_LINUX_X86,
-    _RPDS_LINUX_ARM,
-    _RPDS_WIN_AMD64,
-    _RPDS_WIN_ARM64,
-    _RPDS_SDIST,
-]
-
-
-@pytest.mark.parametrize("get_platform_val, machine_val, expected_filename", [
-    ("macosx-10.13-universal2", "arm64", _RPDS_MACOS_ARM),   # issue #52-style universal2
-    ("macosx-11.0-arm64", "arm64", _RPDS_MACOS_ARM),
-    ("macosx-10.13-x86_64", "x86_64", _RPDS_MACOS_X86),
-    ("linux-x86_64", "x86_64", _RPDS_LINUX_X86),
-    ("linux-aarch64", "aarch64", _RPDS_LINUX_ARM),
-    ("win-amd64", "AMD64", _RPDS_WIN_AMD64),
-    ("win-arm64", "ARM64", _RPDS_WIN_ARM64),
-], ids=[
-    "universal2-arm64",
-    "native-arm64-mac",
-    "intel-mac",
-    "linux-x86_64",
-    "linux-aarch64",
-    "win-amd64",
-    "win-arm64",
-])
-def test_find_wheel_url_rpds(
-    monkeypatch: pytest.MonkeyPatch,
-    get_platform_val: str,
-    machine_val: str,
-    expected_filename: str,
-) -> None:
-    """_find_wheel_url selects the correct rpds wheel for each platform."""
-    monkeypatch.setattr(_dep_loader.sysconfig, "get_platform", lambda: get_platform_val)
-    monkeypatch.setattr(_dep_loader._platform_mod, "machine", lambda: machine_val)
-    monkeypatch.setattr(_dep_loader, "_get_python_tag", lambda: "cp313")
-
-    pypi_data = _make_pypi_data(_RPDS_ALL_WHEELS)
-    result = _find_wheel_url(pypi_data)
-
-    assert result == _url(expected_filename), (
-        f"Expected wheel {expected_filename!r} for "
-        f"get_platform={get_platform_val!r}, machine={machine_val!r}, "
-        f"but got {result!r}"
-    )
 
 
 def test_ensure_rpds_no_download_when_importable(monkeypatch: pytest.MonkeyPatch) -> None:

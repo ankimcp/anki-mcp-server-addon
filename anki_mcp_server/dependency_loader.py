@@ -19,17 +19,25 @@ and a thin Qt wrapper. The seam exists so headless callers (unit tests, CI
 bootstrap) can drive the loader without a Qt event loop, while the Anki runtime
 still gets a progress dialog. Both cores share ``_download_and_extract_wheel``
 for the common download/extract/cache/sys.path flow.
+
+Wheel selection (``_find_wheel_url``) defers to ``packaging.tags.sys_tags()`` —
+the same interpreter-tag machinery pip uses — instead of ad-hoc substring
+matching. This gives correct architecture/ABI/platform resolution for free,
+including universal2 Apple-Silicon (issue #52) and free-threaded ``cp313t`` vs
+standard ``cp313`` interpreters (issue #54).
 """
 
 import sys
-import sysconfig
-import platform as _platform_mod
 import json
 import urllib.request
 import zipfile
 import shutil
 from pathlib import Path
 from typing import Callable
+
+from packaging.tags import sys_tags
+from packaging.utils import parse_wheel_filename, InvalidWheelFilename
+from packaging.version import InvalidVersion
 
 CACHE_DIR = Path(__file__).parent / "_cache"
 
@@ -62,61 +70,52 @@ def _get_required_pydantic_core_version() -> str:
     raise RuntimeError("Could not find _COMPATIBLE_PYDANTIC_CORE_VERSION in pydantic/version.py")
 
 
-def _get_python_tag() -> str:
-    """Get Python version tag like cp312, cp313."""
-    return f"cp{sys.version_info.major}{sys.version_info.minor}"
-
-
 def _find_wheel_url(pypi_data: dict) -> str:
-    """Find matching wheel URL from PyPI JSON data."""
-    py_tag = _get_python_tag()
-    platform = sysconfig.get_platform()
+    """Find the best-matching wheel URL from PyPI JSON data for this interpreter.
 
-    # Determine what we're looking for.
-    # sysconfig.get_platform() can return "macosx-10.13-universal2" on Apple
-    # Silicon when Anki uses a universal2 framework Python — neither "arm64"
-    # nor "aarch64" appears in that string, which would wrongly select the
-    # x86_64 wheel. platform.machine() always reflects the actual running
-    # process architecture (arm64 on Apple Silicon, x86_64 under Rosetta).
-    machine = _platform_mod.machine()
-    is_arm = (
-        "arm64" in platform
-        or "aarch64" in platform
-        or machine in ("arm64", "aarch64")
-    )
-    is_windows = platform.startswith("win")
-    is_macos = "macos" in platform
-    is_linux = "linux" in platform
+    Selection mirrors pip: ``packaging.tags.sys_tags()`` yields every wheel tag
+    the *current* interpreter can install, most-preferred-first (index 0 is the
+    highest-priority tag, and priority decreases as the index grows). This single
+    source of truth already encodes architecture (x86_64/arm64/aarch64), Python
+    version, ABI (standard ``cp313`` vs free-threaded ``cp313t``), and the
+    platform family (manylinux/musllinux/macosx/win, including universal2). We
+    parse each candidate filename with ``packaging.utils.parse_wheel_filename``
+    and pick the wheel that carries the tag with the smallest index in
+    ``sys_tags()`` — i.e. the highest-priority match, exactly as pip would.
 
-    for url_info in pypi_data["urls"]:
+    This subsumes the former hand-rolled substring matching, including the
+    universal2/Apple-Silicon special case (issue #52) and the ``cp313`` vs
+    ``cp313t`` free-threaded confusion (issue #54).
+    """
+    # Map each supported tag to its priority (lower index = higher priority).
+    tag_priority = {tag: index for index, tag in enumerate(sys_tags())}
+
+    best_url: str | None = None
+    best_priority = len(tag_priority)  # sentinel: worse than any real match
+
+    for url_info in pypi_data.get("urls", []):
         filename = url_info["filename"]
-
-        # Must be a wheel
         if not filename.endswith(".whl"):
             continue
 
-        # Must match Python version
-        if py_tag not in filename:
+        try:
+            _name, _version, _build, tags = parse_wheel_filename(filename)
+        except (InvalidWheelFilename, InvalidVersion):
             continue
 
-        # Platform matching
-        if is_windows:
-            if is_arm and "win_arm64" in filename:
-                return url_info["url"]
-            elif not is_arm and "win_amd64" in filename:
-                return url_info["url"]
-        elif is_macos:
-            if is_arm and "arm64" in filename and "macosx" in filename:
-                return url_info["url"]
-            elif not is_arm and "x86_64" in filename and "macosx" in filename:
-                return url_info["url"]
-        elif is_linux:
-            if is_arm and "aarch64" in filename and "manylinux" in filename:
-                return url_info["url"]
-            elif not is_arm and "x86_64" in filename and "manylinux" in filename:
-                return url_info["url"]
+        for tag in tags:
+            priority = tag_priority.get(tag)
+            if priority is not None and priority < best_priority:
+                best_priority = priority
+                best_url = url_info["url"]
 
-    raise RuntimeError(f"No matching wheel found for {py_tag} on {platform}")
+    if best_url is None:
+        raise RuntimeError(
+            f"No matching wheel found for {sys.implementation.name} "
+            f"{sys.version_info.major}.{sys.version_info.minor} on this platform"
+        )
+
+    return best_url
 
 
 def _fix_windows_pyd(cache_dir: Path, package_subdir: str) -> None:
