@@ -57,6 +57,18 @@ if not _loader._ensure_pydantic_core_with_callbacks(on_error=_bootstrap_errors.a
         f"Failed to bootstrap pydantic_core for unit tests: {reason}"
     )
 
+# Bootstrap rpds the same way. We no longer vendor rpds (issue #54) — at runtime
+# the addon's ensure_rpds() finds it from Anki's environment. In unit tests there
+# is no Anki and aqt is stubbed (so the Qt-coupled download path can't run), so
+# we pre-seed rpds headlessly here. This makes the fast-path `import rpds` inside
+# anki_mcp_server.__init__'s ensure_rpds() a no-op, exactly like pydantic_core.
+_rpds_errors: list[str] = []
+if not _loader._ensure_rpds_with_callbacks(on_error=_rpds_errors.append):
+    reason = "; ".join(_rpds_errors) if _rpds_errors else "(no reason reported)"
+    raise RuntimeError(
+        f"Failed to bootstrap rpds for unit tests: {reason}"
+    )
+
 # ---------------------------------------------------------------------------
 # 2. Stub aqt (Anki's Qt wrapper) -- must come before any anki_mcp_server import
 # ---------------------------------------------------------------------------
