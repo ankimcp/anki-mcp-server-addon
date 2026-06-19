@@ -101,12 +101,22 @@ def _setup_vendor_path() -> None:
 _setup_vendor_path()
 
 # Now lazy-load pydantic_core binary before any imports that use pydantic
-from .dependency_loader import ensure_pydantic_core
+from .dependency_loader import ensure_pydantic_core, ensure_rpds
 
 if not ensure_pydantic_core():
     print("AnkiMCP Server Error: Failed to load pydantic_core. Addon will not function.")
     # Don't load the rest of the addon
     raise ImportError("AnkiMCP Server: pydantic_core not available")
+
+# Ensure rpds (the only compiled dep in the mcp -> jsonschema -> referencing
+# chain) is importable before that chain runs via the connection_manager import
+# below. We don't vendor rpds — the bundle can only carry one platform's binary,
+# which crashed on Windows / Linux-aarch64 / macOS-Intel (issue #54). Anki
+# normally provides rpds, so this is a no-op; otherwise it downloads the wheel.
+if not ensure_rpds():
+    print("AnkiMCP Server Error: Failed to load rpds. Addon will not function.")
+    # Don't load the rest of the addon
+    raise ImportError("AnkiMCP Server: rpds not available")
 
 """
 AnkiMCP Server - Model Context Protocol server addon for Anki.
