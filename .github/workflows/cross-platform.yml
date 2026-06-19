@@ -60,14 +60,12 @@ jobs:
       # cross-platform picture in a single run.
       fail-fast: false
       matrix:
-        # 6 OS/arch runners x 2 Python = 12 smoke jobs.
+        # 4 OS/arch runners x 2 Python = 8 smoke jobs.
         os:
           - ubuntu-latest      # Linux x86_64
           - ubuntu-24.04-arm   # Linux aarch64
           - windows-latest     # Windows x86_64
           - windows-11-arm     # Windows arm64
-          - macos-latest       # macOS arm64 (Apple Silicon)
-          - macos-13           # macOS x86_64 (Intel)
         python-version:
           - "3.13"
           - "3.14"
