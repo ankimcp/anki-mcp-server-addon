@@ -24,7 +24,10 @@ Wheel selection (``_find_wheel_url``) defers to ``packaging.tags.sys_tags()`` �
 the same interpreter-tag machinery pip uses — instead of ad-hoc substring
 matching. This gives correct architecture/ABI/platform resolution for free,
 including universal2 Apple-Silicon (issue #52) and free-threaded ``cp313t`` vs
-standard ``cp313`` interpreters (issue #54).
+standard ``cp313`` interpreters (issue #54). ``packaging`` is imported lazily
+inside ``_find_wheel_url`` (not at module level) so the module stays importable
+on source/Nix installs that don't provide it — same rationale as the other
+download-only native deps.
 """
 
 import sys
@@ -34,10 +37,6 @@ import zipfile
 import shutil
 from pathlib import Path
 from typing import Callable
-
-from packaging.tags import sys_tags
-from packaging.utils import parse_wheel_filename, InvalidWheelFilename
-from packaging.version import InvalidVersion
 
 CACHE_DIR = Path(__file__).parent / "_cache"
 
@@ -87,6 +86,19 @@ def _find_wheel_url(pypi_data: dict) -> str:
     universal2/Apple-Silicon special case (issue #52) and the ``cp313`` vs
     ``cp313t`` free-threaded confusion (issue #54).
     """
+    # ``packaging`` is imported here (function scope), not at module level, on
+    # purpose: it is only needed on the download path — exactly like the other
+    # download-only native deps (``pydantic_core``/``rpds``), which are also
+    # imported lazily inside their ensure-functions. Keeping it out of module
+    # scope means the addon stays importable on source/Nix installs that provide
+    # the addon's deps from nixpkgs but NOT ``packaging`` (those installs hit the
+    # ``import pydantic_core``/``import rpds`` fast-path or the
+    # ``_USING_SYSTEM_PACKAGES`` short-circuit and never reach wheel selection).
+    # Do NOT hoist this back to the top of the file.
+    from packaging.tags import sys_tags
+    from packaging.utils import parse_wheel_filename, InvalidWheelFilename
+    from packaging.version import InvalidVersion
+
     # Map each supported tag to its priority (lower index = higher priority).
     tag_priority = {tag: index for index, tag in enumerate(sys_tags())}
 

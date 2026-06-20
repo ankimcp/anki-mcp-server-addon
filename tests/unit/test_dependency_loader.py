@@ -7,7 +7,7 @@ interpreter-tag machinery pip uses — instead of ad-hoc substring matching.
 with the highest priority (smallest index) in ``sys_tags()``.
 
 These tests drive selection deterministically by monkeypatching
-``_dep_loader.sys_tags`` to return a controlled, ordered list of
+``packaging.tags.sys_tags`` to return a controlled, ordered list of
 ``packaging.tags.Tag`` objects representing a specific target interpreter, so
 the assertions don't depend on the machine the tests happen to run on.
 
@@ -72,7 +72,9 @@ def _url(filename: str) -> str:
 def _use_tags(monkeypatch: pytest.MonkeyPatch, tags: list[Tag]) -> None:
     """Make ``_find_wheel_url`` see ``tags`` (highest-priority-first) as the
     current interpreter's supported tags."""
-    monkeypatch.setattr(_dep_loader, "sys_tags", lambda: iter(tags))
+    import packaging.tags
+
+    monkeypatch.setattr(packaging.tags, "sys_tags", lambda: iter(tags))
 
 
 # Wheel filenames from a realistic pydantic_core release (standard cp313 ABI).
