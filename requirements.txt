@@ -6,3 +6,6 @@ mcp>=1.27.0,<2
 uvicorn>=0.30.0
 starlette>=0.38.0
 websockets>=12.0
+# Pure-Python (py3-none-any) wheel-tag library — used by dependency_loader to
+# pick the correct native wheel for the running interpreter, exactly as pip does.
+packaging>=23.0

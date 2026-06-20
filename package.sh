@@ -38,15 +38,56 @@ echo "=== Extracting wheels to vendor directory ==="
 mkdir -p "$VENDOR_DIR/shared"
 for wheel in "$WHEELS_DIR/pure"/*.whl; do
     if [ -f "$wheel" ]; then
-        # Skip pydantic-core if it somehow got downloaded
-        if [[ "$(basename "$wheel")" == pydantic_core-* ]]; then
-            echo "  Skipping pydantic_core (will be lazy-loaded at runtime)"
-            continue
-        fi
-        echo "  Extracting $(basename "$wheel") to shared/"
+        wheel_name="$(basename "$wheel")"
+        # Skip platform-specific binary wheels. These are NOT vendored because the
+        # bundle can only carry one platform's .so/.pyd, which crashes on other
+        # platforms. pydantic_core and rpds are instead ensured/downloaded at
+        # runtime (see dependency_loader.py). cryptography/cffi/pycparser are
+        # unused on the server path, so they're dropped entirely as dead weight.
+        case "$wheel_name" in
+            pydantic_core-*)
+                echo "  Skipping pydantic_core (downloaded at runtime — platform-specific binary)"
+                continue
+                ;;
+            rpds_py-*)
+                echo "  Skipping rpds_py (ensured/downloaded at runtime — platform-specific binary, issue #54)"
+                continue
+                ;;
+            cryptography-*)
+                echo "  Skipping cryptography (unused on server path — dropping native dead weight)"
+                continue
+                ;;
+            cffi-*)
+                echo "  Skipping cffi (unused on server path — dropping native dead weight)"
+                continue
+                ;;
+            pycparser-*)
+                echo "  Skipping pycparser (only a cffi dep — dead weight once cffi is gone)"
+                continue
+                ;;
+        esac
+        echo "  Extracting $wheel_name to shared/"
         unzip -q -o "$wheel" -d "$VENDOR_DIR/shared"
     fi
 done
+
+echo "=== Verifying no native binaries leaked into vendor ==="
+# Guardrail (issue #54): a future `mcp` bump could pull in a wrong-platform
+# native binary as a transitive dep and silently reintroduce the crash. Fail
+# the build if any compiled artifact from rpds/cryptography/cffi survived into
+# the bundle — these MUST be dropped or runtime-downloaded, never vendored.
+if find "$VENDOR_DIR/shared" \
+        \( -path '*/rpds/*' -o -path '*/cryptography/*' -o -path '*/cffi/*' \) \
+        \( -name '*.so' -o -name '*.pyd' \) 2>/dev/null | grep -q . \
+   || find "$VENDOR_DIR/shared" -maxdepth 1 -name '_cffi_backend.*' 2>/dev/null | grep -q .; then
+    echo "ERROR: native binary leaked into $VENDOR_DIR/shared (rpds/cryptography/cffi/_cffi_backend)." >&2
+    echo "       These must be skipped in the extraction loop or downloaded at runtime, not vendored." >&2
+    find "$VENDOR_DIR/shared" \
+        \( -path '*/rpds/*' -o -path '*/cryptography/*' -o -path '*/cffi/*' \) \
+        \( -name '*.so' -o -name '*.pyd' \) 2>/dev/null >&2
+    find "$VENDOR_DIR/shared" -maxdepth 1 -name '_cffi_backend.*' 2>/dev/null >&2
+    exit 1
+fi
 
 echo "=== Cleaning up ==="
 # Keep dist-info directories - needed for importlib.metadata.version()

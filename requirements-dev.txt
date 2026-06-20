@@ -1,3 +1,4 @@
 # Development dependencies for testing
 pytest>=9.0.0
 pytest-asyncio>=1.0.0
+packaging>=23.0
