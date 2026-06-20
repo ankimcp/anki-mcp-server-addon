@@ -28,6 +28,12 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>Toolbar status indicator</b> - A <code>● AnkiMCP</code> item in the top toolbar shows tunnel connection state at a glance (opt out via <code>show_toolbar_indicator</code>)</li>
 </ul>
 
+<h2>What's New in v0.21.2</h2>
+<ul>
+<li><b>Fix: startup crash on Windows, ARM Linux, and Intel Macs</b> - The add-on bundled a compiled <code>rpds</code> binary built only for macOS-arm64 and Linux-x86_64, so on every other platform the server failed to start with <code>ModuleNotFoundError: No module named 'rpds.rpds'</code> (surfacing on Anki 26.05+). The add-on no longer bundles <code>rpds</code> — it uses the copy Anki already provides, and only downloads the correct platform wheel at runtime if Anki doesn't supply one. Already-affected installs self-heal on the next launch (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/54">#54</a>)</li>
+<li><b>Fix: load failure on source/Nix installs</b> - The <code>packaging</code> library is now imported lazily, so source and Nix installs (which provide dependencies from the system) no longer crash on load with <code>ModuleNotFoundError: No module named 'packaging'</code>. Standard AnkiWeb installs were not affected by this one</li>
+</ul>
+
 <h2>What's New in v0.21.1</h2>
 <ul>
 <li><b>Fix: correct pydantic_core wheel on Apple Silicon</b> - On Macs running Anki's universal2 framework Python, the add-on downloaded the x86_64 <code>pydantic_core</code> wheel instead of the arm64 one, so the server crashed on startup with an "incompatible architecture" error. Architecture detection now uses <code>platform.machine()</code>, which correctly identifies arm64 regardless of how Python was built; already-affected installs self-heal on the next launch (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/52">#52</a>)</li>
