@@ -41,7 +41,7 @@ jobs:
 
       - name: Install Nix
         # Flakes are enabled by default with this action — no extra config needed.
-        uses: DeterminateSystems/nix-installer-action@v20
+        uses: DeterminateSystems/nix-installer-action@v22
 
       - name: Build addon derivation
         # No committed flake.lock, so --no-write-lock-file avoids the "cannot
