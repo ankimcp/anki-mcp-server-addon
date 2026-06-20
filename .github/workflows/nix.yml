@@ -1,0 +1,60 @@
+# Nix flake build + flake-deps import guard.
+#
+# The shipped .ankiaddon bundle is built by package.sh, which vendors EVERY
+# dependency from requirements.txt (packaging included) into vendor/shared. The
+# Nix flake takes a different path: `nix build .#addon` builds the derivation and
+# its postFixup REPLACES that vendored vendor/shared with symlinks to an explicit
+# list of nixpkgs-provided Python packages (mcp, pydantic, pydantic-core, rpds,
+# jsonschema, ...). Those two dependency sets are NOT the same set.
+#
+# This workflow catches the class of bug where the add-on adds a top-level
+# `import` of a package the bundle happens to ship but the flake's nixpkgs list
+# does NOT — which crashes the add-on on load under Nix while passing every
+# normal (package.sh) install. The import step below loads dependency_loader
+# using ONLY vendor/shared under a clean nixpkgs python3: green means the flake
+# provides everything the add-on hard-imports; red means a dep is missing from
+# flake.nix.
+
+name: Nix
+
+on:
+  # Scope to PRs into main and main itself (plus manual runs) — same policy as
+  # the other workflows; no need to fire on every feature-branch push.
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:  # Manual trigger (any branch)
+
+concurrency:
+  group: nix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nix-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install Nix
+        # Flakes are enabled by default with this action — no extra config needed.
+        uses: DeterminateSystems/nix-installer-action@v20
+
+      - name: Build addon derivation
+        # No committed flake.lock, so --no-write-lock-file avoids the "cannot
+        # write modified lock file" error. -L streams full build logs. Produces
+        # ./result with vendor/shared symlinked to nixpkgs deps (see postFixup).
+        run: nix build .#addon --no-write-lock-file -L
+
+      - name: Assert add-on imports under flake-provided deps only
+        # Import dependency_loader using ONLY vendor/shared (the flake's nixpkgs
+        # symlinks) under a clean nixpkgs python3. This is the guard: it fails
+        # with ModuleNotFoundError if the add-on hard-imports a package that
+        # flake.nix does not provide.
+        run: |
+          ADDON=result/share/anki/addons/anki-mcp-server
+          cd "$ADDON"
+          PYTHONPATH="vendor/shared" nix shell nixpkgs#python3 --command python3 -c "import dependency_loader; print('addon dependency_loader imported OK')"
