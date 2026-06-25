@@ -92,6 +92,7 @@ from .file_log import (
     init_file_logging,
     get_logger,
     log_diagnostics_snapshot,
+    _module_provenance,
 )
 
 init_file_logging(
@@ -177,12 +178,7 @@ def _setup_vendor_path() -> None:
         )
         for name in conflicts:
             try:
-                module = sys.modules.get(name)
-                version = getattr(module, "__version__", "unknown-version")
-                file = getattr(module, "__file__", "unknown-path")
-                logger.warning(
-                    "  conflict: %s == %s (%s)", name, version, file
-                )
+                logger.warning("  conflict: %s : %s", name, _module_provenance(name))
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning("  conflict: %s (introspection failed: %r)", name, exc)
 
