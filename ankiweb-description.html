@@ -26,6 +26,14 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>Tool filtering</b> - Disable specific tools or actions to reduce token usage</li>
 <li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
 <li><b>Toolbar status indicator</b> - A <code>● AnkiMCP</code> item in the top toolbar shows tunnel connection state at a glance (opt out via <code>show_toolbar_indicator</code>)</li>
+<li><b>Diagnostic logging</b> - Opt-in <code>log_to_file</code> writes a rotating, secret-redacted log to <code>user_files/ankimcp.log</code>, and the settings dialog adds "Open log folder" / "Copy diagnostics" buttons to make troubleshooting easy</li>
+</ul>
+
+<h2>What's New in v0.22.0</h2>
+<ul>
+<li><b>Diagnostic file logging</b> - New opt-in <code>log_to_file</code> setting writes a rotating log to <code>user_files/ankimcp.log</code> with secrets (API keys, tokens) redacted. The settings dialog gains "Open log folder" and "Copy diagnostics" buttons, so when the add-on can't start (for example a blocked <code>pydantic_core</code> download) you can capture and share the real cause instead of a cryptic error</li>
+<li><b>More resilient first-run dependency download</b> - The runtime <code>pydantic_core</code> download is hardened: it retries transient file locks, uses an atomic cache swap so a flaky re-download never destroys a working install, and reports the real failure reason (network, DNS, SSL, etc.) instead of a generic "not available"</li>
+<li><b>Clearer dependency-conflict diagnostics</b> - When another add-on has already loaded a shared library, the startup warning now reports the actual version and file path of the conflicting copy, making cross-add-on issues easier to pin down</li>
 </ul>
 
 <h2>What's New in v0.21.x</h2>
@@ -195,7 +203,8 @@ AI-powered study sessions, card creation, and collection management.</p>
   "media_import_dir": "",
   "media_allowed_types": [],
   "media_allowed_hosts": [],
-  "show_toolbar_indicator": true
+  "show_toolbar_indicator": true,
+  "log_to_file": false
 }
 </pre>
 
