@@ -204,7 +204,8 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "media_import_dir": "",
   "media_allowed_types": [],
   "media_allowed_hosts": [],
-  "show_toolbar_indicator": true
+  "show_toolbar_indicator": true,
+  "log_to_file": false
 }
 ```
 
@@ -229,6 +230,18 @@ A persistent `● AnkiMCP` item in Anki's top toolbar shows tunnel connection st
   "show_toolbar_indicator": false
 }
 ```
+
+### Diagnostic File Logging
+
+Set `log_to_file` to `true` to write a rotating log to `user_files/ankimcp.log` (~1 MB per file, 3 backups). It's **off by default**. When enabled, the addon records a startup diagnostics snapshot (addon/Anki/Qt/Python versions plus the live provenance of shared libraries like `pydantic`, `mcp`, `protobuf`, etc.), which is the key data for diagnosing cross-add-on conflicts. Secrets — the `http_api_key`, OAuth tokens, and any `Bearer` token — are **redacted** before anything is written to disk.
+
+```json
+{
+  "log_to_file": true
+}
+```
+
+The settings dialog (*Tools → AnkiMCP Server Settings…*) has an **Open log folder** button and a **Copy diagnostics** button (the same snapshot, formatted for pasting into a forum post). Takes effect after an Anki restart.
 
 ### Disabling Tools
 

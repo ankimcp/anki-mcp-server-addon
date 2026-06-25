@@ -30,15 +30,30 @@ on source/Nix installs that don't provide it — same rationale as the other
 download-only native deps.
 """
 
+import os
 import sys
 import json
+import logging
+import time
 import urllib.request
 import zipfile
 import shutil
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path(__file__).parent / "_cache"
+
+# Windows native-extension file lock (sharing violation). Established Windows
+# tooling (MSBuild, Go, npm) retries this transient class but NOT access-denied
+# (5) or missing (2/ENOENT), which don't clear on their own.
+_WINERROR_SHARING_VIOLATION = 32
+_WINERROR_ACCESS_DENIED = 5
+
+# Lock-only bounded retry schedule (seconds): ~50ms, 100ms, 200ms, 400ms.
+# Capped well under ~1s total across ~4 attempts.
+_LOCK_RETRY_DELAYS = (0.05, 0.10, 0.20, 0.40)
 
 # Pinned fallback version for the rpds download path.
 #
@@ -156,6 +171,226 @@ def _fix_windows_pyd(cache_dir: Path, package_subdir: str) -> None:
                 shutil.copy(pyd_file, simple_path)
 
 
+def _native_extension_path(cache_dir: Path, package_subdir: str) -> Optional[Path]:
+    """Locate the native extension file for a cached package.
+
+    Returns the path to the compiled module (``_pydantic_core*.pyd`` /
+    ``rpds*.pyd`` on Windows, ``*.so`` elsewhere) inside the cached package
+    directory, or None if none is found (e.g. cache not populated yet).
+    """
+    package_dir = cache_dir / package_subdir
+    if not package_dir.exists():
+        return None
+
+    suffix = ".pyd" if sys.platform == "win32" else ".so"
+    candidates = sorted(package_dir.glob(f"*{suffix}"))
+    return candidates[0] if candidates else None
+
+
+def _classify_native_load_error(exc: OSError) -> str:
+    """Classify a filesystem error opening a native extension.
+
+    A bare ``ImportError`` from a failed ``.pyd``/``.so`` load carries NO numeric
+    code (it's not an ``OSError`` subclass), which is why we pre-flight-open the
+    file: an ``OSError`` from ``open()`` DOES carry ``winerror``/``errno`` to
+    branch on.
+
+    Returns one of: ``"locked"`` (transient — safe to retry), ``"access-denied"``
+    (won't clear on its own), ``"missing"``, or ``"unknown"``.
+    """
+    # Windows: prefer the OS-specific winerror code when present.
+    if sys.platform == "win32":
+        winerror = getattr(exc, "winerror", None)
+        if winerror == _WINERROR_SHARING_VIOLATION:
+            return "locked"
+        if winerror == _WINERROR_ACCESS_DENIED:
+            return "access-denied"
+
+    import errno
+
+    if exc.errno == errno.ENOENT:
+        return "missing"
+    if exc.errno in (errno.EACCES, errno.EPERM):
+        return "access-denied"
+    if exc.errno in (errno.EBUSY, getattr(errno, "ETXTBSY", -1)):
+        return "locked"
+    return "unknown"
+
+
+def _preflight_native_extension(
+    cache_dir: Path, package_subdir: str, display_name: str
+) -> str:
+    """Open the cached native extension to surface lock/permission problems.
+
+    A plain ``import`` masks these as an opaque ``ImportError`` with no errno.
+    Opening the file first gives a real ``OSError`` with a code we can classify
+    and log. Returns the classification (``"ok"``, ``"locked"``,
+    ``"access-denied"``, ``"missing"``, or ``"unknown"``). ``"ok"`` means the
+    file either opened cleanly or isn't present to pre-check (let the normal
+    import path decide).
+    """
+    ext_path = _native_extension_path(cache_dir, package_subdir)
+    if ext_path is None:
+        # Nothing cached to probe — not an error; the caller's import handles it.
+        return "ok"
+
+    try:
+        # Open for read; on Windows a sharing violation / locked file raises here.
+        with open(ext_path, "rb") as fh:
+            fh.read(1)
+        return "ok"
+    except OSError as exc:
+        classification = _classify_native_load_error(exc)
+        # Keep the winerror branch Windows-only; elsewhere just log errno.
+        code_detail = (
+            f"winerror={getattr(exc, 'winerror', None)}"
+            if sys.platform == "win32"
+            else f"errno={exc.errno}"
+        )
+        logger.warning(
+            "Pre-flight open of %s native extension %s failed: %s [%s]: %r",
+            display_name,
+            ext_path.name,
+            classification,
+            code_detail,
+            exc,
+        )
+        return classification
+
+
+def _import_with_lock_retry(
+    import_fn: Callable[[], bool],
+    *,
+    cache_dir: Path,
+    package_subdir: str,
+    display_name: str,
+) -> bool:
+    """Pre-flight the cached native extension, then run the import probe — with a
+    lock-only bounded retry.
+
+    Why the pre-flight drives the retry (not the import itself): when a native
+    ``.pyd``/``.so`` is locked, the *import* surfaces an opaque ``ImportError``
+    with NO numeric code, so we can't tell a transient lock from a corrupt
+    binary from the import alone. The pre-flight ``open()`` of the same file
+    DOES raise an ``OSError`` carrying ``winerror``/``errno``, which we classify.
+
+    Per attempt we:
+      1. Pre-flight-open the extension (classifies lock vs access-denied vs
+         missing, and logs the detail).
+      2. If "locked" — a Windows sharing violation (WinError 32) or POSIX EBUSY —
+         back off and retry. This is the one class established Windows tooling
+         (MSBuild/Go/npm) retries because it clears on its own.
+      3. Any other classification ("ok"/"access-denied"/"missing"/"unknown") —
+         stop retrying and run the import probe once. Access-denied / missing do
+         NOT clear on their own, so retrying them is pointless; "ok" means the
+         file is loadable and we should just import it.
+
+    ``import_fn`` returns True on success (right version present) and False
+    otherwise (wrong version, or load failure caught internally). A False result
+    or a raised ``ImportError`` both mean "fall through to re-download".
+
+    Returns True if the import eventually succeeded, False otherwise.
+    """
+    for attempt, delay in enumerate((0.0, *_LOCK_RETRY_DELAYS)):
+        classification = _preflight_native_extension(
+            cache_dir, package_subdir, display_name
+        )
+        if classification == "locked":
+            # Transient — back off and retry the pre-flight, while we still have
+            # a backoff slot left.
+            if attempt < len(_LOCK_RETRY_DELAYS):
+                backoff = _LOCK_RETRY_DELAYS[attempt]
+                logger.info(
+                    "%s native extension is locked (attempt %d); backing off %dms...",
+                    display_name,
+                    attempt + 1,
+                    int(backoff * 1000),
+                )
+                time.sleep(backoff)
+                continue
+            # Exhausted retries while still locked — give up on the cache.
+            logger.warning(
+                "%s native extension still locked after %d retries; "
+                "falling through to re-download",
+                display_name,
+                len(_LOCK_RETRY_DELAYS),
+            )
+            return False
+
+        # Not locked ("ok", "access-denied", "missing", "unknown") — no point
+        # retrying. Run the import probe once.
+        try:
+            if attempt:
+                logger.info(
+                    "%s lock cleared after %d retr%s; importing",
+                    display_name,
+                    attempt,
+                    "y" if attempt == 1 else "ies",
+                )
+            return import_fn()
+        except ImportError as exc:
+            # Opaque native-load failure with no errno — can't distinguish a
+            # lock here, and the pre-flight already said it isn't locked, so
+            # treat as unusable and fall through to re-download.
+            logger.warning("%s import failed: %r", display_name, exc)
+            return False
+
+    return False
+
+
+def _atomic_swap_dir(temp_dir: Path, final_dir: Path) -> None:
+    """Atomically move ``temp_dir`` into place at ``final_dir``.
+
+    ``os.replace`` on a directory fails on Windows (and on POSIX too) when the
+    target already exists and is non-empty, so we can't just replace. Instead:
+
+      1. If ``final_dir`` exists, move it aside to a unique ``.old-*`` sibling.
+      2. ``os.replace`` (atomic rename) the temp dir into ``final_dir``.
+      3. Best-effort delete the moved-aside old dir.
+
+    If step 2 fails after the old dir was moved aside, we attempt to restore it
+    so we never leave the cache missing. The brief window between steps 1 and 2
+    is a rename-only gap (no copy), keeping it as small as possible.
+    """
+    old_dir: Optional[Path] = None
+    if final_dir.exists():
+        old_dir = final_dir.with_name(final_dir.name + f".old-{os.getpid()}-{int(time.time()*1000)}")
+        # Clear any stale leftover at the chosen name (extremely unlikely).
+        shutil.rmtree(old_dir, ignore_errors=True)
+        os.replace(final_dir, old_dir)
+
+    try:
+        os.replace(temp_dir, final_dir)
+    except OSError:
+        # Swap failed — restore the previous cache if we moved it aside, so the
+        # existing good cache is never lost.
+        if old_dir is not None and old_dir.exists() and not final_dir.exists():
+            try:
+                os.replace(old_dir, final_dir)
+            except OSError:
+                pass
+        raise
+
+    if old_dir is not None:
+        shutil.rmtree(old_dir, ignore_errors=True)
+
+
+def _sweep_stale_siblings(cache_dir: Path) -> None:
+    """Remove orphaned .tmp-* and .old-* sibling directories left by failed swaps.
+
+    Called at the start of each download attempt. Best-effort: any error is
+    silently ignored — the sweep must never block a download.
+    """
+    parent = cache_dir.parent
+    base = cache_dir.name
+    try:
+        for sibling in parent.iterdir():
+            if sibling.name.startswith(f"{base}.tmp-") or sibling.name.startswith(f"{base}.old-"):
+                shutil.rmtree(sibling, ignore_errors=True)
+    except Exception:
+        pass
+
+
 def _download_and_extract_wheel(
     *,
     display_name: str,
@@ -175,11 +410,31 @@ def _download_and_extract_wheel(
     ``cache_dir`` is the package's dedicated cache subdir (e.g.
     ``_cache/pydantic_core_pkg``). ``package_subdir`` is the importable package
     directory inside the wheel (e.g. ``"pydantic_core"`` or ``"rpds"``), used for
-    the Windows .pyd fixup. On success, writes ``.version`` + ``.complete``
-    markers and returns True. On failure, wipes ``cache_dir`` and returns False.
+    the Windows .pyd fixup.
+
+    Atomic temp-swap: the wheel is downloaded and extracted into a FRESH sibling
+    TEMP directory (``<cache_dir>.tmp-*``), the Windows .pyd fixup runs there, and
+    the ``.version`` + ``.complete`` markers are written there. Only once the temp
+    dir is fully built is it ATOMICALLY swapped into ``cache_dir``. A re-download
+    therefore never destroys an existing good cache and never leaves a
+    half-overwritten one. On ANY failure we clean up only the temp dir and leave
+    the existing cache untouched. On success, writes markers and returns True.
     """
-    marker_file = cache_dir / ".complete"
-    version_file = cache_dir / ".version"
+    # Sweep any orphaned temp/old siblings from previous failed swaps.
+    # These accumulate when a swap fails or the process is SIGKILL'd mid-rename.
+    # Best-effort: errors are silently ignored so this never blocks a download.
+    _sweep_stale_siblings(cache_dir)
+
+    # Fresh per-attempt temp dir, sibling of the final cache dir so the swap is a
+    # same-filesystem rename. Unique name avoids colliding with a concurrent run.
+    temp_dir = cache_dir.with_name(
+        cache_dir.name + f".tmp-{os.getpid()}-{int(time.time()*1000)}"
+    )
+    marker_file = temp_dir / ".complete"
+    version_file = temp_dir / ".version"
+
+    def _cleanup_temp() -> None:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
     try:
         on_status(f"Downloading {display_name} {expected_version} (first run only)...")
@@ -198,6 +453,7 @@ def _download_and_extract_wheel(
             raise RuntimeError(f"PyPI returned version {served_version}, expected {expected_version}")
 
         if is_cancelled():
+            _cleanup_temp()
             return False
 
         # Find correct wheel
@@ -208,9 +464,10 @@ def _download_and_extract_wheel(
         on_progress(10)
         yield_ui()
 
-        # Download wheel
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        wheel_path = cache_dir / wheel_name
+        # Build into the fresh temp dir (start clean in case a stale temp exists).
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        wheel_path = temp_dir / wheel_name
 
         def download_progress(block_num, block_size, total_size):
             if is_cancelled():
@@ -227,9 +484,10 @@ def _download_and_extract_wheel(
         urllib.request.urlretrieve(wheel_url, wheel_path, reporthook=download_progress)
 
         if is_cancelled():
+            _cleanup_temp()
             return False
 
-        # Extract wheel
+        # Extract wheel into the temp dir
         on_status("Extracting...")
         on_progress(85)
         yield_ui()
@@ -239,17 +497,26 @@ def _download_and_extract_wheel(
                 # Skip dist-info directory
                 if ".dist-info" in member:
                     continue
-                zf.extract(member, cache_dir)
+                zf.extract(member, temp_dir)
 
         # Remove wheel file
         wheel_path.unlink()
 
-        # Fix Windows .pyd naming
-        _fix_windows_pyd(cache_dir, package_subdir)
+        # Fix Windows .pyd naming (in the temp dir, before the swap)
+        _fix_windows_pyd(temp_dir, package_subdir)
 
-        # Mark complete with version
+        # Mark complete with version (markers are the LAST thing written, so a
+        # dir carrying them is known-good)
         version_file.write_text(expected_version)
         marker_file.touch()
+
+        # Atomically swap the fully-built temp dir into place.
+        # The old cache is moved aside first (to .old-*) and only deleted
+        # after the swap succeeds; if the swap fails it is restored. A SIGKILL
+        # in the rename window (after "move aside" but before "replace") leaves
+        # only the .old-* sibling — recovered on next startup by the
+        # .old-* sibling check in _ensure_*_with_callbacks.
+        _atomic_swap_dir(temp_dir, cache_dir)
 
         on_progress(100)
         on_status("Done!")
@@ -259,15 +526,24 @@ def _download_and_extract_wheel(
         cache_str = str(cache_dir)
         if cache_str not in sys.path:
             sys.path.insert(0, cache_str)
+        logger.info(
+            "%s %s downloaded and installed into cache via atomic swap",
+            display_name,
+            expected_version,
+        )
         return True
 
     except InterruptedError:
-        # User cancelled
-        shutil.rmtree(cache_dir, ignore_errors=True)
+        # User cancelled — only the temp dir is touched; the existing cache (if
+        # any) is left intact.
+        _cleanup_temp()
         return False
 
     except Exception as e:
-        shutil.rmtree(cache_dir, ignore_errors=True)
+        # Any failure: clean up ONLY the temp dir, leave the existing cache
+        # untouched so a previously-good install still works.
+        _cleanup_temp()
+        logger.error("Failed to download %s: %r", display_name, e)
         on_error(
             f"Failed to download {display_name}:\n\n{e}\n\n"
             "Please check your internet connection and try again."
@@ -306,6 +582,30 @@ def _ensure_pydantic_core_with_callbacks(
 
     pypi_url = f"https://pypi.org/pypi/pydantic-core/{required_version}/json"
 
+    # Recover from a crash in _atomic_swap_dir's rename window: if cache_dir
+    # doesn't exist but a .old-* sibling does, the SIGKILL hit between
+    # "move final_dir aside" and "os.replace(temp_dir, final_dir)". The old
+    # sibling IS the last good cache — put it back to avoid an unnecessary
+    # re-download. The entire block is best-effort: on a first-ever install
+    # the parent dir won't exist yet, and iterdir() would raise — we must
+    # never let recovery logic block the normal download path.
+    if not cache_dir.exists():
+        try:
+            parent = cache_dir.parent
+            old_siblings = sorted(
+                (p for p in parent.iterdir() if p.name.startswith(cache_dir.name + ".old-")),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if old_siblings:
+                os.replace(old_siblings[0], cache_dir)
+                logger.info(
+                    "pydantic_core cache recovered from orphaned .old-* sibling: %s",
+                    old_siblings[0].name,
+                )
+        except Exception:
+            pass
+
     # Validate cache version BEFORE prepending. A stale cache (from a previous
     # addon version that required a different pydantic_core) must NOT be put on
     # sys.path — otherwise the version-match probe below would accept it without
@@ -334,7 +634,13 @@ def _ensure_pydantic_core_with_callbacks(
     # where path-based ownership checks misfire. A system-provided pydantic_core
     # at a different version would ABI-mismatch our vendored pydantic, so reject
     # it and fall through to download.
-    try:
+    #
+    # The import is wrapped in a lock-only bounded retry (C2): a Windows sharing
+    # violation (WinError 32) is transient (e.g. AV scanner / another process
+    # momentarily holding the .pyd) and clears on its own, so we retry with short
+    # backoff. Access-denied / missing / corrupt are NOT retried — they don't
+    # clear — and fall through to a re-download.
+    def _probe_pydantic_core() -> bool:
         import pydantic_core
         if getattr(pydantic_core, "__version__", None) == required_version:
             return True
@@ -349,8 +655,17 @@ def _ensure_pydantic_core_with_callbacks(
                 and name not in pre_probe_modules
             ):
                 sys.modules.pop(name, None)
-    except ImportError:
-        pass
+        # Signal "not the right version" without raising — fall through to
+        # download. Returning False here means the retry loop stops immediately.
+        return False
+
+    if _import_with_lock_retry(
+        _probe_pydantic_core,
+        cache_dir=cache_dir,
+        package_subdir="pydantic_core",
+        display_name="pydantic_core",
+    ):
+        return True
 
     # Need to download
     return _download_and_extract_wheel(
@@ -402,6 +717,30 @@ def _ensure_rpds_with_callbacks(
     marker_file = cache_dir / ".complete"
     version_file = cache_dir / ".version"
 
+    # Recover from a crash in _atomic_swap_dir's rename window: if cache_dir
+    # doesn't exist but a .old-* sibling does, the SIGKILL hit between
+    # "move final_dir aside" and "os.replace(temp_dir, final_dir)". The old
+    # sibling IS the last good cache — put it back to avoid an unnecessary
+    # re-download. The entire block is best-effort: on a first-ever install
+    # the parent dir won't exist yet, and iterdir() would raise — we must
+    # never let recovery logic block the normal download path.
+    if not cache_dir.exists():
+        try:
+            parent = cache_dir.parent
+            old_siblings = sorted(
+                (p for p in parent.iterdir() if p.name.startswith(cache_dir.name + ".old-")),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if old_siblings:
+                os.replace(old_siblings[0], cache_dir)
+                logger.info(
+                    "rpds cache recovered from orphaned .old-* sibling: %s",
+                    old_siblings[0].name,
+                )
+        except Exception:
+            pass
+
     # Reuse a warm cache from a previous fallback download if it matches the pin.
     if marker_file.exists():
         cached_version = version_file.read_text().strip() if version_file.exists() else None
@@ -409,12 +748,24 @@ def _ensure_rpds_with_callbacks(
             cache_str = str(cache_dir)
             if cache_str not in sys.path:
                 sys.path.insert(0, cache_str)
-            try:
+
+            def _probe_rpds() -> bool:
                 import rpds  # noqa: F401
                 return True
-            except ImportError:
-                # Cache is on sys.path but unusable — wipe and re-download.
-                shutil.rmtree(cache_dir, ignore_errors=True)
+
+            # Pre-flight + lock-retry (C1/C2): a transient Windows lock is
+            # retried; access-denied / missing / corrupt fall through to wipe +
+            # re-download.
+            if _import_with_lock_retry(
+                _probe_rpds,
+                cache_dir=cache_dir,
+                package_subdir="rpds",
+                display_name="rpds",
+            ):
+                return True
+            # Cache is on sys.path but unusable (and not a transient lock) —
+            # wipe and re-download.
+            shutil.rmtree(cache_dir, ignore_errors=True)
         else:
             # Stale cache (different pin) — wipe so the download rebuilds it.
             shutil.rmtree(cache_dir, ignore_errors=True)

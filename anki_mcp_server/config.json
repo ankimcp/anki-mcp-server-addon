@@ -16,5 +16,6 @@
   "media_import_dir": "",
   "media_allowed_types": [],
   "media_allowed_hosts": [],
-  "show_toolbar_indicator": true
+  "show_toolbar_indicator": true,
+  "log_to_file": false
 }

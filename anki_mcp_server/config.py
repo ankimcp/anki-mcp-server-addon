@@ -84,6 +84,13 @@ class Config:
     # toolbar. Set false to hide it (takes effect after an Anki restart).
     show_toolbar_indicator: bool = True
 
+    # Optional rotating file logging for diagnostics. When true, the addon
+    # writes a log to user_files/ankimcp.log (rotating, ~1MB x 3 backups) and
+    # records a startup diagnostics snapshot (versions + loaded-module
+    # provenance). Secrets (API key, OAuth tokens, Bearer tokens) are redacted
+    # before they reach disk. Opt-in (default false); takes effect on restart.
+    log_to_file: bool = False
+
     def is_valid(self) -> tuple[bool, str]:
         """
         Check if config is valid.

@@ -400,10 +400,26 @@ class McpServer:
         async function. This is required because Qt owns the main thread's
         event loop.
 
+        Any exception escaping ``_async_main`` — whether from the setup phase
+        (building FastMCP, registering tools) or the serve phase (uvicorn) —
+        is caught and logged here with a full traceback. Without this guard the
+        background daemon thread would die silently (surfacing only via
+        ``threading.excepthook``), leaving a connected client to hang until it
+        times out. This mirrors how ``_run_tunnel`` already guards the tunnel
+        task. We catch ``BaseException`` for the same reason it does: anyio /
+        asyncio can surface ``BaseExceptionGroup`` here.
+
         Thread Safety:
             Runs in background thread. Never accesses Qt or Anki APIs directly.
         """
-        asyncio.run(self._async_main())
+        try:
+            asyncio.run(self._async_main())
+        except BaseException as exc:  # noqa: BLE001 - must not let the thread die silently
+            logger.error(
+                "MCP server background thread failed unexpectedly: %s",
+                exc,
+                exc_info=True,
+            )
 
     async def _call_main_thread(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """Bridge tool call to main thread via queue.

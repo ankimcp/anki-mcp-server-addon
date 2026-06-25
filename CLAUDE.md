@@ -388,6 +388,22 @@ Configured via addon settings (`cors_origins`, `cors_expose_headers`). Empty `co
 
 `Config.http_path` (default `""`) lets the operator move the MCP endpoint off `/` to an obscure prefix like `"my-secret"` → served at `/my-secret/`. Used for security-through-obscurity when exposing the server through a tunnel. Normalization happens in `mcp_server.py` (`streamable_path = f"/{http_path.strip('/')}/"`). Tests live in `tests/e2e/test_secret_path.py`.
 
+### Diagnostic File Logging (`file_log.py`)
+
+`Config.log_to_file` (default `False`, opt-in) enables a rotating log at `user_files/ankimcp.log` (`RotatingFileHandler`, ~1MB x 3 backups). `file_log.py` is **STDLIB-ONLY** by design — it must survive failures in the vendored layer (pydantic/mcp/...), so it must never import a vendored/third-party package. It is initialized in `__init__.py` **before** vendor-path setup and `ensure_pydantic_core()`, reading the flag via `_read_log_to_file_flag()` (stdlib-only: tries `mw.addonManager.getConfig`, falls back to reading `config.json` + `meta.json` off disk).
+
+Key pieces:
+- **Redaction**: `_RedactingFilter` masks the `http_api_key`, OAuth tokens, and any `Bearer <token>` before a record hits disk. Exact secrets are registered at runtime via `register_secret()` (api key in `_on_profile_opened`, tokens in `CredentialsManager.load/save`); `Bearer` tokens are masked structurally by regex. Never let a secret reach the file.
+- **Diagnostics snapshot**: `build_diagnostics_snapshot()` is the SINGLE source of truth for the startup-log block AND the "Copy diagnostics" settings button. It reports addon/Anki/Qt/Python versions and, for each shared lib (pydantic, pydantic_core, typing_extensions, mcp, starlette, uvicorn, google.protobuf, certifi, urllib3), inspects `sys.modules` WITHOUT force-importing — reporting `__version__`/`__file__` of the already-loaded copy (provenance for cross-add-on conflict diagnosis). Logged twice: pristine at `startup`, again `post-dependency-load`. Every field is gathered defensively.
+- **Logger naming**: the handler attaches to the addon's top-level logger (`__name__.split(".")[0]`), so every `logging.getLogger(__name__)` in the addon propagates into the file. The root logger is untouched (no unrelated Anki logging captured).
+
+The settings dialog embeds `DiagnosticsSection` (a QWidget like `TunnelSettingsSection`) with "Open log folder" (`QDesktopServices.openUrl`) and "Copy diagnostics" buttons. UI stays out of `file_log.py`; the snapshot builder lives in the stdlib-only module and is called from both startup and the button.
+
+### Background-thread / dependency-load resilience
+
+- The MCP server's background daemon thread target (`mcp_server.py` `_run`) wraps `asyncio.run(_async_main())` in a `try/except BaseException` that logs the full traceback (`exc_info=True`). Without it, any exception — setup phase (building FastMCP, registering tools) or serve phase (uvicorn) — would silently kill the thread, leaving a client to hang. Mirrors the existing `_run_tunnel` guard.
+- `dependency_loader.py` hardens the cached-`pydantic_core`/`rpds` load: a **pre-flight `open()`** of the native `.pyd`/`.so` surfaces lock/permission problems as an `OSError` with a real `winerror`/`errno` (a bare `import` masks them as an errno-less `ImportError`). `_classify_native_load_error` maps WinError 32 → locked (transient), 5 → access-denied, ENOENT → missing. `_import_with_lock_retry` retries ONLY the lock class with short exponential backoff (~50/100/200/400ms), never access-denied or missing. Re-downloads use an **atomic temp-swap** (`_atomic_swap_dir`): extract into a fresh sibling `.tmp-*` dir, write markers there, then `os.replace`-swap into the cache (moving any existing dir aside first, restoring it if the swap fails). A failed re-download therefore NEVER destroys an existing good cache.
+
 ### Transports (No Mode Enum)
 
 There is no `Config.mode` field and no `is_valid_for_mode()` — the addon does not model connectivity as a single selectable "mode." Instead it has two **independent** transports that can each be on or off at the same time:

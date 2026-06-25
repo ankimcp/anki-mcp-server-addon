@@ -19,11 +19,90 @@ from pathlib import Path
 
 __version__ = "0.21.2"
 
-# Packages we vendor — used for conflict detection AND system-package fallback checks
-_VENDOR_PACKAGES = ['mcp', 'pydantic', 'pydantic_core', 'starlette', 'uvicorn', 'anyio', 'httpx', 'websockets', 'packaging']
+# Packages we vendor directly (we ship our own copy under vendor/shared). This
+# is the set used for the system-package FALLBACK check on source/Nix installs:
+# if vendor/ is absent, ALL of these must be importable from the system, else we
+# abort with an actionable message. Keep this list to genuinely-required deps so
+# we don't reject otherwise-fine source installs over an optional transitive.
+_VENDOR_PACKAGES = [
+    'mcp', 'pydantic', 'pydantic_core', 'starlette', 'uvicorn', 'anyio',
+    'httpx', 'websockets', 'packaging',
+]
+
+# Broader watch list for CONFLICT detection only (never used for the fallback
+# import check). Adds shared transitive libraries that heavyweight add-ons
+# (notably AnkiHub) also bundle and that can collide with our vendored copies:
+# if another add-on already loaded its own copy before our vendor path is
+# prepended, that copy wins for the whole process. We log the provenance (whose
+# copy is live) — advisory only, never aborts. ``google.protobuf`` is the
+# importable module name for the protobuf dependency.
+_CONFLICT_WATCH_PACKAGES = _VENDOR_PACKAGES + [
+    'typing_extensions', 'google.protobuf', 'certifi', 'urllib3',
+    'charset_normalizer',
+]
 
 # Set to True when running from source with system-provided packages (e.g. Nix)
 _USING_SYSTEM_PACKAGES = False
+
+
+def _read_log_to_file_flag() -> bool:
+    """Read the ``log_to_file`` config flag using ONLY the standard library.
+
+    Called before any vendored import so file logging can capture failures that
+    happen during dependency loading. Must not depend on vendored packages or on
+    our own config dataclass (which imports may not be safe yet).
+
+    Tries Anki's addon config first (the supported path); falls back to reading
+    the shipped ``config.json`` merged with Anki's ``meta.json`` user overrides
+    directly off disk. Any failure yields ``False`` (logging stays off).
+    """
+    addon_dir = Path(__file__).parent
+
+    # Preferred: Anki's addon manager (already available when add-ons import).
+    try:
+        from aqt import mw  # stdlib-adjacent; Anki's own module, not vendored
+
+        if mw is not None and getattr(mw, "addonManager", None) is not None:
+            raw = mw.addonManager.getConfig(__name__.split(".")[0]) or {}
+            return bool(raw.get("log_to_file", False))
+    except Exception:
+        pass
+
+    # Fallback: read config.json (defaults) + meta.json (user overrides) directly.
+    try:
+        import json
+
+        merged: dict = {}
+        config_path = addon_dir / "config.json"
+        if config_path.exists():
+            merged.update(json.loads(config_path.read_text(encoding="utf-8")))
+        meta_path = addon_dir / "meta.json"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            if isinstance(meta, dict) and isinstance(meta.get("config"), dict):
+                merged.update(meta["config"])
+        return bool(merged.get("log_to_file", False))
+    except Exception:
+        return False
+
+
+# Initialize file logging FIRST — before vendor-path setup and dependency
+# loading — so any failure in that layer is captured. file_log is stdlib-only.
+from .file_log import (
+    init_file_logging,
+    get_logger,
+    log_diagnostics_snapshot,
+)
+
+init_file_logging(
+    enabled=_read_log_to_file_flag(),
+    user_files_dir=Path(__file__).parent / "user_files",
+)
+
+# Startup diagnostics snapshot (no-op when logging is disabled). Captured before
+# vendored imports so it reflects the pristine module table (what other add-ons
+# loaded before us).
+log_diagnostics_snapshot(__version__, label="startup")
 
 
 def _check_system_packages(packages: list[str]) -> list[str]:
@@ -48,7 +127,7 @@ def _check_vendor_conflicts() -> list[str]:
         return []
 
     conflicts = []
-    for pkg in _VENDOR_PACKAGES:
+    for pkg in _CONFLICT_WATCH_PACKAGES:
         if pkg in sys.modules:
             conflicts.append(pkg)
     return conflicts
@@ -81,11 +160,31 @@ def _setup_vendor_path() -> None:
     # Check for conflicts before adding to path
     conflicts = _check_vendor_conflicts()
     if conflicts:
+        # Console warning for users running Anki from a terminal.
         print(
             f"AnkiMCP Server Warning: Packages {conflicts} already loaded by another addon. "
             "This may cause compatibility issues. If you experience problems, "
             "try disabling other addons that might use these packages."
         )
+        # Route the real detail (whose copy is live) to the file log. Advisory
+        # only — we never abort. Each entry is gathered defensively so one bad
+        # module object can't break the loop.
+        logger = get_logger()
+        logger.warning(
+            "Vendor conflict: %d package(s) already loaded by another add-on "
+            "before our vendor path was prepended.",
+            len(conflicts),
+        )
+        for name in conflicts:
+            try:
+                module = sys.modules.get(name)
+                version = getattr(module, "__version__", "unknown-version")
+                file = getattr(module, "__file__", "unknown-path")
+                logger.warning(
+                    "  conflict: %s == %s (%s)", name, version, file
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("  conflict: %s (introspection failed: %r)", name, exc)
 
     shared_vendor = vendor_dir / "shared"
 
@@ -105,6 +204,13 @@ from .dependency_loader import ensure_pydantic_core, ensure_rpds
 
 if not ensure_pydantic_core():
     print("AnkiMCP Server Error: Failed to load pydantic_core. Addon will not function.")
+    # Log the real failure detail (the pre-flight classification from the
+    # dependency loader already wrote diagnostics; this records that the
+    # addon is aborting because of it).
+    get_logger().error(
+        "Aborting addon import: ensure_pydantic_core() returned False. "
+        "See preceding file-log entries for the underlying failure detail."
+    )
     # Don't load the rest of the addon
     raise ImportError("AnkiMCP Server: pydantic_core not available")
 
@@ -115,8 +221,13 @@ if not ensure_pydantic_core():
 # normally provides rpds, so this is a no-op; otherwise it downloads the wheel.
 if not ensure_rpds():
     print("AnkiMCP Server Error: Failed to load rpds. Addon will not function.")
+    get_logger().error("Aborting addon import: ensure_rpds() returned False.")
     # Don't load the rest of the addon
     raise ImportError("AnkiMCP Server: rpds not available")
+
+# Re-log provenance after dependency loading so we can see what loaded as a
+# result of our startup (vs the pristine pre-vendor snapshot above).
+log_diagnostics_snapshot(__version__, label="post-dependency-load")
 
 """
 AnkiMCP Server - Model Context Protocol server addon for Anki.
@@ -144,6 +255,7 @@ from aqt.utils import showInfo, showWarning
 
 from .config import Config, ConfigManager
 from .connection_manager import ConnectionManager
+from .diagnostics_section import DiagnosticsSection
 from .http_auth import validate_http_api_key
 from .tool_decorator import validate_disabled_tools, validate_enabled_destructive_tools
 from .transport_security_config import validate_http_allowlist
@@ -184,6 +296,11 @@ def _on_profile_opened() -> None:
 
     _config_manager = ConfigManager(addon_package)
     config = _config_manager.load()
+
+    # Register the API key as a secret so file logging never writes it to disk
+    # (OAuth tokens register themselves via CredentialsManager when loaded).
+    from .file_log import register_secret
+    register_secret(config.http_api_key)
 
     # Validate config and collect warnings for the user
     warnings: list[str] = []
@@ -323,6 +440,17 @@ def _show_settings() -> None:
     sep2 = QFrame(frameShape=QFrame.Shape.HLine)
     sep2.setFrameShadow(QFrame.Shadow.Sunken)
     layout.addWidget(sep2)
+    layout.addSpacing(6)
+
+    # -- Diagnostics section --
+    diagnostics_section = DiagnosticsSection(_connection_manager, config, parent=dialog)
+    layout.addWidget(diagnostics_section)
+    layout.addSpacing(6)
+
+    # -- Separator --
+    sep3 = QFrame(frameShape=QFrame.Shape.HLine)
+    sep3.setFrameShadow(QFrame.Shadow.Sunken)
+    layout.addWidget(sep3)
     layout.addSpacing(6)
 
     # -- Footer --

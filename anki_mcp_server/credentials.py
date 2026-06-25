@@ -109,6 +109,11 @@ class CredentialsManager:
             logger.warning("Credentials file missing required keys: %s", missing)
             return None
 
+        # Register the tokens as secrets so file logging redacts them. Done here
+        # (and in save) so any later log line that happens to carry a token never
+        # reaches disk in the clear.
+        _register_token_secrets(data["access_token"], data["refresh_token"])
+
         return Credentials(
             access_token=data["access_token"],
             refresh_token=data["refresh_token"],
@@ -133,6 +138,9 @@ class CredentialsManager:
         except OSError as exc:
             logger.error("Failed to create credentials directory: %s", exc)
             return
+
+        # Redact these tokens from any future file-log output.
+        _register_token_secrets(credentials.access_token, credentials.refresh_token)
 
         try:
             data = asdict(credentials)
@@ -193,6 +201,25 @@ class CredentialsManager:
         now = datetime.now(timezone.utc)
         remaining = (expires_at - now).total_seconds()
         return remaining <= self.EXPIRY_BUFFER_SECONDS
+
+
+# --------------------------------------------------------------------------
+# Secret registration helper
+# --------------------------------------------------------------------------
+def _register_token_secrets(*tokens: str) -> None:
+    """Register OAuth tokens with the file-log redactor (best-effort).
+
+    Kept defensive: failure to register a secret must never break credential
+    I/O. ``file_log`` is stdlib-only, so this import is safe even very early in
+    startup.
+    """
+    try:
+        from .file_log import register_secret
+
+        for token in tokens:
+            register_secret(token)
+    except Exception:  # pragma: no cover - defensive
+        pass
 
 
 # --------------------------------------------------------------------------
