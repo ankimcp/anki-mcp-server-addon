@@ -5,6 +5,13 @@ on:
     tags:
       - 'v*.*.*'
 
+# Only one release run per tag. A re-pushed tag (delete + re-push, which fires a
+# fresh push event) cancels any in-progress run for that tag instead of spawning
+# a second run that would race to create the same GitHub Release.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
