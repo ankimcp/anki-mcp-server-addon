@@ -1,4 +1,4 @@
-"""E2E tests for tool filtering (disabled_tools config).
+"""E2E tests for tool filtering (disabled_tools + enabled_destructive_tools).
 
 These tests run against a filtered container (port 3142) with the following
 disabled_tools config:
@@ -6,13 +6,19 @@ disabled_tools config:
     - "card_management:bury"   (single action disabled)
     - "card_management:unbury" (single action disabled)
 
+The filtered config ALSO opts a destructive action in via:
+    enabled_destructive_tools: ["model_fields:remove"]
+so the otherwise-hidden ``model_fields:remove`` action is revealed here (the
+REVEAL half of the destructive hide/reveal coverage; the HIDE half lives in
+test_destructive_tools_e2e.py against the default server).
+
 Run with:
     MCP_SERVER_URL=http://localhost:3142 pytest tests/e2e/test_tool_filtering_e2e.py -v
 """
 from __future__ import annotations
 
 from .conftest import unique_id
-from .helpers import call_tool, list_tools
+from .helpers import call_tool, list_tools, schema_action_names
 
 
 # Actions that should remain after filtering bury + unbury out
@@ -33,44 +39,6 @@ def _get_tool_by_name(tools: list[dict], name: str) -> dict | None:
         if t["name"] == name:
             return t
     return None
-
-
-def _get_schema_action_names(tool: dict) -> set[str]:
-    """Extract action names from a multi-action tool's inputSchema.
-
-    Looks in the JSON Schema for discriminated union variants. The schema
-    uses ``oneOf`` with each variant containing an ``action`` property
-    whose ``const`` or ``enum`` value identifies the action.
-    """
-    schema = tool.get("inputSchema", {})
-    action_names: set[str] = set()
-
-    # Navigate into the params property which holds the discriminated union
-    params_schema = (
-        schema.get("properties", {})
-        .get("params", {})
-    )
-
-    # Pydantic may produce oneOf or anyOf depending on version
-    variants = params_schema.get("oneOf", []) or params_schema.get("anyOf", [])
-    for variant in variants:
-        action_prop = variant.get("properties", {}).get("action", {})
-        # Pydantic uses "const" for Literal with single value
-        if "const" in action_prop:
-            action_names.add(action_prop["const"])
-        # Or "enum" with a single element
-        elif "enum" in action_prop:
-            for v in action_prop["enum"]:
-                action_names.add(v)
-
-    # Some Pydantic versions use $defs + $ref -- fallback: check the
-    # discriminator mapping if present
-    if not action_names:
-        discriminator = params_schema.get("discriminator", {})
-        mapping = discriminator.get("mapping", {})
-        action_names = set(mapping.keys())
-
-    return action_names
 
 
 class TestDisabledWholeTool:
@@ -101,7 +69,7 @@ class TestDisabledActions:
         cm_tool = _get_tool_by_name(tools, "card_management")
         assert cm_tool is not None, "card_management tool should exist"
 
-        schema_actions = _get_schema_action_names(cm_tool)
+        schema_actions = schema_action_names(cm_tool)
         assert len(schema_actions) > 0, "Could not extract action names from schema"
         assert "bury" not in schema_actions, (
             f"bury should be filtered out, but found in schema actions: {schema_actions}"
@@ -116,7 +84,7 @@ class TestDisabledActions:
         cm_tool = _get_tool_by_name(tools, "card_management")
         assert cm_tool is not None
 
-        schema_actions = _get_schema_action_names(cm_tool)
+        schema_actions = schema_action_names(cm_tool)
         for action in _EXPECTED_ENABLED_ACTIONS:
             assert action in schema_actions, (
                 f"Expected action '{action}' missing from schema. "
@@ -184,3 +152,30 @@ class TestDisabledActions:
         assert result.get("isError") is not True
         assert "suspended_count" in result
         assert result["suspended_count"] == 1
+
+
+class TestEnabledDestructiveAction:
+    """REVEAL half: opting in via enabled_destructive_tools exposes the action.
+
+    The filtered config sets enabled_destructive_tools: ["model_fields:remove"],
+    so the destructive remove action -- hidden by default -- appears in the
+    model_fields schema here.
+    """
+
+    def test_destructive_action_revealed_in_schema(self):
+        """remove appears alongside add/rename/reposition when opted in."""
+        tools = list_tools()
+        mf_tool = _get_tool_by_name(tools, "model_fields")
+        assert mf_tool is not None, "model_fields tool should exist"
+
+        schema_actions = schema_action_names(mf_tool)
+        assert len(schema_actions) > 0, "Could not extract action names from schema"
+        assert "remove" in schema_actions, (
+            f"remove should be revealed via enabled_destructive_tools, but was "
+            f"not found in schema actions: {schema_actions}"
+        )
+        for action in ("add", "rename", "reposition"):
+            assert action in schema_actions, (
+                f"Expected non-destructive action '{action}' to remain. "
+                f"Found: {schema_actions}"
+            )

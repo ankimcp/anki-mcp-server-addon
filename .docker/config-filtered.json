@@ -6,5 +6,8 @@
     "sync",
     "card_management:bury",
     "card_management:unbury"
+  ],
+  "enabled_destructive_tools": [
+    "model_fields:remove"
   ]
 }

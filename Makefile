@@ -85,7 +85,7 @@ e2e-filtered-down:
 
 # Run filtered E2E tests (assumes filtered container is running)
 e2e-filtered-test:
-	MCP_SERVER_URL=http://localhost:3142 pytest tests/e2e/test_tool_filtering_e2e.py -v
+	MCP_SERVER_URL=http://localhost:3142 pytest tests/e2e/test_tool_filtering_e2e.py tests/e2e/test_model_fields_remove.py -v
 
 # Show filtered container logs
 e2e-filtered-logs:

@@ -1,40 +1,35 @@
-"""E2E smoke test for the destructive-tools opt-in mechanism (issue #46).
+"""E2E coverage for the destructive-tools opt-in mechanism (issue #46).
 
-SCOPE / DELIBERATE LIMITATION
------------------------------
-This is a MINIMAL smoke test, not full hide/reveal coverage. The shipping
-codebase flags NOTHING as destructive yet -- the ``destructive=True`` /
-``_destructive`` machinery exists, but no real tool or action uses it. A full
-end-to-end hide/reveal test (assert a destructive tool is absent from
-``tools/list`` by default, then present after opting it in via
-``enabled_destructive_tools``) requires a real destructive tool/action to
-exist in the schema.
+SCOPE
+-----
+A real destructive action now exists: ``model_fields:remove`` (its Params model
+sets ``_destructive = True``), making it the codebase's first destructive
+action. Destructive actions are HIDDEN from ``tools/list`` unless the operator
+opts in via ``enabled_destructive_tools``. Full hide/reveal coverage is split
+across the two E2E suites:
 
-That tool does not exist yet: it arrives with the deferred deck-management
-work (the planned ``deck_management`` subpackage / ``delete_decks`` etc., see
-PR #45 group 2, which issue #46 explicitly unblocks). We intentionally do NOT
-add a fake destructive tool to the shipping code just to enable an E2E case --
-that would pollute the production tool inventory. Wiring a destructive-tool
-config into the filtered E2E compose would likewise require shipping-code
-changes, so it is intentionally NOT done here.
+  * HIDE half (this file): runs against the DEFAULT, unfiltered server (port
+    3141, ``.docker/config.json``), which does NOT set
+    ``enabled_destructive_tools``. So ``model_fields`` is present but its schema
+    must NOT advertise the ``remove`` action -- it is hidden by default.
+  * REVEAL half + behavioral remove tests: run in the filtered suite (port
+    3142, ``.docker/config-filtered.json``), which opts in via
+    ``enabled_destructive_tools: ["model_fields:remove"]``. See
+    ``test_tool_filtering_e2e.py`` (reveal assertion) and
+    ``test_model_fields_remove.py`` (behavioral remove tests).
 
-Until then:
-  * The GATING LOGIC (whole-tool + per-action hide/reveal, precedence with
-    disabled_tools, opt-in validation, the write-guard ValueError) is fully
-    covered by the unit suite: ``tests/unit/test_destructive_tools.py``.
-  * This file only asserts the SAFETY PROPERTY for the current state: adding
-    the ``enabled_destructive_tools`` config key + the gating code path did
-    NOT accidentally hide or alter the normal toolset when no tool is flagged
-    destructive.
+This file also asserts a SAFETY PROPERTY: the destructive gate must not hide or
+alter the normal (non-destructive) toolset.
 
-When a real destructive tool lands, extend this file (and likely the filtered
-compose under ``.docker/``) with the proper hide/reveal assertions.
+The GATING LOGIC (whole-tool + per-action hide/reveal, precedence with
+disabled_tools, opt-in validation, the write-guard ValueError) is unit-covered
+in ``tests/unit/test_destructive_tools.py``.
 
 Runs against the default (unfiltered) server -- typically port 3141.
 """
 from __future__ import annotations
 
-from .helpers import list_tools
+from .helpers import list_tools, schema_action_names
 
 
 # Tools that exist today and must remain visible -- the destructive gate must
@@ -93,3 +88,38 @@ class TestDestructiveGateDoesNotHideNormalTools:
             "card_management schema lost its action variants -- the per-action "
             "destructive gate may have wrongly filtered a non-destructive tool"
         )
+
+
+class TestDestructiveActionHiddenByDefault:
+    """HIDE half: model_fields:remove is destructive and hidden by default.
+
+    Runs against the default, unfiltered server (port 3141), which does NOT set
+    enabled_destructive_tools -- so the remove action must be absent from the
+    model_fields schema while the tool itself stays present.
+    """
+
+    def test_model_fields_tool_present(self):
+        """The model_fields tool itself is exposed (only the action is hidden)."""
+        tools = list_tools()
+        names = {t["name"] for t in tools}
+        assert "model_fields" in names, (
+            f"model_fields tool should be present. Found: {sorted(names)}"
+        )
+
+    def test_remove_action_hidden_but_others_present(self):
+        """remove is absent from the schema; add/rename/reposition remain."""
+        tools = list_tools()
+        mf = next((t for t in tools if t["name"] == "model_fields"), None)
+        assert mf is not None, "model_fields tool should be present"
+
+        actions = schema_action_names(mf)
+        assert actions, "Could not extract action names from model_fields schema"
+        assert "remove" not in actions, (
+            f"remove is destructive and must be hidden by default, but found "
+            f"in schema actions: {sorted(actions)}"
+        )
+        for action in ("add", "rename", "reposition"):
+            assert action in actions, (
+                f"Expected non-destructive action '{action}' to remain. "
+                f"Found: {sorted(actions)}"
+            )
