@@ -142,6 +142,44 @@ def list_prompts() -> list[dict[str, Any]]:
     return result.get("prompts", [])
 
 
+def schema_action_names(tool: dict) -> set[str]:
+    """Extract the discriminated-union action names from a tool's inputSchema.
+
+    Multi-action tools (card_management, model_fields, ...) expose a Pydantic
+    discriminated union under ``inputSchema.properties.params``. Depending on the
+    Pydantic/MCP-SDK version the action names surface in two places, and which
+    one the live schema emits is not guaranteed -- so this collects from BOTH and
+    unions them (ordering is therefore irrelevant):
+
+    * ``params.oneOf`` / ``params.anyOf`` variants, each carrying an ``action``
+      property whose ``const`` (single ``Literal``) or ``enum`` lists the value.
+    * ``params.discriminator.mapping`` keys (the literal action values).
+
+    Returns the set of action names; empty if the tool is not a multi-action
+    tool or its schema advertises no actions.
+    """
+    params_schema = (
+        tool.get("inputSchema", {})
+        .get("properties", {})
+        .get("params", {})
+    )
+
+    action_names: set[str] = set()
+
+    # Collect from oneOf/anyOf union variants.
+    for variant in params_schema.get("oneOf", []) or params_schema.get("anyOf", []):
+        action_prop = variant.get("properties", {}).get("action", {})
+        if "const" in action_prop:
+            action_names.add(action_prop["const"])
+        action_names.update(action_prop.get("enum", []))
+
+    # Collect from the discriminator mapping keys.
+    mapping = params_schema.get("discriminator", {}).get("mapping", {})
+    action_names.update(mapping.keys())
+
+    return action_names
+
+
 def get_prompt(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     """Get an MCP prompt by name.
 
