@@ -27,6 +27,12 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
 <li><b>Toolbar status indicator</b> - A <code>● AnkiMCP</code> item in the top toolbar shows tunnel connection state at a glance (opt out via <code>show_toolbar_indicator</code>)</li>
 <li><b>Diagnostic logging</b> - Opt-in <code>log_to_file</code> writes a rotating, secret-redacted log to <code>user_files/ankimcp.log</code>, and the settings dialog adds "Open log folder" / "Copy diagnostics" buttons to make troubleshooting easy</li>
+<li><b>Field management</b> - Add, rename, and reposition note-type fields from AI clients via the <code>model_fields</code> tool (with an opt-in destructive remove)</li>
+</ul>
+
+<h2>What's New in v0.23.0</h2>
+<ul>
+<li><b>Manage note-type fields</b> - New <code>model_fields</code> tool adds, renames, and repositions fields on an existing note type, so AI clients can reshape a note type without opening the Fields dialog by hand. A fourth action, <code>remove</code>, permanently deletes a field and all its content, so it's treated as destructive: hidden from MCP clients by default and revealed only when you opt in via <code>enabled_destructive_tools</code>. Every action changes the note-type schema, so each result warns that the next sync will be a one-way full sync (overwriting AnkiWeb and your other devices); renames also flag that <code>{{Field}}</code> references in card templates aren't rewritten automatically (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/57">#57</a>)</li>
 </ul>
 
 <h2>What's New in v0.22.0</h2>
@@ -144,6 +150,7 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>card_management</b> - 9 actions: reposition, change_deck, bury, unbury, suspend, unsuspend, set_flag, set_due_date, forget_cards</li>
 <li><b>tag_management</b> - 6 actions: add_tags, remove_tags, replace_tags, get_tags, clear_unused_tags, batch_tags</li>
 <li><b>filtered_deck</b> - 5 actions: create_or_update, rebuild, empty, delete, get_info</li>
+<li><b>model_fields</b> - Manage note-type fields: add, rename, reposition (plus an opt-in destructive remove). Each action triggers a one-way full sync on the next sync</li>
 </ul>
 
 <h3>FSRS Tools</h3>
@@ -197,6 +204,7 @@ AI-powered study sessions, card creation, and collection management.</p>
   "cors_origins": [],
   "cors_expose_headers": ["mcp-protocol-version"],
   "disabled_tools": [],
+  "enabled_destructive_tools": [],
   "max_notes_per_batch": 100,
   "tunnel_server_url": "wss://tunnel.ankimcp.ai",
   "tunnel_client_id": "ankimcp-cli",
@@ -213,6 +221,8 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><code>"sync"</code> — disables the entire tool</li>
 <li><code>"card_management:bury"</code> — disables a specific action</li>
 </ul>
+
+<p>Use <code>enabled_destructive_tools</code> to opt in to high-risk actions that are hidden by default, e.g. <code>"model_fields:remove"</code> to expose the destructive field-removal action.</p>
 
 <h2>Requirements</h2>
 <p>Anki 25.07 or later (Python 3.13). Earlier versions ship Python 3.9 which is not supported.</p>
