@@ -29,6 +29,7 @@ On first run, this addon downloads `pydantic_core` (~2MB) from PyPI. This is req
 - **Optional API key** - Require an `Authorization: Bearer` token on the HTTP transport via [`http_api_key`](#api-key-optional-http-auth) (AnkiConnect-style; empty = disabled)
 - **Toolbar indicator** - A `● AnkiMCP` item in the top toolbar shows tunnel connection state at a glance (opt out via `show_toolbar_indicator`)
 - **Diagnostic logging** - Opt-in [`log_to_file`](#diagnostic-file-logging) writes a rotating, secret-redacted log to `user_files/ankimcp.log`, with **Open log folder** / **Copy diagnostics** buttons in settings
+- **Field management** - Add, rename, and reposition note-type fields via the `model_fields` tool (with an opt-in [destructive](#destructive-tools-opt-in) remove)
 - **Cross-platform** - Works on macOS, Windows, and Linux (x64 and ARM)
 
 ## Installation
@@ -431,6 +432,7 @@ Optional hardening via config:
 | `update_model_styling` | Update CSS styling for a note type |
 | `model_templates` | Read the Front/Back HTML templates for each card type in a note type |
 | `update_model_templates` | Update Front/Back template HTML. Rejects unrecognized keys (case-sensitive) and unknown template names up front, applying all edits atomically — a failed call leaves the model unchanged |
+| `model_fields` | Manage fields on an existing note type: `add` (optionally at a 0-based index), `rename` (preserves content; card templates are **not** auto-updated), `reposition` (reorder). A `remove` action also exists but is [destructive](#destructive-tools-opt-in) — hidden unless opted in via `enabled_destructive_tools`. Every action is a schema change that forces a one-way full sync |
 | `create_model` | Create a new note type |
 | `store_media_file` | Store a media file (image/audio) via base64, file path, or URL. File paths are validated against a media-type allowlist; URLs are checked for SSRF |
 | `get_media_files_names` | List media files matching a pattern |
