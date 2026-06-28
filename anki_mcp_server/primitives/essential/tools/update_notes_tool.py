@@ -28,12 +28,14 @@ class NoteUpdateEntry(BaseModel):
     "Update the fields of multiple existing notes in a single batch. "
     "Each entry must include the note ID and the fields to update (partial updates are fine - "
     "only specified fields are changed). Failures for individual notes do not affect others. "
+    "Use dry_run=true to validate all entries and preview which notes would be updated "
+    "without writing any changes — useful before committing a large bulk edit. "
     "IMPORTANT: Only update notes that the user explicitly asked to modify. "
     "Returns summary counts (updated, failed) and a per-note results array with "
     "retry hints for recoverable failures.",
     write=True,
 )
-def update_notes(notes: list[NoteUpdateEntry]) -> dict[str, Any]:
+def update_notes(notes: list[NoteUpdateEntry], dry_run: bool = False) -> dict[str, Any]:
     from anki.errors import NotFoundError
 
     col = get_col()
@@ -140,6 +142,34 @@ def update_notes(notes: list[NoteUpdateEntry]) -> dict[str, Any]:
         valid_notes.append(anki_note)
         valid_field_names.append(list(fields.keys()))
 
+    # --- Dry run: validate only, skip writes ---
+    if dry_run:
+        for idx, field_names in zip(valid_indices, valid_field_names):
+            results.append({
+                "index": idx,
+                "note_id": notes[idx].id,
+                "status": "would_update",
+                "updated_fields": field_names,
+            })
+
+        results.sort(key=lambda r: r["index"])
+
+        would_update = sum(1 for r in results if r["status"] == "would_update")
+        would_fail = sum(1 for r in results if r["status"] == "failed")
+        total = len(notes)
+
+        return {
+            "dry_run": True,
+            "would_update": would_update,
+            "would_fail": would_fail,
+            "total_requested": total,
+            "max_notes_per_batch": max_notes,
+            "results": results,
+            "message": f"Dry run: would update {would_update} of {total} notes"
+                       + (f" ({would_fail} would fail)" if would_fail else ""),
+            "hint": "Set dry_run=false to perform the actual update.",
+        }
+
     # --- Batch update via native API (single undo step) ---
     if valid_notes:
         try:
@@ -181,6 +211,7 @@ def update_notes(notes: list[NoteUpdateEntry]) -> dict[str, Any]:
     detail = f" ({', '.join(parts)})" if parts else ""
 
     return {
+        "dry_run": False,
         "updated": updated,
         "failed": failed,
         "retryable_failed": retryable_failed,

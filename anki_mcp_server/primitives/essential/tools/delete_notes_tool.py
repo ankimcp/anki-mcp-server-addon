@@ -3,6 +3,7 @@ import logging
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
+from ....config import get_max_notes_per_batch
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
     "Delete notes by their IDs. This will permanently remove the notes and ALL associated cards. "
     "Requires confirmDeletion=true as a safeguard — the call will fail without it. "
     "Use dry_run=true to preview what would be deleted without actually deleting anything "
-    "(confirmDeletion is ignored during dry runs). Maximum 100 notes per request. "
+    "(confirmDeletion is ignored during dry runs). "
     "Returns deletedCount, cardsDeleted, and notFoundCount.",
     write=True,
 )
@@ -33,10 +34,12 @@ def delete_notes(
             code="validation_error",
         )
 
-    if len(notes) > 100:
+    max_notes = get_max_notes_per_batch()
+    if len(notes) > max_notes:
         raise HandlerError(
-            f"Cannot delete more than 100 notes at once for safety. Requested: {len(notes)} notes",
-            hint="Delete notes in smaller batches (maximum 100 at a time) for safety",
+            f"Cannot delete more than {max_notes} notes at once. Requested: {len(notes)} notes",
+            hint=f"Delete notes in smaller batches of {max_notes} or fewer. "
+                 f"You can increase the limit via the 'max_notes_per_batch' addon config option.",
             code="limit_exceeded",
         )
 
