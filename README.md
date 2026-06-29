@@ -143,18 +143,7 @@ claude mcp add anki --transport http http://127.0.0.1:3141/
 ### Opencode
 
 ```bash
-opencode mcp add
-```
-
-In the interactive installer, choose **Remote server type** and enter `http://127.0.0.1:3141/` as the URL. No OAuth needed.
-
-Or add it directly to `~/.config/opencode/opencode.jsonc`:
-
-```jsonc
-"anki": {
-  "type": "remote",
-  "url": "http://127.0.0.1:3141/"
-}
+opencode mcp add anki --url http://127.0.0.1:3141/
 ```
 
 ### Tunnel (Remote Access)
