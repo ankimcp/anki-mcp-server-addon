@@ -84,6 +84,66 @@ def _get_required_pydantic_core_version() -> str:
     raise RuntimeError("Could not find _COMPATIBLE_PYDANTIC_CORE_VERSION in pydantic/version.py")
 
 
+def _import_vendored_packaging():
+    """Import the ``packaging`` pieces wheel selection needs, re-resolving the
+    import fresh against ``sys.path`` (where the addon's VENDORED copy sits
+    first) even if another Anki add-on already loaded an older, incompatible
+    ``packaging`` into ``sys.modules``. This neutralises the ``sys.modules``
+    cache shadowing that causes the bug; it does NOT defend against the residual
+    (low-probability) case where another add-on has prepended an old
+    ``packaging`` AHEAD of our vendor dir on ``sys.path`` — that is out of scope.
+
+    Why this is necessary (the shadowing bug):
+
+    * Anki runs every add-on in ONE shared Python process. The addon prepends
+      its ``vendor/shared`` (clean ``packaging`` 26.2) to ``sys.path`` at
+      startup — but ``sys.path`` order only decides WHICH copy is imported when
+      a module is not already cached. The ``sys.modules`` cache wins outright.
+    * If another add-on (e.g. AnkiConnect) imported an OLD ``packaging``
+      (<= 20.9) first, ``from packaging.tags import sys_tags`` resolves to that
+      cached copy. Worse, the submodule import of ``packaging.tags`` walks the
+      cached package's ``__path__`` — NOT ``sys.path`` — so our vendor-path
+      prepend does not help.
+    * ``packaging.tags`` <= 20.9 does ``import distutils.util`` at module top.
+      ``distutils`` was removed from the stdlib in Python 3.12, so on Anki
+      25.07+ (Python 3.13) that import raises ``ModuleNotFoundError: No module
+      named 'distutils'`` — surfacing as a confusing pydantic_core "download"
+      failure even though our vendored ``packaging`` is perfectly fine.
+
+    The fix: temporarily evict any cached ``packaging`` / ``packaging.*`` from
+    ``sys.modules`` so the import below resolves fresh against ``sys.path``
+    (where the vendored copy sits first), then restore the foreign copy exactly
+    as it was so we remain a good citizen toward the add-on that loaded it. The
+    ``finally`` guarantees the restore even if the fresh import raises.
+
+    Thread-safety: this runs on the first-run download path, reached from
+    ``ensure_pydantic_core()`` / ``ensure_rpds()``, which are called at ADD-ON
+    IMPORT time (top-level in ``__init__.py``) on the main thread while Anki
+    imports the add-on — before the ``profile_did_open`` hook is registered and
+    before the background MCP server thread is spawned. There is no concurrent
+    ``sys.modules`` mutation to race against, so the evict/import/restore
+    sequence is safe without locking.
+    """
+    def _packaging_modules():
+        return [
+            name for name in sys.modules
+            if name == "packaging" or name.startswith("packaging.")
+        ]
+
+    saved = {name: sys.modules.pop(name) for name in _packaging_modules()}
+    try:
+        from packaging.tags import sys_tags
+        from packaging.utils import parse_wheel_filename, InvalidWheelFilename
+        from packaging.version import InvalidVersion
+        return sys_tags, parse_wheel_filename, InvalidWheelFilename, InvalidVersion
+    finally:
+        # Drop whatever the fresh import pulled in (our vendored copy), then put
+        # the foreign copy back so the borrowing add-on sees no change.
+        for name in _packaging_modules():
+            del sys.modules[name]
+        sys.modules.update(saved)
+
+
 def _find_wheel_url(pypi_data: dict) -> str:
     """Find the best-matching wheel URL from PyPI JSON data for this interpreter.
 
@@ -101,18 +161,22 @@ def _find_wheel_url(pypi_data: dict) -> str:
     universal2/Apple-Silicon special case (issue #52) and the ``cp313`` vs
     ``cp313t`` free-threaded confusion (issue #54).
     """
-    # ``packaging`` is imported here (function scope), not at module level, on
-    # purpose: it is only needed on the download path — exactly like the other
-    # download-only native deps (``pydantic_core``/``rpds``), which are also
-    # imported lazily inside their ensure-functions. Keeping it out of module
-    # scope means the addon stays importable on source/Nix installs that provide
-    # the addon's deps from nixpkgs but NOT ``packaging`` (those installs hit the
-    # ``import pydantic_core``/``import rpds`` fast-path or the
-    # ``_USING_SYSTEM_PACKAGES`` short-circuit and never reach wheel selection).
-    # Do NOT hoist this back to the top of the file.
-    from packaging.tags import sys_tags
-    from packaging.utils import parse_wheel_filename, InvalidWheelFilename
-    from packaging.version import InvalidVersion
+    # ``packaging`` is imported here (download path only, function scope), not at
+    # module level, on purpose: it is only needed when selecting a wheel —
+    # exactly like the other download-only native deps (``pydantic_core``/
+    # ``rpds``), which are also imported lazily inside their ensure-functions.
+    # Keeping it out of module scope means the addon stays importable on
+    # source/Nix installs that provide the addon's deps from nixpkgs but NOT
+    # ``packaging`` (those installs hit the ``import pydantic_core``/``import
+    # rpds`` fast-path or the ``_USING_SYSTEM_PACKAGES`` short-circuit and never
+    # reach wheel selection). Do NOT hoist this back to the top of the file.
+    #
+    # The import is delegated to ``_import_vendored_packaging`` so we get the
+    # VENDORED ``packaging`` even when another add-on has poisoned ``sys.modules``
+    # with an old, distutils-importing copy — see that helper's docstring.
+    sys_tags, parse_wheel_filename, InvalidWheelFilename, InvalidVersion = (
+        _import_vendored_packaging()
+    )
 
     # Map each supported tag to its priority (lower index = higher priority).
     tag_priority = {tag: index for index, tag in enumerate(sys_tags())}

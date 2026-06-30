@@ -14,6 +14,7 @@ venv/
 
 # Anki addon build artifacts
 *.ankiaddon
+anki_mcp_server.ankiaddon.zip
 vendor/
 
 # pydantic_core download cache (runtime + test bootstrap)

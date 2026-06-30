@@ -71,10 +71,38 @@ def _url(filename: str) -> str:
 
 def _use_tags(monkeypatch: pytest.MonkeyPatch, tags: list[Tag]) -> None:
     """Make ``_find_wheel_url`` see ``tags`` (highest-priority-first) as the
-    current interpreter's supported tags."""
-    import packaging.tags
+    current interpreter's supported tags.
 
-    monkeypatch.setattr(packaging.tags, "sys_tags", lambda: iter(tags))
+    ``_find_wheel_url`` obtains ``packaging`` via ``_import_vendored_packaging``,
+    which evicts any cached ``packaging`` from ``sys.modules`` and re-imports the
+    vendored copy fresh (to dodge a poisoned ``sys.modules`` — see
+    ``test_dependency_loader_packaging_isolation.py``). Because of that fresh
+    re-import, a monkeypatch on the ``packaging.tags`` module object would NOT be
+    seen by the function. So we stub the helper itself to return our controlled
+    ``sys_tags`` alongside the REAL ``parse_wheel_filename`` / exception types,
+    keeping filename parsing exercised end to end.
+
+    The real pieces are sourced from the SAME vendored ``packaging`` module the
+    test's ``Tag`` / ``_TAGS_*`` objects come from (the module-level import), NOT
+    a fresh re-import. ``packaging.tags.Tag.__eq__`` is gated on
+    ``isinstance(other, Tag)``, so Tag instances minted by two different copies
+    of ``packaging`` never compare equal — sourcing both sides from one module
+    keeps the priority-dict lookup in ``_find_wheel_url`` working.
+    """
+    import packaging.tags  # noqa: F401  (ensures the subtree is imported)
+    import packaging.utils
+    import packaging.version
+
+    monkeypatch.setattr(
+        _dep_loader,
+        "_import_vendored_packaging",
+        lambda: (
+            lambda: iter(tags),
+            packaging.utils.parse_wheel_filename,
+            packaging.utils.InvalidWheelFilename,
+            packaging.version.InvalidVersion,
+        ),
+    )
 
 
 # Wheel filenames from a realistic pydantic_core release (standard cp313 ABI).
