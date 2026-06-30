@@ -140,6 +140,12 @@ Requires [Node.js](https://nodejs.org/) installed. Add to your Claude Desktop co
 claude mcp add anki --transport http http://127.0.0.1:3141/
 ```
 
+### Opencode
+
+```bash
+opencode mcp add anki --url http://127.0.0.1:3141/
+```
+
 ### Tunnel (Remote Access)
 
 The built-in tunnel gives your Anki collection a public HTTPS URL, so AI assistants can reach it from anywhere — no port forwarding or reverse proxy needed. The collection is relayed through a WebSocket tunnel server (`wss://tunnel.ankimcp.ai` by default). Requires an [ankimcp.ai](https://ankimcp.ai) account to log in.
