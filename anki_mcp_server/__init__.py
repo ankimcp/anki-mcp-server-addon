@@ -17,7 +17,7 @@ if sys.version_info < (3, 10):
 
 from pathlib import Path
 
-__version__ = "0.23.0"
+__version__ = "0.24.0"
 
 # Packages we vendor directly (we ship our own copy under vendor/shared). This
 # is the set used for the system-package FALLBACK check on source/Nix installs:

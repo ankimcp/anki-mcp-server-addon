@@ -30,6 +30,14 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>Field management</b> - Add, rename, and reposition note-type fields from AI clients via the <code>model_fields</code> tool (with an opt-in destructive remove)</li>
 </ul>
 
+<h2>What's New in v0.24.0</h2>
+<ul>
+<li><b>Preview bulk edits with <code>dry_run</code></b> - <code>update_notes</code> gains a <code>dry_run=true</code> option that runs the full validation pass (field names, note existence, ID validity) and reports which notes <em>would</em> be updated — without writing anything — so you can safely preview a large bulk edit before committing it. Mirrors the existing <code>delete_notes</code> dry run (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/59">#59</a>)</li>
+<li><b><code>delete_notes</code> respects <code>max_notes_per_batch</code></b> - <code>delete_notes</code> no longer caps at a hardcoded 100 notes; it now honors the <code>max_notes_per_batch</code> config like the other batch tools, so raising that limit applies to deletes too (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/59">#59</a>)</li>
+<li><b>Fix: startup crash when another add-on bundles an old <code>packaging</code></b> - On Anki 26.05+ (Python 3.13), if another add-on (for example AMBOSS) had already loaded an older <code>packaging</code> into the shared Python process, AnkiMCP's first-run <code>pydantic_core</code> download failed with <code>No module named 'distutils'</code>. AnkiMCP now forces its own bundled <code>packaging</code> when selecting the download, regardless of what other add-ons have loaded, so the download succeeds; already-affected installs self-heal on the next launch (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/61">#61</a>)</li>
+<li><b>Docs: connecting via Opencode</b> - Added setup instructions for the <a href="https://opencode.ai">Opencode</a> terminal AI agent (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/60">#60</a>)</li>
+</ul>
+
 <h2>What's New in v0.23.0</h2>
 <ul>
 <li><b>Manage note-type fields</b> - New <code>model_fields</code> tool adds, renames, and repositions fields on an existing note type, so AI clients can reshape a note type without opening the Fields dialog by hand. A fourth action, <code>remove</code>, permanently deletes a field and all its content, so it's treated as destructive: hidden from MCP clients by default and revealed only when you opt in via <code>enabled_destructive_tools</code>. Every action changes the note-type schema, so each result warns that the next sync will be a one-way full sync (overwriting AnkiWeb and your other devices); renames also flag that <code>{{Field}}</code> references in card templates aren't rewritten automatically (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/57">#57</a>)</li>
