@@ -119,11 +119,49 @@ def _error_handler(func: Callable[..., Any]) -> Callable[..., Any]:
 # Raises HandlerError if mw (main window) or mw.col (collection) is None.
 # Most handlers need the collection - this is enabled by default.
 # ------------------------------------------------------------------------------
+def _check_col_available() -> None:
+    """Raise HandlerError unless the collection is safe to touch right now.
+
+    This is the SINGLE gate honored by both ``_require_col`` (the wrapper) and
+    ``get_col`` (the helper), so the "collection unavailable" policy lives in
+    exactly one place. Two conditions block access:
+
+    1. A sync is active (``registry.is_sync_active()``): during a full sync the
+       collection is closed and mid-transfer -- no tool may touch it. This is a
+       cheap bool read and NEVER touches ``mw``/``mw.col``.
+    2. The collection is not open. Note the ``mw.col.db is None`` check:
+       ``close_for_full_sync`` leaves ``mw.col`` non-None but with ``db=None``,
+       so a plain ``mw.col is None`` check would miss a mid-full-sync
+       collection. The gate flag (1) already catches this; this is
+       defense-in-depth.
+
+    ``sync_state`` has no ``aqt`` import at load, so importing it here creates
+    no import cycle.
+    """
+    from .sync_state import registry
+
+    if registry.is_sync_active():
+        raise HandlerError(
+            "Sync in progress",
+            hint="Wait and retry, or poll sync_status for the active job",
+            code="collection_unavailable",
+        )
+
+    mw = _get_mw()
+    if mw is None or mw.col is None or getattr(mw.col, "db", None) is None:
+        raise HandlerError(
+            "Collection not available",
+            hint="Open a profile in Anki first",
+            code="collection_unavailable",
+        )
+
+
 def _require_col(func: Callable[..., Any]) -> Callable[..., Any]:
     """Wrap a handler to check that Anki collection is available.
 
-    Raises HandlerError if the main window or collection is not available.
-    Most tools and resources need the collection, so this is enabled by default.
+    Raises HandlerError (via ``_check_col_available``) if the collection is not
+    open or a sync is holding the gate. Most tools and resources need the
+    collection, so this is enabled by default.
 
     Args:
         func: The handler function to wrap
@@ -133,13 +171,7 @@ def _require_col(func: Callable[..., Any]) -> Callable[..., Any]:
     """
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        mw = _get_mw()
-        if mw is None or mw.col is None:
-            raise HandlerError(
-                "Collection not available",
-                hint="Open a profile in Anki first",
-                code="collection_unavailable",
-            )
+        _check_col_available()
         return func(*args, **kwargs)
 
     return wrapper
@@ -198,13 +230,7 @@ def get_col() -> Any:
         Collection instance
 
     Raises:
-        HandlerError: If collection is not available
+        HandlerError: If collection is not available or a sync holds the gate
     """
-    mw = _get_mw()
-    if mw is None or mw.col is None:
-        raise HandlerError(
-            "Collection not available",
-            hint="Open a profile in Anki first",
-            code="collection_unavailable",
-        )
-    return mw.col
+    _check_col_available()
+    return _get_mw().col

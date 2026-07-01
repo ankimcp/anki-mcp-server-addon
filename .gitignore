@@ -31,5 +31,6 @@ anki_mcp_server/user_files/*
 # Claude Code
 .claude/
 .claude-draft/
+.claude-drafts/
 .sandbox/
 .docs/
