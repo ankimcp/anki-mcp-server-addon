@@ -143,7 +143,7 @@ def _check_col_available() -> None:
     if registry.is_sync_active():
         raise HandlerError(
             "Sync in progress",
-            hint="Wait and retry, or poll sync_status for the active job",
+            hint="Wait and retry, or poll sync with the job_id for the active job",
             code="collection_unavailable",
         )
 

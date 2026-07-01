@@ -1,19 +1,21 @@
 """Worker + main-thread sequencing for the async ``sync`` tool.
 
-All ``aqt``/``anki`` interaction for syncing lives here so the tool modules
-(``sync_tool.py``, ``sync_status_tool.py``) stay thin and the collection logic
-is isolated (SRP). The ``_`` prefix keeps this module out of the "is a tool"
-mental model -- it registers no ``@Tool`` (auto-discovery importing it is
-harmless; it only defines functions).
+All ``aqt``/``anki`` interaction for syncing lives here so the ``sync`` tool
+module (``sync_tool.py``) stays thin and the collection logic is isolated (SRP).
+The ``_`` prefix keeps this module out of the "is a tool" mental model -- it
+registers no ``@Tool`` (auto-discovery importing it is harmless; it only defines
+functions).
 
 Threading contract
 ------------------
-Three entry points run on the Qt MAIN THREAD (invoked via the queue bridge) and
-return FAST -- they only START or READ background work, never wait for a
-transfer, so they stay well under the 30s queue-bridge timeout:
+Three entry points back the single polymorphic ``sync`` tool. They run on the Qt
+MAIN THREAD (invoked via the queue bridge) and return FAST -- they only START or
+READ background work, never wait for a transfer, so they stay well under the 30s
+queue-bridge timeout:
 
-* :func:`start_sync`   -- begin a normal sync (returns ``{job_id, status}``).
-* :func:`resolve_sync` -- resolve OR cancel a surfaced full-sync conflict.
+* :func:`start_sync`      -- begin a normal sync (returns ``{job_id, status}``).
+* :func:`status_snapshot` -- return the current job snapshot (registry-only).
+* :func:`resolve_sync`    -- resolve OR cancel a surfaced full-sync conflict.
 
 Everything that blocks (the collection check, the full-sync transfer, backups,
 media polling) runs on a BACKGROUND thread; the ``on_done`` callbacks (also main
@@ -33,8 +35,8 @@ Two transports for the actual transfer:
   blocks the user from clicking Browse/Stats and crashing on the closed
   collection. ``with_progress`` still returns immediately (it shows a modeless-
   to-code dialog via ``.show()``, not ``.exec()``), so the handler returns fast
-  and QTimers -- including the queue-bridge poll and ``sync_status`` -- keep
-  firing. The registry gate is kept as belt-and-suspenders defense.
+  and QTimers -- including the queue-bridge poll and ``sync`` status polls --
+  keep firing. The registry gate is kept as belt-and-suspenders defense.
 
 Concurrency safety comes from the registry's gate + single-flight, mirroring
 Anki's own ``qt/aqt/sync.py`` sequencing for the collection-closing full sync.
@@ -164,7 +166,7 @@ def start_sync() -> dict[str, Any]:
         active = registry.active_job()
         raise HandlerError(
             "Sync already in progress",
-            hint="Poll sync_status, or resolve/cancel the active conflict",
+            hint="Poll sync with the job_id, or resolve/cancel the active conflict",
             code="conflict",
             job_id=active.job_id if active else None,
         )
@@ -190,6 +192,29 @@ def start_sync() -> dict[str, Any]:
 
     _notify("AnkiMCP: syncing…")
     return {"job_id": job_id, "status": "running"}
+
+
+# ===========================================================================
+# STATUS path (read-only snapshot -- never touches mw.col)
+# ===========================================================================
+def status_snapshot(job_id: str) -> dict[str, Any]:
+    """Return the client-facing snapshot of a sync job. Fast, read-only.
+
+    Reads the in-memory job registry ONLY -- it never touches ``mw.col``, so it
+    stays usable even while a full sync has the collection closed and the gate
+    raised. This is the shared implementation behind the ``sync`` tool's poll
+    path (``sync(job_id)``). Raises ``HandlerError(code="not_found")`` for an
+    unknown or expired ``job_id``.
+    """
+    job = registry.get(job_id)
+    if job is None:
+        raise HandlerError(
+            "Sync job not found",
+            hint="job_ids expire after completion; start a new sync with no arguments",
+            code="not_found",
+            job_id=job_id,
+        )
+    return job.to_dict()
 
 
 def _normal_sync_worker(

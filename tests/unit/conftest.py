@@ -149,6 +149,39 @@ def sync_runner():
     return module
 
 
+@pytest.fixture(scope="session")
+def sync_tool(sync_runner):
+    """Load and return the real ``sync`` tool module (with its @Tool ``sync``).
+
+    Loaded exactly like ``sync_runner`` -- directly from file under its real
+    dotted name -- so the tool's lazy ``from ._sync_runner import ...`` resolves
+    the already-registered runner module straight from ``sys.modules`` (skipping
+    the stubbed ``primitives`` parent-package chain). Depends on ``sync_runner``
+    to guarantee that registration happened first.
+
+    ``@Tool.__call__`` returns the original, unwrapped function, so
+    ``sync_tool.sync`` is directly callable in tests (no error-handler wrapper).
+    """
+    import anki_mcp_server  # real top-level package (idempotent import)
+
+    name = "anki_mcp_server.primitives.essential.tools.sync_tool"
+    if name in sys.modules:
+        return sys.modules[name]
+
+    path = (
+        Path(anki_mcp_server.__file__).parent
+        / "primitives"
+        / "essential"
+        / "tools"
+        / "sync_tool.py"
+    )
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 @pytest.fixture()
 def fresh_registry(sync_runner, monkeypatch):
     """Give each test an isolated registry singleton for _sync_runner.

@@ -427,7 +427,7 @@ Optional hardening via config:
 
 | Tool | Description |
 |------|-------------|
-| `sync` | Synchronize collection with AnkiWeb |
+| `sync` | Synchronize collection with AnkiWeb (asynchronous job: `sync()` starts a sync, `sync(job_id)` polls its status, `sync(job_id, resolve=...)` resolves a full-sync conflict) |
 | `list_decks` | List all decks in the collection |
 | `create_deck` | Create a new deck |
 | `find_notes` | Search for notes using Anki's search syntax |

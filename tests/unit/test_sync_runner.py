@@ -302,6 +302,17 @@ class TestResolve:
         with pytest.raises(HandlerError):
             sync_runner.resolve_sync("does-not-exist", "upload")
 
+    def test_resolve_without_job_id_is_validation_error(
+        self, sync_runner, fresh_registry, install_mw, sync_fakes
+    ):
+        # resolve needs a job to act on -- resolving with no job_id is a
+        # validation error, not a not_found (there is nothing to look up).
+        mw = sync_fakes.Mw(sync_fakes.Col(), sync_fakes.Taskman(), sync_fakes.Pm())
+        install_mw(mw)
+        with pytest.raises(HandlerError) as exc:
+            sync_runner.resolve_sync(None, "upload")
+        assert exc.value.code == "validation_error"
+
     def test_resolve_spawn_failure_never_wedges(
         self, sync_runner, fresh_registry, install_mw, sync_fakes
     ):
@@ -320,3 +331,35 @@ class TestResolve:
         assert fresh_registry.is_sync_active() is False
         # Worker never ran, so the collection was never closed.
         assert not any(c[0] == "close_for_full_sync" for c in col.calls)
+
+
+# ===========================================================================
+# STATUS path (read-only snapshot; the poll leg of the merged sync tool)
+# ===========================================================================
+class TestStatusSnapshot:
+    def test_returns_snapshot_for_existing_job(self, sync_runner, fresh_registry):
+        jid = _make_conflict(fresh_registry, "FULL_SYNC")
+
+        snap = sync_runner.status_snapshot(jid)
+
+        # Same payload SyncJob.to_dict() produces (what the old sync_status
+        # tool returned), including the conflict's resolve options.
+        assert snap == fresh_registry.get(jid).to_dict()
+        assert snap["job_id"] == jid
+        assert snap["status"] == "conflict"
+        assert set(snap["legal_directions"]) == {"upload", "download"}
+
+    def test_unknown_job_id_raises_not_found(self, sync_runner, fresh_registry):
+        with pytest.raises(HandlerError) as exc:
+            sync_runner.status_snapshot("does-not-exist")
+        assert exc.value.code == "not_found"
+
+    def test_never_touches_the_collection(self, sync_runner, fresh_registry):
+        # Reading a snapshot must work with no ``mw`` installed at all: it reads
+        # the registry only, so it stays usable while a full sync has the
+        # collection closed and the gate raised.
+        out = fresh_registry.try_begin()  # status 'running', gate raised
+        assert fresh_registry.is_sync_active() is True
+
+        snap = sync_runner.status_snapshot(out.job_id)
+        assert snap["status"] == "running"

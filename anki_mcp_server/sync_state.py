@@ -58,7 +58,6 @@ class SyncJob:
             ``resolve="cancel"``).
         phase: Coarse progress marker -- ``"checking"``, ``"full_transfer"``,
             ``"media"`` or ``"done"``.
-        progress: Free-form progress detail (reserved; currently ``{}``).
         legal_directions: For a conflict, the resolve directions the client is
             allowed to pass (subset of ``["upload", "download"]``).
         required: Raw ``ChangesRequired`` enum *name* from the backend
@@ -75,7 +74,6 @@ class SyncJob:
     job_id: str
     status: str
     phase: str
-    progress: dict[str, Any] = field(default_factory=dict)
     legal_directions: list[str] = field(default_factory=list)
     required: Optional[str] = None
     server_media_usn: Optional[int] = None
@@ -94,7 +92,6 @@ class SyncJob:
             "job_id": self.job_id,
             "status": self.status,
             "phase": self.phase,
-            "progress": self.progress,
             "legal_directions": self.legal_directions,
             "required": self.required,
             "result": self.result,
