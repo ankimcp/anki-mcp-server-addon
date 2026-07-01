@@ -213,6 +213,7 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "media_allowed_types": [],
   "media_allowed_hosts": [],
   "show_toolbar_indicator": true,
+  "show_sync_tooltip": true,
   "log_to_file": false
 }
 ```
@@ -236,6 +237,16 @@ A persistent `● AnkiMCP` item in Anki's top toolbar shows tunnel connection st
 ```json
 {
   "show_toolbar_indicator": false
+}
+```
+
+### Sync Tooltip
+
+When an AI client triggers a sync, the addon shows a brief, non-modal tooltip in Anki's UI as the sync starts and finishes (e.g. `AnkiMCP: syncing…`, `AnkiMCP: sync complete`). This is the only visual cue for these otherwise-silent background syncs. It's shown by default. Set `show_sync_tooltip` to `false` to suppress it.
+
+```json
+{
+  "show_sync_tooltip": false
 }
 ```
 

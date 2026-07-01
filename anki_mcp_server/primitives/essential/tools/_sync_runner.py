@@ -101,6 +101,44 @@ _ERROR_HINTS: dict[str, str] = {
 
 
 # ===========================================================================
+# GUI feedback (non-modal tooltips)
+#
+# MCP-triggered syncs run silently (the async job model has no GUI of its own),
+# so we surface a brief, non-modal ``aqt.utils.tooltip`` at the meaningful
+# lifecycle moments to give the LOCAL user feedback. Every call is BEST-EFFORT:
+# a tooltip failure (config read, missing GUI, offscreen Qt, any Qt error) must
+# NEVER break or interrupt a sync. All callers below already run on the Qt MAIN
+# thread (entry points via the queue bridge; on_done finalizers marshaled by
+# taskman), which is required for GUI calls.
+# ===========================================================================
+def _notify(msg: str) -> None:
+    """Show a non-modal tooltip, gated on config and fully defensive.
+
+    Skips silently when ``show_sync_tooltip`` is disabled and swallows ANY
+    exception (logged at debug) so it can never propagate into the sync flow.
+    Must be called on the Qt main thread.
+    """
+    try:
+        from ....config import get_show_sync_tooltip
+
+        if not get_show_sync_tooltip():
+            return
+        from aqt.utils import tooltip
+
+        tooltip(msg)
+    except Exception:  # noqa: BLE001 -- a tooltip must never break a sync
+        logger.debug("sync tooltip failed (non-fatal)", exc_info=True)
+
+
+def _notify_sync_error(code: str) -> None:
+    """Tooltip for a terminal sync error, worded by the stable error ``code``."""
+    if code == "auth_failed":
+        _notify("AnkiMCP: AnkiWeb login required")
+    else:
+        _notify("AnkiMCP: sync failed")
+
+
+# ===========================================================================
 # START path (normal / incremental sync -- collection stays OPEN)
 # ===========================================================================
 def start_sync() -> dict[str, Any]:
@@ -150,6 +188,7 @@ def start_sync() -> dict[str, Any]:
         registry.end(job_id)
         raise
 
+    _notify("AnkiMCP: syncing…")
     return {"job_id": job_id, "status": "running"}
 
 
@@ -207,8 +246,9 @@ def _on_normal_done(
     try:
         result = fut.result()
     except Exception as exc:  # noqa: BLE001 -- classify any backend failure
-        _record_error(job_id, exc)
+        code = _record_error(job_id, exc)
         registry.end(job_id)
+        _notify_sync_error(code)
         return
 
     outcome = result["outcome"]
@@ -225,6 +265,7 @@ def _on_normal_done(
             ),
         )
         registry.end(job_id)
+        _notify_sync_error("unknown")
         return
 
     if outcome == "conflict":
@@ -238,6 +279,7 @@ def _on_normal_done(
         )
         # Collection is open and usable; keep single-flight, drop the gate.
         registry.release_gate()
+        _notify("AnkiMCP: sync needs your decision (conflict)")
         return
 
     # Success: the collection is synced and OPEN. Release the gate so other
@@ -373,6 +415,7 @@ def _cancel_conflict(job_id: str) -> dict[str, Any]:
         finished_at=time.time(),
     )
     registry.end(job_id)
+    _notify("AnkiMCP: sync cancelled")
     return {"job_id": job_id, "status": "cancelled"}
 
 
@@ -418,8 +461,9 @@ def _on_resolve_done(
     try:
         fut.result()
     except Exception as exc:  # noqa: BLE001 -- classify any backend failure
-        _record_error(job_id, exc)
+        code = _record_error(job_id, exc)
         registry.end(job_id)
+        _notify_sync_error(code)
         return
 
     # Transfer succeeded. full_upload_or_download already kicked off media via
@@ -513,12 +557,18 @@ def _finalize_success(
         finished_at=time.time(),
     )
     registry.end(job_id)
+    _notify("AnkiMCP: sync complete")
 
 
-def _record_error(job_id: str, exc: Exception) -> None:
-    """Store an error payload on the job. Does not touch gate/single-flight."""
+def _record_error(job_id: str, exc: Exception) -> str:
+    """Store an error payload on the job and return its stable error ``code``.
+
+    Does not touch gate/single-flight. The returned code lets callers pick the
+    matching user-facing tooltip without re-classifying the exception.
+    """
     code, category, message = _classify_exception(exc)
     _store_error(job_id, code, category, message)
+    return code
 
 
 def _store_error(job_id: str, code: str, category: str, message: str) -> None:
