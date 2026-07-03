@@ -30,6 +30,9 @@ from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 from ..credentials import Credentials
 from .in_memory_transport import InMemoryTransport
 from .protocol import (
+    CLIENT_TYPE,
+    CLIENT_TYPE_HEADER,
+    CLIENT_VERSION_HEADER,
     CONNECTION_TIMEOUT,
     HEALTH_CHECK_TIMEOUT,
     HEARTBEAT_INTERVAL,
@@ -37,6 +40,7 @@ from .protocol import (
     TunnelPing,
     TunnelRequest,
     TunnelResponse,
+    normalize_client_version,
     parse_server_message,
 )
 
@@ -167,7 +171,7 @@ class TunnelClient:
         try:
             ws = await connect(
                 self._server_url,
-                additional_headers={"Authorization": f"Bearer {self._credentials.access_token}"},
+                additional_headers=self._build_connect_headers(),
                 open_timeout=CONNECTION_TIMEOUT,
                 # Disable websockets' built-in keepalive — we handle pings at
                 # the application protocol level.
@@ -257,6 +261,32 @@ class TunnelClient:
         )
 
         return close_code, close_reason
+
+    def _build_connect_headers(self) -> dict[str, str]:
+        """Build the WebSocket upgrade headers for the tunnel connection.
+
+        Always includes ``Authorization`` (Bearer access token) and the
+        client-type header identifying this as the Anki addon. The client
+        version header is added only when the addon version normalizes to a
+        valid ``MAJOR.MINOR.PATCH`` — omitting it rather than sending a
+        known-invalid value. Both identity headers are optional server-side.
+
+        The addon ``__version__`` is imported lazily here (not at module top
+        level) to avoid any import-cycle risk during package init; by the time
+        a tunnel connects, the package ``__init__`` is fully loaded. This
+        matches the codebase's lazy-import idiom (e.g. ``from aqt import mw``
+        inside functions).
+        """
+        from .. import __version__
+
+        headers: dict[str, str] = {
+            "Authorization": f"Bearer {self._credentials.access_token}",
+            CLIENT_TYPE_HEADER: CLIENT_TYPE,
+        }
+        client_version = normalize_client_version(__version__)
+        if client_version is not None:
+            headers[CLIENT_VERSION_HEADER] = client_version
+        return headers
 
     async def disconnect(self) -> None:
         """Close the WebSocket gracefully if connected.
