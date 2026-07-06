@@ -441,6 +441,7 @@ Optional hardening via config:
 | `update_notes` | Batch-update fields of multiple notes in one atomic undo step (single backend call). Validates every entry first; supports partial success up to `max_notes_per_batch` |
 | `delete_notes` | Delete notes from the collection |
 | `get_due_cards` | Get next due card for review (supports `skip_images`/`skip_audio` for voice mode) |
+| `cards_stats` | Bulk per-card scheduling stats for a deck (incl. subdecks): type/queue/interval/tags/dueToday, paginated. FSRS-independent, compact payload for analytics |
 | `present_card` | Get card content for review |
 | `rate_card` | Rate a card after review (Again/Hard/Good/Easy) |
 | `model_names` | List available note types |
