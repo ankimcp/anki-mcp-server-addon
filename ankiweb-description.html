@@ -28,6 +28,13 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>Toolbar status indicator</b> - A <code>● AnkiMCP</code> item in the top toolbar shows tunnel connection state at a glance (opt out via <code>show_toolbar_indicator</code>)</li>
 <li><b>Diagnostic logging</b> - Opt-in <code>log_to_file</code> writes a rotating, secret-redacted log to <code>user_files/ankimcp.log</code>, and the settings dialog adds "Open log folder" / "Copy diagnostics" buttons to make troubleshooting easy</li>
 <li><b>Field management</b> - Add, rename, and reposition note-type fields from AI clients via the <code>model_fields</code> tool (with an opt-in destructive remove)</li>
+<li><b>Bulk card stats</b> - The read-only <code>cards_stats</code> tool returns compact per-card scheduling metrics (type, queue, interval, tags, <code>dueToday</code>) for a whole deck including subdecks, FSRS-independent — a lean bulk read for analytics</li>
+</ul>
+
+<h2>What's New in v0.25.0</h2>
+<ul>
+<li><b>Bulk card stats with <code>cards_stats</code></b> - New read-only <code>cards_stats</code> tool returns compact per-card scheduling metrics — type, queue, interval, the note's tags, and a computed <code>dueToday</code> flag — for a whole deck (subdecks included), paginated. It's FSRS-independent (works whether or not FSRS is enabled), so one lean call can replace a <code>find_notes</code> + <code>notes_info</code> + <code>get_card_memory_state</code> sequence when you only need scheduling data (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/62">#62</a>)</li>
+<li><b>Asynchronous <code>sync</code></b> - The <code>sync</code> tool moves to a non-blocking job model: <code>sync()</code> starts a sync and returns a job id, <code>sync(job_id)</code> polls its status, and <code>sync(job_id, resolve=...)</code> resolves a full-sync conflict — so a long sync no longer blocks the MCP call (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/62">#62</a>)</li>
 </ul>
 
 <h2>What's New in v0.24.0</h2>
@@ -59,38 +66,7 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>Optional API key</b> - New <code>http_api_key</code> config adds an AnkiConnect-style shared-secret auth layer for the HTTP transport: when set, every request must send an <code>Authorization: Bearer &lt;key&gt;</code> header. Empty by default (disabled), so existing setups are unchanged</li>
 </ul>
 
-<h2>What's New in v0.20.0</h2>
-<ul>
-<li><b>Opt-in for destructive tools</b> - New <code>enabled_destructive_tools</code> config allow-list. Tools (or specific actions) flagged as high-risk are hidden from MCP clients by default and must be explicitly opted in — enforced server-side, not just advised (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/46">#46</a>)</li>
-<li><b>Fix: no half-applied edits on failed template updates</b> - <code>update_model_templates</code> previously mutated valid card templates in Anki's in-memory cache even when the call failed on an unknown template name, leaving the note type in a half-updated state until restart. It now validates every template name up front and edits a copy, so a failed call leaves the model untouched (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/47">#47</a>)</li>
-<li><b>Fix: batch limit applies to notes_info</b> - <code>max_notes_per_batch</code> now also bounds <code>notes_info</code>, with consistent batch-limit hints across tools</li>
-</ul>
-
-<h2>What's New in v0.19.0</h2>
-<ul>
-<li><b>Card template tools</b> - New <code>model_templates</code> reads the Front/Back HTML for each card type, and <code>update_model_templates</code> edits it — mirroring the existing styling tools. Together with <code>model_styling</code> these enable full read → edit → write of a note type's appearance</li>
-<li><b>Batch note updates</b> - New <code>update_notes</code> tool updates many notes in a single atomic undo step, validating every entry first with partial-success reporting</li>
-<li><b>Configurable batch size</b> - New <code>max_notes_per_batch</code> config option (default 100) sets the limit for <code>add_notes</code> and <code>update_notes</code></li>
-</ul>
-
-<h2>What's New in v0.18.0</h2>
-<ul>
-<li><b>Toolbar status indicator</b> - A <code>● AnkiMCP</code> item in the top toolbar shows tunnel connection state at a glance: grey when off, amber while connecting, green when connected. Click it to open the settings dialog. Hide it with the <code>show_toolbar_indicator</code> config option</li>
-<li><b>Cleaner tunnel disconnect</b> - Disconnecting the tunnel now reliably logs "Tunnel disconnected" and shuts the connection down cleanly</li>
-</ul>
-
-<h2>What's New in v0.17.0</h2>
-<ul>
-<li><b>Remote tunnel</b> - Give your local Anki collection a public HTTPS URL through the AnkiMCP tunnel relay (<code>wss://tunnel.ankimcp.ai</code>), so AI assistants can reach it from anywhere with no port forwarding or reverse proxy</li>
-<li><b>One-click login</b> - Connect from <i>Tools -&gt; AnkiMCP Server Settings...</i> using OAuth 2.0 device flow: a one-time code is shown in the addon, which you enter in your browser to authorize. Connect, Disconnect, and Logout controls live in the same dialog</li>
-<li><b>Tunnel-only mode</b> - New <code>http_enabled</code> config toggle lets you run the tunnel without a local HTTP server listening</li>
-<li><b>Credentials stay with the addon</b> - Login credentials are stored in the addon's own <code>user_files/credentials.json</code>, which Anki preserves across addon updates</li>
-</ul>
-
-<h2>v0.16 Highlights</h2>
-<ul>
-<li><b>Stateless HTTP transport</b> - The MCP server no longer issues or requires the <code>mcp-session-id</code> header. This aligns with the upcoming MCP <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2750">2026-07-28 protocol release candidate</a>, which removes session-id from the spec entirely. Existing clients (Claude Desktop, Claude Code, MCP Inspector) keep working unchanged; clients that don't manage session-ids (e.g., opencode's "remote" transport, <a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/42">#42</a>) now work too</li>
-</ul>
+<p>Older releases (v0.20.0 and earlier) are listed on the <a href="https://github.com/ankimcp/anki-mcp-server-addon/releases">GitHub releases page</a>.</p>
 
 <h2>Installation</h2>
 
@@ -128,7 +104,7 @@ AI-powered study sessions, card creation, and collection management.</p>
 
 <h3>Essential Tools</h3>
 <ul>
-<li><b>sync</b> - Synchronize collection with AnkiWeb</li>
+<li><b>sync</b> - Synchronize collection with AnkiWeb (asynchronous job: start a sync, poll its status, resolve full-sync conflicts)</li>
 <li><b>list_decks</b> - List all decks with review counts</li>
 <li><b>create_deck</b> - Create a new deck</li>
 <li><b>find_notes</b> - Search for notes using Anki's search syntax</li>
@@ -139,6 +115,7 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>update_notes</b> - Batch-update fields of multiple notes in one atomic undo step (validates every entry first; partial success)</li>
 <li><b>delete_notes</b> - Delete notes from the collection</li>
 <li><b>get_due_cards</b> - Get cards due for review (supports voice mode)</li>
+<li><b>cards_stats</b> - Bulk per-card scheduling stats for a deck (subdecks included): type, queue, interval, tags, and a computed dueToday flag, paginated. FSRS-independent</li>
 <li><b>present_card</b> - Get card content for review</li>
 <li><b>rate_card</b> - Rate a card after review (Again/Hard/Good/Easy)</li>
 <li><b>model_names</b> - List available note types</li>

@@ -30,6 +30,7 @@ On first run, this addon downloads `pydantic_core` (~2MB) from PyPI. This is req
 - **Toolbar indicator** - A `● AnkiMCP` item in the top toolbar shows tunnel connection state at a glance (opt out via `show_toolbar_indicator`)
 - **Diagnostic logging** - Opt-in [`log_to_file`](#diagnostic-file-logging) writes a rotating, secret-redacted log to `user_files/ankimcp.log`, with **Open log folder** / **Copy diagnostics** buttons in settings
 - **Field management** - Add, rename, and reposition note-type fields via the `model_fields` tool (with an opt-in [destructive](#destructive-tools-opt-in) remove)
+- **Bulk card stats** - The read-only `cards_stats` tool returns compact per-card scheduling metrics (type/queue/interval/tags/`dueToday`) for a whole deck including subdecks, FSRS-independent — a lean bulk read for analytics
 - **Cross-platform** - Works on macOS, Windows, and Linux (x64 and ARM)
 
 ## Installation
