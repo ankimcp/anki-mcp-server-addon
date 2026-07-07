@@ -84,6 +84,12 @@ class Config:
     # toolbar. Set false to hide it (takes effect after an Anki restart).
     show_toolbar_indicator: bool = True
 
+    # Show a brief, non-modal tooltip in Anki's UI when an MCP-triggered sync
+    # starts and finishes. Gives the local user visual feedback for syncs that
+    # otherwise run silently (the async sync job model has no GUI of its own).
+    # Set false to suppress these tooltips.
+    show_sync_tooltip: bool = True
+
     # Optional rotating file logging for diagnostics. When true, the addon
     # writes a log to user_files/ankimcp.log (rotating, ~1MB x 3 backups) and
     # records a startup diagnostics snapshot (versions + loaded-module
@@ -166,6 +172,25 @@ def get_max_notes_per_batch() -> int:
     except Exception:
         # Dataclass default is the single source of truth for the fallback.
         return Config().max_notes_per_batch
+
+
+def get_show_sync_tooltip() -> bool:
+    """Read show_sync_tooltip from the addon config, falling back to the default.
+
+    Mirrors :func:`get_max_notes_per_batch` -- imports aqt at runtime so
+    pure-logic tests can import this module without Anki installed, and uses the
+    same ``__name__.split(".")[0]`` addon-name resolution (see that function's
+    docstring for the rationale). Any failure returns the dataclass default so a
+    config read can never raise into the caller.
+    """
+    try:
+        from aqt import mw
+
+        raw = mw.addonManager.getConfig(__name__.split(".")[0]) or {}
+        return Config.from_dict(raw).show_sync_tooltip
+    except Exception:
+        # Dataclass default is the single source of truth for the fallback.
+        return Config().show_sync_tooltip
 
 
 class ConfigManager:

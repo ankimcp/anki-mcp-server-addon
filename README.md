@@ -213,6 +213,7 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "media_allowed_types": [],
   "media_allowed_hosts": [],
   "show_toolbar_indicator": true,
+  "show_sync_tooltip": true,
   "log_to_file": false
 }
 ```
@@ -236,6 +237,16 @@ A persistent `● AnkiMCP` item in Anki's top toolbar shows tunnel connection st
 ```json
 {
   "show_toolbar_indicator": false
+}
+```
+
+### Sync Tooltip
+
+When an AI client triggers a sync, the addon shows a brief, non-modal tooltip in Anki's UI as the sync starts and finishes (e.g. `AnkiMCP: syncing…`, `AnkiMCP: sync complete`). This is the only visual cue for these otherwise-silent background syncs. It's shown by default. Set `show_sync_tooltip` to `false` to suppress it.
+
+```json
+{
+  "show_sync_tooltip": false
 }
 ```
 
@@ -416,7 +427,7 @@ Optional hardening via config:
 
 | Tool | Description |
 |------|-------------|
-| `sync` | Synchronize collection with AnkiWeb |
+| `sync` | Synchronize collection with AnkiWeb (asynchronous job: `sync()` starts a sync, `sync(job_id)` polls its status, `sync(job_id, resolve=...)` resolves a full-sync conflict) |
 | `list_decks` | List all decks in the collection |
 | `create_deck` | Create a new deck |
 | `find_notes` | Search for notes using Anki's search syntax |
@@ -430,6 +441,7 @@ Optional hardening via config:
 | `update_notes` | Batch-update fields of multiple notes in one atomic undo step (single backend call). Validates every entry first; supports partial success up to `max_notes_per_batch` |
 | `delete_notes` | Delete notes from the collection |
 | `get_due_cards` | Get next due card for review (supports `skip_images`/`skip_audio` for voice mode) |
+| `cards_stats` | Bulk per-card scheduling stats for a deck (incl. subdecks): type/queue/interval/tags/dueToday, paginated. FSRS-independent, compact payload for analytics |
 | `present_card` | Get card content for review |
 | `rate_card` | Rate a card after review (Again/Hard/Good/Easy) |
 | `model_names` | List available note types |

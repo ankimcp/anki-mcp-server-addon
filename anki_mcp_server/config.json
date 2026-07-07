@@ -17,5 +17,6 @@
   "media_allowed_types": [],
   "media_allowed_hosts": [],
   "show_toolbar_indicator": true,
+  "show_sync_tooltip": true,
   "log_to_file": false
 }

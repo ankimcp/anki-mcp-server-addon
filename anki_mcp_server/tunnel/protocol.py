@@ -10,6 +10,7 @@ Server-to-client and client-to-server messages use separate type sets.
 """
 
 import json
+import re
 from typing import NotRequired, TypedDict
 
 
@@ -64,6 +65,48 @@ RECONNECT_INITIAL_DELAY = 1.0   # seconds
 RECONNECT_MAX_DELAY = 30.0      # seconds
 RECONNECT_MAX_ATTEMPTS = 10
 RECONNECT_JITTER_FACTOR = 0.3
+
+
+# ------------------------------------------------------------------------------
+# Client identification headers (tunnel WebSocket upgrade request)
+# ------------------------------------------------------------------------------
+#
+# Sent on the WebSocket upgrade so the relay/dashboard can attribute a
+# connection to the addon and its version. Both headers are optional
+# server-side (old relays ignore them); we always send them for valid values.
+
+CLIENT_TYPE_HEADER = "x-ankimcp-client-type"
+CLIENT_VERSION_HEADER = "x-ankimcp-client-version"
+
+# Literal client-type value the relay validates against (must be exactly this,
+# lowercase). Distinguishes the Anki addon from the standalone CLI.
+CLIENT_TYPE = "addon"
+
+
+def normalize_client_version(raw: str) -> str | None:
+    """Reduce an arbitrary version string to a bare ``MAJOR.MINOR.PATCH``.
+
+    The relay validates the client version against
+    ``^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$`` (max 32 chars, no ``+build``
+    metadata, no ``v`` prefix). Rather than trust the addon's internal version
+    string to always be clean semver, we extract the first numeric
+    ``MAJOR.MINOR.PATCH`` triple and send only that — dropping any ``v`` prefix,
+    ``-prerelease`` suffix, or ``+build`` metadata so the value always satisfies
+    the contract.
+
+    Args:
+        raw: The addon version string (e.g. ``"0.24.0"``, ``"v1.2.3-beta.1"``).
+
+    Returns:
+        The normalized ``"MAJOR.MINOR.PATCH"`` string, or ``None`` if ``raw``
+        contains no numeric triple at all (in which case the caller should omit
+        the header rather than send a known-invalid value).
+    """
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", raw)
+    if match is None:
+        return None
+    major, minor, patch = match.groups()
+    return f"{major}.{minor}.{patch}"
 
 
 # ------------------------------------------------------------------------------

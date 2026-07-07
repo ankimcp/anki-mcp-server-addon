@@ -17,7 +17,7 @@ if sys.version_info < (3, 10):
 
 from pathlib import Path
 
-__version__ = "0.24.0"
+__version__ = "0.25.0"
 
 # Packages we vendor directly (we ship our own copy under vendor/shared). This
 # is the set used for the system-package FALLBACK check on source/Nix installs:
@@ -319,9 +319,52 @@ def _on_profile_opened() -> None:
         print(f"AnkiMCP Server: Start skipped - {error}")
 
 
+def _reset_sync_registry_on_close() -> None:
+    """Abort any in-flight sync and hard-reset the sync registry.
+
+    Runs on ``profile_will_close`` so a freshly opened profile never inherits a
+    stuck gate/single-flight from the outgoing profile. Best-effort throughout:
+    a failure here must never block the profile from closing.
+    """
+    from .file_log import get_logger
+
+    logger = get_logger()
+    try:
+        from .sync_state import registry
+
+        sync_active = registry.is_sync_active() or registry.active_job() is not None
+        if sync_active:
+            # Ask the backend to stop. Abort hits the Rust backend, which stays
+            # alive after close_for_full_sync() sets col.db = None -- so we must
+            # NOT guard on db: during a full-sync transfer db is already None,
+            # and that is exactly the window a profile close must abort (the
+            # background transfer thread is doing network I/O). Anki itself calls
+            # abort_sync() with db=None (qt/aqt/sync.py on_full_sync_timer).
+            try:
+                col = getattr(mw, "col", None) if mw is not None else None
+                if col is not None:
+                    try:
+                        col.abort_sync()
+                    except Exception:  # noqa: BLE001
+                        logger.debug("abort_sync on profile close failed", exc_info=True)
+                    try:
+                        col.abort_media_sync()
+                    except Exception:  # noqa: BLE001
+                        logger.debug(
+                            "abort_media_sync on profile close failed", exc_info=True
+                        )
+            except Exception:  # noqa: BLE001
+                logger.debug("sync abort on profile close failed", exc_info=True)
+
+        registry.reset()
+    except Exception:  # noqa: BLE001 -- never block profile close
+        logger.debug("sync registry reset on profile close failed", exc_info=True)
+
+
 def _on_profile_will_close() -> None:
     """Called when profile is closing - stop connection and cleanup."""
     global _connection_manager, _config_manager
+    _reset_sync_registry_on_close()
     if _connection_manager:
         _connection_manager.stop()
         _connection_manager = None
