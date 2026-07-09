@@ -57,10 +57,18 @@ class GetTagsParams(BaseModel):
     """Parameters for get_tags action."""
     _tool_description: ClassVar[str] = (
         "get_tags: List all tags in the collection. "
-        "No parameters needed. "
+        "Optional deck param scopes results to tags on notes with at least one "
+        "card in that deck (subdecks included); omit for all collection tags. "
         "Returns tags array and count."
     )
     action: Literal["get_tags"]
+    deck: str = Field(
+        default="",
+        description=(
+            "Optional deck name to scope tags to notes with a card in this deck "
+            "(subdecks included). Omit or leave empty for all collection tags."
+        ),
+    )
 
 
 class ClearUnusedTagsParams(BaseModel):
@@ -176,7 +184,7 @@ def tag_management(params: TagManagementParams) -> dict[str, Any]:
                 new_tag=params.new_tag,
             )
         case "get_tags":
-            return get_tags_impl()
+            return get_tags_impl(deck=params.deck)
         case "clear_unused_tags":
             return clear_unused_tags_impl()
         case "batch_tags":
