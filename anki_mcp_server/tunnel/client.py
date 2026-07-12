@@ -27,7 +27,6 @@ import anyio
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 
-from ..credentials import Credentials
 from .in_memory_transport import InMemoryTransport
 from .protocol import (
     CLIENT_TYPE,
@@ -110,7 +109,7 @@ class TunnelClient:
     def __init__(
         self,
         server_url: str,
-        credentials: Credentials,
+        bearer_token: str,
         transport: InMemoryTransport,
         on_tunnel_established: Callable[[str], None] | None = None,
         on_disconnected: Callable[[int, str], None] | None = None,
@@ -122,7 +121,11 @@ class TunnelClient:
         Args:
             server_url: WebSocket URL of the tunnel relay server
                 (e.g. ``wss://tunnel.ankimcp.ai``).
-            credentials: OAuth credentials with a valid access token.
+            bearer_token: Bearer token string sent as the ``Authorization``
+                header. In regular mode this is an OAuth access token; in
+                hosted mode it is the opaque token from the hosted credentials
+                file. The client only needs the token string, not the full
+                credentials envelope.
             transport: In-memory transport for direct JSON-RPC processing
                 into the FastMCP server (no HTTP round-trip).
             on_tunnel_established: Called when the tunnel is ready.
@@ -135,7 +138,7 @@ class TunnelClient:
                 Receives ``(method_path, status_code, duration_ms)``.
         """
         self._server_url = server_url
-        self._credentials = credentials
+        self._bearer_token = bearer_token
         self._transport = transport
 
         # Callbacks
@@ -265,7 +268,7 @@ class TunnelClient:
     def _build_connect_headers(self) -> dict[str, str]:
         """Build the WebSocket upgrade headers for the tunnel connection.
 
-        Always includes ``Authorization`` (Bearer access token) and the
+        Always includes ``Authorization`` (Bearer token) and the
         client-type header identifying this as the Anki addon. The client
         version header is added only when the addon version normalizes to a
         valid ``MAJOR.MINOR.PATCH`` — omitting it rather than sending a
@@ -280,7 +283,7 @@ class TunnelClient:
         from .. import __version__
 
         headers: dict[str, str] = {
-            "Authorization": f"Bearer {self._credentials.access_token}",
+            "Authorization": f"Bearer {self._bearer_token}",
             CLIENT_TYPE_HEADER: CLIENT_TYPE,
         }
         client_version = normalize_client_version(__version__)

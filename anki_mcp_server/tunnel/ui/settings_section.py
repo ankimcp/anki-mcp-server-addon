@@ -244,6 +244,17 @@ class TunnelSettingsSection(QWidget):
             self._disconnect_button.setVisible(False)
             self._logout_button.setVisible(has_credentials)
 
+        # Hosted mode: unattended, no human operator. Suppress every
+        # interactive auth control (Connect/Disconnect/Logout) regardless of
+        # state, so nobody is invited to drive the device-flow login or delete
+        # the provisioned credentials. The read-only status / URL / user
+        # display above stays fully functional (useful for VNC debugging).
+        # Applied last so it wins over the per-state visibility set above.
+        if self._config.hosted_mode:
+            self._connect_button.setVisible(False)
+            self._disconnect_button.setVisible(False)
+            self._logout_button.setVisible(False)
+
     # ------------------------------------------------------------------
     # Log display
     # ------------------------------------------------------------------
@@ -292,6 +303,12 @@ class TunnelSettingsSection(QWidget):
         - Disconnected state: text is "Connect Tunnel" -- starts connection
         - Connecting/reconnecting state: text is "Stop" -- cancels connection
         """
+        # Hosted mode has no interactive login and no human. The button is
+        # hidden in _refresh_status, but guard defensively so the device-flow /
+        # credential-write path can NEVER be triggered while hosted.
+        if self._config.hosted_mode:
+            return
+
         # If the tunnel task is active (connecting/reconnecting), stop it.
         if self._cm.tunnel_active:
             self._cm.disconnect_tunnel()

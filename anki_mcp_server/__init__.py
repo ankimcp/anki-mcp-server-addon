@@ -315,6 +315,26 @@ def _on_profile_opened() -> None:
     if valid:
         _connection_manager.start()
         print("AnkiMCP Server: Started")
+        # Hosted mode runs unattended (no human to click "Connect Tunnel"), so
+        # auto-connect the tunnel now that the background thread is starting.
+        # This must run only inside this branch — connect_tunnel() schedules
+        # onto the background asyncio loop via run_coroutine_threadsafe(), which
+        # no-ops if the loop isn't up yet. start() only spawns the thread and
+        # returns before the loop exists, so we must wait for loop readiness
+        # first; otherwise the single non-retried auto-connect silently no-ops.
+        # The loop comes up in milliseconds, so this returns almost immediately;
+        # the 5s cap only bites if the server genuinely failed to start, in
+        # which case skipping (not hanging, not popping up) is correct.
+        # In regular mode this whole block is skipped and profile-open is
+        # behaviorally unchanged.
+        if config.hosted_mode:
+            if _connection_manager.wait_until_ready(timeout=5.0):
+                _connection_manager.connect_tunnel()
+            else:
+                print(
+                    "AnkiMCP Server: hosted-mode tunnel auto-connect skipped "
+                    "— background loop not ready within 5s"
+                )
     else:
         print(f"AnkiMCP Server: Start skipped - {error}")
 
