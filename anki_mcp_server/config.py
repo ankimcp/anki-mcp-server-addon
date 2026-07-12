@@ -65,6 +65,14 @@ class Config:
     tunnel_server_url: str = "wss://tunnel.ankimcp.ai"
     tunnel_client_id: str = "ankimcp-cli"
 
+    # Hosted mode: when true, this addon runs unattended (e.g. in a hosted
+    # Kubernetes pod) and reads tunnel credentials from a control-plane-managed
+    # file instead of the interactive OAuth login flow. The file is mounted
+    # read-only into the pod at hosted_credentials_path. Off by default —
+    # ordinary desktop installs are unaffected.
+    hosted_mode: bool = False
+    hosted_credentials_path: str = "/run/ankimcp/tunnel-credentials.json"
+
     # Media security settings
     # Restrict file path imports to this directory (empty = no restriction, any directory allowed)
     # Example: "/Users/me/anki-media"

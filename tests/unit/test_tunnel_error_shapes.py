@@ -88,14 +88,14 @@ def _make_tunnel_request(*, request_id: str = "req-1", inner_id: int = 42) -> di
 
 
 def _make_client(transport: object) -> TunnelClient:
-    """Construct a TunnelClient with a stub transport and dummy credentials.
+    """Construct a TunnelClient with a stub transport and dummy bearer token.
 
-    We never call ``run()``, so the server URL and credentials are inert — a
-    MagicMock credentials object is enough.
+    We never call ``run()``, so the server URL and bearer token are inert — a
+    plain placeholder string is enough.
     """
     return TunnelClient(
         server_url="wss://example.invalid",
-        credentials=MagicMock(),
+        bearer_token="test-token",
         transport=transport,  # type: ignore[arg-type]
     )
 
