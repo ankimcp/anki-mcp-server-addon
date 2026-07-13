@@ -183,14 +183,14 @@ class _FakeSilentWebSocket:
 # ---------------------------------------------------------------------------
 
 def _make_client(**callbacks) -> TunnelClient:
-    """Construct a TunnelClient with an inert bearer token / transport.
+    """Construct a TunnelClient with inert credentials / transport.
 
     No requests flow (the fake closes with zero messages), so the transport is
     never touched — a MagicMock is sufficient.
     """
     return TunnelClient(
         server_url="wss://tunnel.example",
-        bearer_token="test-token",
+        credentials=MagicMock(),
         transport=MagicMock(),
         **callbacks,
     )

@@ -173,21 +173,6 @@ class ConnectionManager:
         self._server = McpServer(self._bridge, self._config)
         self._server.start()
 
-    def wait_until_ready(self, timeout: float) -> bool:
-        """Block until the MCP server's background loop is ready, or timeout.
-
-        Delegates to the server so callers don't reach into ``_server``
-        internals. Returns False if the server isn't started, or True/False
-        from the server's own readiness wait.
-
-        Thread Safety:
-            Must be called from the Qt main thread. Blocks for at most
-            ``timeout`` seconds.
-        """
-        if self._server is None:
-            return False
-        return self._server.wait_until_loop_ready(timeout)
-
     def stop(self) -> None:
         """Stop both components gracefully.
 
@@ -360,18 +345,12 @@ class ConnectionManager:
             logger.info("Tunnel already connected, ignoring connect_tunnel()")
             return
 
-        # Regular mode requires stored OAuth credentials on disk before we even
-        # try. Hosted mode SKIPS this precondition entirely: there is no
-        # user_files credentials file — the reconnect manager's hosted loader
-        # reads the provisioned credentials file itself and exits cleanly/quietly
-        # if it's missing or malformed. Enforcing the disk check here would make
-        # hosted connect always fail.
-        if not self._config.hosted_mode:
-            credentials = self._credentials_manager.load()
-            if credentials is None:
-                logger.warning("No credentials found, cannot connect tunnel")
-                self._tunnel_log.error("No credentials — please log in first")
-                return
+        # Check for stored credentials
+        credentials = self._credentials_manager.load()
+        if credentials is None:
+            logger.warning("No credentials found, cannot connect tunnel")
+            self._tunnel_log.error("No credentials — please log in first")
+            return
 
         self._tunnel_log.info("Connecting to tunnel...")
 

@@ -84,14 +84,6 @@ class McpServer:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._uvicorn_server: Optional[uvicorn.Server] = None
 
-        # Loop-readiness signal — set in _async_main() the instant self._loop
-        # is assigned, so a caller on the Qt main thread can wait until the
-        # background loop is genuinely usable for run_coroutine_threadsafe()
-        # before scheduling work on it (e.g. hosted-mode tunnel auto-connect).
-        # A fresh McpServer is created on every ConnectionManager.start(), so
-        # this Event is always fresh — never cleared, no stale-set concern.
-        self._loop_ready = threading.Event()
-
         # Bounded executor for bridging blocking queue ops into asyncio.
         # Used by _call_main_thread() via loop.run_in_executor().
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mcp-bridge")
@@ -123,19 +115,6 @@ class McpServer:
         """
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
-
-    def wait_until_loop_ready(self, timeout: float) -> bool:
-        """Block until the background asyncio loop is running, or timeout.
-
-        Returns True once ``_async_main`` has assigned ``self._loop`` (the loop
-        is then usable for ``run_coroutine_threadsafe``), or False if the
-        timeout elapses first (e.g. the background thread failed during setup).
-
-        Thread Safety:
-            Safe to call from the Qt main thread. Blocks the caller for at most
-            ``timeout`` seconds.
-        """
-        return self._loop_ready.wait(timeout)
 
     def stop(self) -> None:
         """Signal shutdown and wait for the background thread to exit.
@@ -347,8 +326,6 @@ class McpServer:
             on_request_completed=on_request_completed,
             on_reconnecting=on_reconnecting,
             on_stopped=_on_stopped_wrapper,
-            hosted_mode=self._config.hosted_mode,
-            hosted_credentials_path=self._config.hosted_credentials_path,
         )
 
         self._tunnel_manager = manager
@@ -500,13 +477,6 @@ class McpServer:
         # Capture the loop so stop() (Qt thread) can schedule cross-thread
         # callbacks via call_soon_threadsafe.
         self._loop = asyncio.get_running_loop()
-
-        # Signal readiness the instant the loop reference is stored — the loop
-        # is now running and safe for run_coroutine_threadsafe(). Set here, on
-        # the success path, before the server blocks serving. If the thread
-        # dies during setup below, this is never set and any waiter times out
-        # and skips — the correct degradation.
-        self._loop_ready.set()
 
         # Async keepalive event — needed in tunnel-only mode (HTTP disabled)
         # where there's no uvicorn serve() blocking the loop. Must be created

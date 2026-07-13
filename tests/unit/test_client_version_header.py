@@ -12,6 +12,7 @@ import anki_mcp_server  # noqa: F401 – triggers vendor path setup
 
 import pytest
 
+from anki_mcp_server.credentials import Credentials
 from anki_mcp_server.tunnel.client import TunnelClient
 from anki_mcp_server.tunnel.protocol import (
     CLIENT_TYPE,
@@ -52,20 +53,27 @@ class TestBuildConnectHeaders:
 
     ``normalize_client_version`` is tested in isolation above; this class
     verifies the method that actually assembles the WebSocket upgrade headers
-    from the bearer token and the (lazily re-imported) addon ``__version__``.
+    from the credentials' access token and the (lazily re-imported) addon
+    ``__version__``.
     """
 
     @staticmethod
     def _make_client(access_token: str) -> TunnelClient:
         """Build a TunnelClient whose only meaningful state is the token.
 
-        ``_build_connect_headers()`` reads only ``self._bearer_token``; the
-        transport is never touched, so a bare sentinel satisfies the
+        ``_build_connect_headers()`` reads only ``self._credentials.access_token``;
+        the transport is never touched, so a bare sentinel satisfies the
         constructor without opening a socket or building a real MCP server.
         """
+        credentials = Credentials(
+            access_token=access_token,
+            refresh_token="dummy-refresh",
+            expires_at="2099-01-01T00:00:00.000Z",
+            user={"id": "usr_test", "email": "a@b.com", "tier": "free"},
+        )
         return TunnelClient(
             server_url="wss://tunnel.example/test",
-            bearer_token=access_token,
+            credentials=credentials,
             transport=object(),  # type: ignore[arg-type] -- unused by this method
         )
 
