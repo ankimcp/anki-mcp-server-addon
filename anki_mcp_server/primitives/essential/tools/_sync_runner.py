@@ -35,8 +35,9 @@ Two transports for the actual transfer:
   blocks the user from clicking Browse/Stats and crashing on the closed
   collection. ``with_progress`` still returns immediately (it shows a modeless-
   to-code dialog via ``.show()``, not ``.exec()``), so the handler returns fast
-  and QTimers -- including the queue-bridge poll and ``sync`` status polls --
-  keep firing. The registry gate is kept as belt-and-suspenders defense.
+  and the main event loop keeps delivering main-thread work -- the queue
+  bridge's ``run_on_main`` drain closures and the ``sync`` status-poll QTimers
+  both keep firing. The registry gate is kept as belt-and-suspenders defense.
 
 Concurrency safety comes from the registry's gate + single-flight, mirroring
 Anki's own ``qt/aqt/sync.py`` sequencing for the collection-closing full sync.

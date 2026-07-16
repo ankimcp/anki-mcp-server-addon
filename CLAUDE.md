@@ -61,7 +61,7 @@ Anki addon that runs an MCP server inside Anki, exposing collection operations t
                 ▼
 ┌─────────────────────────────────────────┐
 │     Qt Main Thread                      │
-│  - QTimer (25ms polling)                │
+│  - Event-driven drain (run_on_main)     │
 │  - RequestProcessor                     │
 │  - Access to mw.col (safe here)         │
 └─────────────────────────────────────────┘
