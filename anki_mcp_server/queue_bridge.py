@@ -6,14 +6,17 @@ MCP server) and the Qt main thread (where Anki collection access is safe).
 
 Architecture:
     - Background thread: MCP server handles protocol, puts requests in queue,
-      blocks waiting for responses
-    - Main thread: QTimer polls request queue, executes Anki operations, sends
-      responses back
+      fires the registered waker (event-driven wake-up of the main thread),
+      then blocks waiting for responses
+    - Main thread: a drain callback (scheduled by the waker via
+      mw.taskman.run_on_main) pulls requests off the queue, executes Anki
+      operations, and sends responses back. No polling — the main thread is
+      only woken when there is work to do.
 
 Thread Safety:
     - Uses Python's built-in `queue.Queue` which is thread-safe by design
     - Per-request response queues via _pending dict (protected by _pending_lock)
-    - Main thread never blocks - uses get_nowait() in QTimer callback
+    - Main thread never blocks - uses get_nowait() in the drain callback
 
 Response Routing:
     Each call to send_request() creates a private one-shot queue keyed by
@@ -22,10 +25,13 @@ Response Routing:
     multiple concurrent MCP sessions without cross-talk.
 """
 
+import logging
 import queue
 import threading
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class BridgeError(Exception):
@@ -118,11 +124,13 @@ class QueueBridge:
     Usage Pattern:
         1. Background thread (MCP server):
            - Creates ToolRequest
-           - Calls send_request() - this BLOCKS until response is ready
+           - Calls send_request() - puts the request, fires the waker (which
+             schedules a main-thread drain), then BLOCKS until the response
+             is ready
            - Returns result to MCP client
 
-        2. Main thread (QTimer callback every 25ms):
-           - Calls get_pending_request() - non-blocking
+        2. Main thread (drain callback, scheduled by the waker):
+           - Calls get_pending_request() - non-blocking, loops until empty
            - If request found, executes on Anki collection
            - Calls send_response() - unblocks waiting background thread
 
@@ -136,6 +144,15 @@ class QueueBridge:
         request_id. The main thread's send_response() looks up this queue and
         delivers the response to the correct waiting thread. This supports
         multiple concurrent MCP sessions without cross-talk.
+
+    Waker (event-driven dispatch):
+        The consumer (RequestProcessor) registers a waker via set_waker().
+        send_request() fires the waker right after enqueueing, waking the
+        main thread exactly when there is work — no polling. The bridge
+        stays Qt-free: the waker is an opaque zero-argument callable, and
+        any Qt scheduling (mw.taskman.run_on_main) lives in the caller.
+        With no waker registered, puts still succeed but nothing drains
+        the queue until a consumer registers and performs a drain.
 
     Shutdown Handling:
         - Setting _shutdown=True prevents new requests
@@ -154,9 +171,9 @@ class QueueBridge:
         ...     tool_name="list_decks",
         ...     arguments={}
         ... )
-        >>> response = bridge.send_request(request)  # Blocks until main thread responds
+        >>> response = bridge.send_request(request)  # Wakes main thread, blocks for response
         >>>
-        >>> # In main thread (QTimer callback):
+        >>> # In main thread (drain callback scheduled by the waker):
         >>> request = bridge.get_pending_request()  # Non-blocking
         >>> if request:
         ...     result = execute_on_anki(request)
@@ -175,19 +192,54 @@ class QueueBridge:
         - request_queue: shared FIFO for incoming tool requests
         - _pending: dict mapping request_id -> per-request response queue
         - _pending_lock: protects _pending and _shutdown for thread safety
+        - _waker: optional callable fired after each enqueue (see set_waker)
         """
         self.request_queue: queue.Queue[ToolRequest] = queue.Queue()
         self._pending: dict[str, queue.Queue[ToolResponse]] = {}
         self._pending_lock = threading.Lock()
         self._shutdown = False
+        self._waker: Optional[Callable[[], None]] = None
+
+    def set_waker(self, waker: Callable[[], None]) -> None:
+        """Register the waker fired after each request is enqueued.
+
+        The waker is how event-driven dispatch stays Qt-free at this layer:
+        the consumer (RequestProcessor) passes a callable that schedules a
+        drain onto the Qt main thread, and this module never imports aqt.
+
+        Args:
+            waker: Zero-argument callable invoked from send_request() right
+                after the request is put on the queue. Called from the
+                background thread — it must be thread-safe (run_on_main is).
+
+        Thread Safety:
+            Assigning a single attribute is atomic under the GIL. Typically
+            called from the Qt main thread during processor start().
+        """
+        self._waker = waker
+
+    def clear_waker(self) -> None:
+        """Deregister the waker.
+
+        After this, send_request() still enqueues requests but no longer
+        wakes anyone — same semantics as a stopped consumer. Called during
+        processor stop(); requests enqueued afterwards stay queued until a
+        consumer registers again and performs a drain.
+
+        Thread Safety:
+            Assigning a single attribute is atomic under the GIL.
+        """
+        self._waker = None
 
     def send_request(self, request: ToolRequest) -> ToolResponse:
         """Send request to main thread and wait for response.
 
         Called from background thread (MCP server) when a tool call is received.
-        This method BLOCKS until the main thread processes the request and sends
-        a response back. This is safe because it's not the Qt main thread that
-        blocks.
+        After enqueueing, the registered waker (if any) is fired so the main
+        thread schedules a drain immediately — this is the event-driven
+        replacement for the old polling timer. This method then BLOCKS until
+        the main thread processes the request and sends a response back. This
+        is safe because it's not the Qt main thread that blocks.
 
         Each call creates a private one-shot queue keyed by request_id. This
         ensures that with multiple concurrent sessions, each thread receives
@@ -218,6 +270,28 @@ class QueueBridge:
             self._pending[request.request_id] = response_q
 
         self.request_queue.put(request)
+
+        # Wake the main-thread consumer (event-driven dispatch). Ordering is
+        # critical: put FIRST, then wake, then block — so the drain scheduled
+        # by the wake is guaranteed to see the request. Snapshot the attribute
+        # so a concurrent clear_waker() can't turn the None-check into a race.
+        waker = self._waker
+        if waker is not None:
+            try:
+                waker()
+            except Exception:
+                # A broken waker must never break request delivery. The
+                # request is already queued; a subsequent wake (or the
+                # processor's initial drain on restart) will pick it up,
+                # and the 30s timeout below bounds the worst case. Logged
+                # (not printed) so the diagnostic file log captures it —
+                # the symptom is "requests hang 30s", prime diagnostics.
+                logger.warning(
+                    "Waker raised — request %s stays queued",
+                    request.request_id,
+                    exc_info=True,
+                )
+
         try:
             # Block until main thread responds (with timeout to prevent indefinite hang)
             # 30 second timeout is generous - typical operations complete in milliseconds
@@ -229,21 +303,22 @@ class QueueBridge:
     def get_pending_request(self) -> Optional[ToolRequest]:
         """Non-blocking check for pending requests.
 
-        Called from main thread (QTimer callback) to check if there are any
-        pending tool requests. This method NEVER blocks - it returns immediately
-        with either a request or None.
+        Called from main thread (the drain callback scheduled by the waker)
+        to check if there are any pending tool requests. This method NEVER
+        blocks - it returns immediately with either a request or None.
 
         Returns:
             The next pending request if one exists, otherwise None.
 
         Thread Safety:
             Safe to call from any thread, but designed to be called from the
-            Qt main thread in a QTimer callback.
+            Qt main thread in the drain callback.
 
         Performance:
-            This method is called every 25ms by the QTimer. The non-blocking
-            behavior ensures the Qt event loop is never blocked, keeping the
-            UI responsive.
+            Called in a drain-until-empty loop each time the waker schedules
+            a drain — never on a timer, so an idle server costs nothing. The
+            non-blocking behavior ensures the Qt event loop is never blocked,
+            keeping the UI responsive.
         """
         try:
             return self.request_queue.get_nowait()

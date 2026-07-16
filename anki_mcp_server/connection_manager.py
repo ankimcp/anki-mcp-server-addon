@@ -12,12 +12,13 @@ control methods that the UI layer calls.
 Shutdown Order (Critical):
     1. Bridge shutdown - unblocks any waiting requests
     2. MCP server stop - terminates background thread (also stops tunnel)
-    3. Request processor stop - stops main thread timer
+    3. Request processor stop - clears the waker; late drain callbacks
+       become no-ops
 
 This order ensures that:
 - Background thread's blocking queue operations are unblocked first
 - MCP server can cleanly shut down its asyncio event loop
-- Request processor timer stops after all async operations complete
+- Request processor deactivates after all async operations complete
 
 Thread Safety:
     - All methods designed to be called from Qt main thread
@@ -58,7 +59,8 @@ class ConnectionManager:
     """Manages MCP server, request processor, and tunnel lifecycle.
 
     This class orchestrates the startup and shutdown of the two-thread architecture:
-    - Main thread: RequestProcessor polls queue via QTimer
+    - Main thread: RequestProcessor drains the queue when woken (event-driven
+      dispatch via mw.taskman.run_on_main — no polling timer)
     - Background thread: McpServer runs asyncio event loop with MCP SDK + tunnel
 
     It also owns the shared tunnel subsystem instances:
@@ -92,7 +94,8 @@ class ConnectionManager:
 
     Note:
         This class must be instantiated on the Qt main thread since it creates
-        Qt components (RequestProcessor uses QTimer, TunnelLog is a QObject).
+        Qt components (TunnelLog is a QObject) and the RequestProcessor's
+        drain callbacks are scheduled onto the main thread via mw.taskman.
     """
 
     def __init__(self, config: Config) -> None:
@@ -135,15 +138,18 @@ class ConnectionManager:
         """Start MCP server (background) and request processor (main thread).
 
         Starts both components in the correct order:
-        1. Request processor on main thread (QTimer starts polling)
+        1. Request processor on main thread (registers the waker on the
+           bridge and schedules an initial drain)
         2. MCP server in background thread (asyncio event loop starts)
 
-        The request processor must start first so it's ready to handle requests
-        when the MCP server begins accepting connections.
+        The request processor must start first so its waker is registered
+        before the MCP server begins accepting connections — every request
+        enqueued from then on wakes the main thread immediately.
 
         Thread Safety:
-            Must be called from Qt main thread. The request processor uses
-            QTimer which requires the Qt event loop.
+            Must be called from Qt main thread. The request processor
+            schedules its drain callbacks via mw.taskman.run_on_main, which
+            requires the Qt event loop to be running.
 
         Idempotency:
             If already running, this method is a no-op. Use restart() to
@@ -164,9 +170,10 @@ class ConnectionManager:
         self._bridge = QueueBridge()
 
         # Start request processor on main thread
-        # This begins polling the request_queue every 25ms
+        # This registers the waker on the bridge (event-driven dispatch) and
+        # schedules an initial drain for anything already queued
         self._processor = RequestProcessor(self._bridge)
-        self._processor.start(interval_ms=25)
+        self._processor.start()
 
         # Start MCP server in background thread
         # This creates a daemon thread running asyncio event loop
@@ -180,7 +187,8 @@ class ConnectionManager:
         1. Bridge shutdown - signals shutdown and unblocks waiting requests
         2. MCP server stop - terminates background thread gracefully
            (also stops the tunnel if running)
-        3. Request processor stop - stops main thread timer
+        3. Request processor stop - clears the waker and deactivates, so
+           late drain callbacks already queued in Qt become no-ops
 
         This order is critical:
         - Bridge shutdown must happen FIRST to unblock any threads waiting
@@ -218,8 +226,8 @@ class ConnectionManager:
             self._server.stop()
             self._server = None
 
-        # 3. Stop request processor (main thread timer)
-        # This stops the QTimer so it no longer polls the request queue
+        # 3. Stop request processor (main thread consumer)
+        # This clears the waker and makes any late drain callbacks no-ops
         if self._processor:
             self._processor.stop()
             self._processor = None
