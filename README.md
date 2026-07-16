@@ -213,6 +213,7 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "media_import_dir": "",
   "media_allowed_types": [],
   "media_allowed_hosts": [],
+  "show_settings_menu_item": true,
   "show_toolbar_indicator": true,
   "show_sync_tooltip": true,
   "log_to_file": false
@@ -230,6 +231,18 @@ The `http_enabled` setting controls whether the local HTTP server runs. When set
 ```
 
 This is useful if you only use the tunnel and don't want a local HTTP server listening.
+
+### Tools Menu Item
+
+The *AnkiMCP Server Settings…* entry in Anki's *Tools* menu is shown by default. Set `show_settings_menu_item` to `false` to hide it (takes effect after an Anki restart).
+
+```json
+{
+  "show_settings_menu_item": false
+}
+```
+
+Note: if you hide the menu item **and** the toolbar indicator, there's no in-app way left to open the settings dialog — you can still edit the config via *Tools → Add-ons → AnkiMCP Server → Config*.
 
 ### Toolbar Status Indicator
 

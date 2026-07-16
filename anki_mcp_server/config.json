@@ -16,6 +16,7 @@
   "media_import_dir": "",
   "media_allowed_types": [],
   "media_allowed_hosts": [],
+  "show_settings_menu_item": true,
   "show_toolbar_indicator": true,
   "show_sync_tooltip": true,
   "log_to_file": false

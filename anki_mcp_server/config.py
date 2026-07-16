@@ -80,6 +80,12 @@ class Config:
 
     # General
 
+    # Show the "AnkiMCP Server Settings..." item in Anki's Tools menu. Set false
+    # to hide it (takes effect after an Anki restart). Note: hiding it while also
+    # disabling show_toolbar_indicator leaves no in-app way to open the settings
+    # dialog.
+    show_settings_menu_item: bool = True
+
     # Show the persistent "● AnkiMCP" tunnel-status indicator in Anki's top
     # toolbar. Set false to hide it (takes effect after an Anki restart).
     show_toolbar_indicator: bool = True

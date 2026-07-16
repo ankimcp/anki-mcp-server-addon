@@ -17,7 +17,7 @@ if sys.version_info < (3, 10):
 
 from pathlib import Path
 
-__version__ = "0.25.1"
+__version__ = "0.25.2"
 
 # Packages we vendor directly (we ship our own copy under vendor/shared). This
 # is the set used for the system-package FALLBACK check on source/Nix installs:
@@ -383,17 +383,25 @@ def _on_app_shutdown() -> None:
 
 def _setup_menu() -> None:
     """Add AnkiMCP Server to Tools menu and install the toolbar indicator."""
-    action = QAction("AnkiMCP Server Settings...", mw)
-    action.triggered.connect(_show_settings)
-    mw.form.menuTools.addAction(action)
+    # Config is global to the addon, so it's read here directly rather than via
+    # _config_manager, which isn't set until a profile opens. Loaded once and
+    # reused for both the menu item and the toolbar indicator below.
+    config = ConfigManager(__name__).load()
+
+    # Tools-menu item (opt-out via show_settings_menu_item; takes effect on
+    # restart). The toolbar indicator's click handler also opens the dialog, so
+    # hiding this leaves the settings reachable as long as the indicator is on.
+    if config.show_settings_menu_item:
+        action = QAction("AnkiMCP Server Settings...", mw)
+        action.triggered.connect(_show_settings)
+        mw.form.menuTools.addAction(action)
 
     # Persistent tunnel-status item in the top toolbar (opt-out via the
     # show_toolbar_indicator config flag; the change takes effect on restart).
-    # Config is global to the addon, so it's read here directly rather than
-    # via _config_manager, which isn't set until a profile opens. Reads the
-    # live connection manager lazily (recreated per profile, None before the
-    # first profile opens) and reuses _show_settings as the click handler.
-    if ConfigManager(__name__).load().show_toolbar_indicator:
+    # Reads the live connection manager lazily (recreated per profile, None
+    # before the first profile opens) and reuses _show_settings as the click
+    # handler.
+    if config.show_toolbar_indicator:
         toolbar_indicator.register(
             state_provider=lambda: _connection_manager,
             on_click=_show_settings,
