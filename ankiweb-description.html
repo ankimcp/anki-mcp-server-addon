@@ -31,6 +31,11 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>Bulk card stats</b> - The read-only <code>cards_stats</code> tool returns compact per-card scheduling metrics (type, queue, interval, tags, <code>dueToday</code>) for a whole deck including subdecks, FSRS-independent — a lean bulk read for analytics</li>
 </ul>
 
+<h2>What's New in v0.26.0</h2>
+<ul>
+<li><b>Event-driven request dispatch</b> - The MCP request pipeline no longer polls Anki's main thread 40 times a second waiting for work. Requests are now handed off the instant they arrive, which removes all idle-time wakeups (lower background CPU use when nothing is happening) and trims per-request latency (no up-to-25ms wait for the next poll tick). Purely internal — no configuration or client-visible behavior change (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/65">#65</a>)</li>
+</ul>
+
 <h2>What's New in v0.25.x</h2>
 <ul>
 <li><b>Hideable Tools-menu item</b> - New <code>show_settings_menu_item</code> config flag (default <code>true</code>): set it to <code>false</code> to hide the <i>AnkiMCP Server Settings...</i> entry in Anki's Tools menu, useful for locked-down or kiosk-style setups. The settings dialog stays reachable via the toolbar indicator (takes effect after an Anki restart)</li>
@@ -59,16 +64,7 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>Clearer dependency-conflict diagnostics</b> - When another add-on has already loaded a shared library, the startup warning now reports the actual version and file path of the conflicting copy, making cross-add-on issues easier to pin down</li>
 </ul>
 
-<h2>What's New in v0.21.x</h2>
-<ul>
-<li><b>Fix: startup crash on Windows, ARM Linux, and Intel Macs</b> - The add-on bundled a compiled <code>rpds</code> binary built only for macOS-arm64 and Linux-x86_64, so on every other platform the server failed to start with <code>ModuleNotFoundError: No module named 'rpds.rpds'</code> (surfacing on Anki 26.05+). The add-on no longer bundles <code>rpds</code> — it uses the copy Anki already provides, and only downloads the correct platform wheel at runtime if Anki doesn't supply one. Already-affected installs self-heal on the next launch (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/54">#54</a>)</li>
-<li><b>Fix: load failure on source/Nix installs</b> - The <code>packaging</code> library is now imported lazily, so source and Nix installs (which provide dependencies from the system) no longer crash on load with <code>ModuleNotFoundError: No module named 'packaging'</code>. Standard AnkiWeb installs were not affected by this one</li>
-<li><b>Fix: correct pydantic_core wheel on Apple Silicon</b> - On Macs running Anki's universal2 framework Python, the add-on downloaded the x86_64 <code>pydantic_core</code> wheel instead of the arm64 one, so the server crashed on startup with an "incompatible architecture" error. Architecture detection now uses <code>platform.machine()</code>, which correctly identifies arm64 regardless of how Python was built; already-affected installs self-heal on the next launch (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/52">#52</a>)</li>
-<li><b>Security: DNS-rebinding protection</b> - The local HTTP transport now validates <code>Host</code>/<code>Origin</code> headers against a loopback allowlist by default, closing a DNS-rebinding vector where a malicious web page could reach the local MCP server and invoke tools (<a href="https://github.com/ankimcp/anki-mcp-server-addon/security/advisories/GHSA-j9xx-59ph-wmr6">GHSA-j9xx-59ph-wmr6</a>). To expose the HTTP server through a tunnel or reverse proxy, add your host/origin to the new <code>http_allowed_hosts</code> / <code>http_allowed_origins</code> config fields. The tunnel transport is unaffected</li>
-<li><b>Optional API key</b> - New <code>http_api_key</code> config adds an AnkiConnect-style shared-secret auth layer for the HTTP transport: when set, every request must send an <code>Authorization: Bearer &lt;key&gt;</code> header. Empty by default (disabled), so existing setups are unchanged</li>
-</ul>
-
-<p>Older releases (v0.20.0 and earlier) are listed on the <a href="https://github.com/ankimcp/anki-mcp-server-addon/releases">GitHub releases page</a>.</p>
+<p>Older releases (v0.21.x and earlier) are listed on the <a href="https://github.com/ankimcp/anki-mcp-server-addon/releases">GitHub releases page</a>.</p>
 
 <h2>Installation</h2>
 
