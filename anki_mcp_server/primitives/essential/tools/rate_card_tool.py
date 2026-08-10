@@ -27,7 +27,7 @@ def rate_card(card_id: int, rating: int) -> dict[str, Any]:
     if not isinstance(card_id, int) or card_id <= 0:
         raise HandlerError(
             f"card_id must be a positive integer, got: {card_id}",
-            hint="Use get_due_cards or findCards to get valid card IDs",
+            hint="Use get_due_cards or cards_stats to get valid card IDs (find_notes returns note IDs, not card IDs)",
         )
 
     try:

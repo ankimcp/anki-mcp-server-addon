@@ -59,7 +59,7 @@ class ToolRequest:
     Attributes:
         request_id: Unique identifier to match requests with responses. Typically
             a UUID string.
-        tool_name: Name of the tool to execute (e.g., "list_decks", "create_note").
+        tool_name: Name of the tool to execute (e.g., "list_decks", "add_note").
             Must match a registered handler in the handler registry.
         arguments: Tool-specific arguments as a dictionary. These will be passed
             to the corresponding handler function via the handler registry.
@@ -67,7 +67,7 @@ class ToolRequest:
     Example:
         >>> request = ToolRequest(
         ...     request_id="123e4567-e89b-12d3-a456-426614174000",
-        ...     tool_name="search_notes",
+        ...     tool_name="find_notes",
         ...     arguments={"query": "deck:Default", "limit": 10}
         ... )
     """
@@ -97,7 +97,12 @@ class ToolResponse:
         >>> response = ToolResponse(
         ...     request_id="123e4567-e89b-12d3-a456-426614174000",
         ...     success=True,
-        ...     result={"decks": [{"id": 1, "name": "Default"}]}
+        ...     result={
+        ...         "decks": [
+        ...             {"deck_id": 1, "name": "Default", "is_filtered": False}
+        ...         ],
+        ...         "total": 1,
+        ...     }
         ... )
 
     Example (error):

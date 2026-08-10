@@ -22,7 +22,7 @@ e2e: e2e-full e2e-filtered
 e2e-full: e2e-up
 	@echo "Waiting for MCP server..."
 	@for i in $$(seq 1 60); do \
-		if npx @modelcontextprotocol/inspector --cli http://localhost:3141 --transport http --method tools/list 2>/dev/null; then \
+		if npx -y @modelcontextprotocol/inspector --cli http://localhost:3141 --transport http --method tools/list 2>/dev/null; then \
 			echo "Server ready!"; \
 			break; \
 		fi; \
@@ -63,7 +63,7 @@ e2e-debug: e2e-up
 e2e-filtered: e2e-filtered-up
 	@echo "Waiting for filtered MCP server on port 3142..."
 	@for i in $$(seq 1 60); do \
-		if npx @modelcontextprotocol/inspector --cli http://localhost:3142 --transport http --method tools/list 2>/dev/null; then \
+		if npx -y @modelcontextprotocol/inspector --cli http://localhost:3142 --transport http --method tools/list 2>/dev/null; then \
 			echo "Server ready!"; \
 			break; \
 		fi; \

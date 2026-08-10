@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
     "Returns true if browser is open and card was selected, false if browser is not open. "
     "IMPORTANT: Only use when user explicitly requests selecting a card in the browser. "
     "This tool is for note editing/creation workflows, NOT for review sessions. "
-    "The Card Browser must already be open (use guiBrowse first).",
+    "The Card Browser must already be open (use gui_browse first).",
     write=False,
 )
 def gui_select_card(card_id: int) -> dict[str, Any]:
@@ -32,7 +32,7 @@ def gui_select_card(card_id: int) -> dict[str, Any]:
             "cardId": card_id,
             "browserOpen": False,
             "message": "Card Browser is not open",
-            "hint": "Use guiBrowse to open the Card Browser first, then try selecting the card again.",
+            "hint": "Use gui_browse to open the Card Browser first, then try selecting the card again.",
         }
 
     try:
@@ -81,9 +81,10 @@ def gui_select_card(card_id: int) -> dict[str, Any]:
     browser.activateWindow()
 
     return {
+        "success": True,
         "selected": True,
         "cardId": card_id,
         "browserOpen": True,
         "message": f"Successfully selected card {card_id} in Card Browser",
-        "hint": "The card is now selected. Use guiEditNote to edit the associated note, or guiSelectedNotes to get note IDs.",
+        "hint": f'The card is now selected. To edit the note behind it, get its note ID with find_notes using the query "cid:{card_id}", then pass that note ID to gui_edit_note.',
     }
