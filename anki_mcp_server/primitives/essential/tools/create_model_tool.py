@@ -101,8 +101,13 @@ def create_model(
     if css:
         model["css"] = css
 
+    # Adding a NEW notetype is not a schema change, so it never forces a one-way
+    # full sync (unlike adding/removing/reordering fields or templates on an
+    # EXISTING notetype -- see model_fields). rslib's add_notetype_inner never
+    # calls set_schema_modified. No warning belongs in the response.
+    # add() persists the notetype and backfills the assigned id in place; a
+    # trailing save() would only issue a second, identical write.
     mm.add(model)
-    mm.save(model)
 
     model_id = model.get("id")
 
