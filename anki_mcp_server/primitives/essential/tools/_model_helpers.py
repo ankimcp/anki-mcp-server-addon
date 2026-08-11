@@ -4,6 +4,15 @@ from typing import Any
 
 from ....handler_wrappers import HandlerError
 
+# Notetype dict keys for the LaTeX preamble. These are Anki's schema11 key names
+# (see rslib/src/notetype/schema11.rs RESERVED_NOTETYPE_KEYS) -- note the
+# inconsistent casing: "latexPre"/"latexPost" are camelCase but "latexsvg" is
+# all lowercase. Defined once here because both the reader (model_styling) and
+# the writer (update_model_styling) must agree on them exactly.
+LATEX_PRE_KEY = "latexPre"
+LATEX_POST_KEY = "latexPost"
+LATEX_SVG_KEY = "latexsvg"
+
 
 def get_model_copy_or_raise(col: Any, model_name: str) -> dict:
     """Return a deepcopy of the named notetype (model), raising HandlerError if absent.
