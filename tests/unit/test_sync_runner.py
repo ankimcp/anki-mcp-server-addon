@@ -156,8 +156,15 @@ class TestSpawnFailure:
         mw = sync_fakes.Mw(col, tm, sync_fakes.Pm(media=False))
         install_mw(mw)
 
-        with pytest.raises(RuntimeError):
+        # A spawn failure reaches the client CLASSIFIED (code + hint + job_id),
+        # never as a bare Python string.
+        with pytest.raises(HandlerError) as exc:
             sync_runner.start_sync()
+        assert exc.value.code == "spawn_failed"
+        assert exc.value.hint
+        assert exc.value.data["job_id"]
+        assert "run_in_background spawn failed" in exc.value.message
+        assert isinstance(exc.value.__cause__, RuntimeError)
         assert fresh_registry.is_sync_active() is False
         assert fresh_registry.active_job() is None
 
@@ -206,6 +213,10 @@ class TestResolve:
         job = fresh_registry.get(jid)
         assert job.status == "success"
         assert job.result.get("resolved") is True
+        # The conflict fields are cleared once a direction is chosen -- a
+        # terminal success must never still advertise a resolution.
+        assert job.required is None
+        assert job.legal_directions == []
         assert any(
             c[0] == "full_upload_or_download" and c[2] is True for c in col.calls
         )
@@ -265,6 +276,9 @@ class TestResolve:
         assert out["status"] == "cancelled"
         job = fresh_registry.get(jid)
         assert job.status == "cancelled"
+        # The conflict was abandoned -- nothing is left to resolve.
+        assert job.required is None
+        assert job.legal_directions == []
         # Nothing transferred; collection left untouched.
         assert col.calls == []
         assert col.db is not None
@@ -323,8 +337,15 @@ class TestResolve:
         mw = sync_fakes.Mw(col, tm, sync_fakes.Pm())
         install_mw(mw)
 
-        with pytest.raises(RuntimeError):
+        # Classified for the client: the transfer state is INDETERMINATE, so
+        # the code/hint must say so rather than leaking a raw Python string.
+        with pytest.raises(HandlerError) as exc:
             sync_runner.resolve_sync(jid, "upload")
+        assert exc.value.code == "spawn_failed_indeterminate"
+        assert exc.value.hint
+        assert exc.value.data["job_id"] == jid
+        assert "with_progress spawn failed" in exc.value.message
+        assert isinstance(exc.value.__cause__, RuntimeError)
 
         assert mw.progress.finished >= 1     # progress dialog torn down
         assert fresh_registry.active_job() is None

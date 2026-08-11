@@ -60,11 +60,20 @@ class SyncJob:
             ``"media"`` or ``"done"``.
         legal_directions: For a conflict, the resolve directions the client is
             allowed to pass (subset of ``["upload", "download"]``).
-        required: Raw ``ChangesRequired`` enum *name* from the backend
-            (e.g. ``"FULL_SYNC"``), or ``None`` before the check completes.
+        required: CONFLICT RESOLUTION needed -- the ``ChangesRequired`` enum
+            *name* that forced a one-way full sync (``"FULL_SYNC"``,
+            ``"FULL_UPLOAD"``, ``"FULL_DOWNLOAD"``). Populated ONLY when a
+            full-sync conflict is surfaced; ``None`` in every other state,
+            including a successful sync. Pairs with ``legal_directions``.
         server_media_usn: Carried from the collection check to the full-sync
             resolve step; internal, not surfaced to clients.
-        result: Success payload, or ``None``.
+        result: Success payload, or ``None``. Its ``outcome`` key (NOT to be
+            confused with the ``required`` field above) is the backend's
+            post-sync TERMINAL ``ChangesRequired`` name -- ``"NO_CHANGES"`` or
+            ``"NORMAL_SYNC"``, i.e. nothing further is required. Absent on the
+            resolve path, which reports ``resolved: True`` instead. Its
+            ``media_error`` key is always present on success -- ``None`` when
+            media synced fine, or an error payload when media failed.
         error: Error payload ``{"code", "message", "category"}``, or ``None``.
         started_at: Epoch seconds when the job was created.
         finished_at: Epoch seconds when the job reached a terminal state

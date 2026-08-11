@@ -187,9 +187,18 @@ def start_sync() -> dict[str, Any]:
             on_done=lambda fut: _on_normal_done(fut, job_id, mw, media_enabled),
             uses_collection=False,
         )
-    except Exception:  # noqa: BLE001 -- never leave the gate stuck ON
+    except Exception as exc:  # noqa: BLE001 -- never leave the gate stuck ON
         registry.end(job_id)
-        raise
+        # Re-raised as a HandlerError so the client gets a classified failure
+        # (code + hint) instead of a bare Python string like "cannot schedule
+        # new futures after interpreter shutdown".
+        logger.exception("Failed to spawn sync worker for job %s", job_id)
+        raise HandlerError(
+            f"Failed to start the sync task: {exc}",
+            hint="Restart Anki, then start a new sync with no arguments",
+            code="spawn_failed",
+            job_id=job_id,
+        ) from exc
 
     _notify("AnkiMCP: syncing…")
     return {"job_id": job_id, "status": "running"}
@@ -240,17 +249,17 @@ def _normal_sync_worker(
         # Unknown/newer enum value: surface as an ERROR, never a conflict --
         # a conflict we can't map has no legal directions and would wedge.
         return {
-            "outcome": "unknown_required",
+            "kind": "unknown_required",
             "required_int": required_int,
         }
 
     if required_name in _IN_SYNC_NAMES:
-        return {"outcome": "success", "required": required_name}
+        return {"kind": "success", "required": required_name}
 
     # FULL_SYNC / FULL_UPLOAD / FULL_DOWNLOAD: do NOT auto-transfer. Surface as
     # a conflict for the caller to resolve (with a direction) or cancel.
     return {
-        "outcome": "conflict",
+        "kind": "conflict",
         "required": required_name,
         "server_media_usn": int(out.server_media_usn),
     }
@@ -277,9 +286,9 @@ def _on_normal_done(
         _notify_sync_error(code)
         return
 
-    outcome = result["outcome"]
+    kind = result["kind"]
 
-    if outcome == "unknown_required":
+    if kind == "unknown_required":
         required_int = result["required_int"]
         _store_error(
             job_id,
@@ -294,7 +303,7 @@ def _on_normal_done(
         _notify_sync_error("unknown")
         return
 
-    if outcome == "conflict":
+    if kind == "conflict":
         required = result["required"]
         registry.update(
             job_id,
@@ -312,7 +321,13 @@ def _on_normal_done(
     # collection tools work again (Fix 6); keep single-flight until media (if
     # any) finishes and the job reaches a terminal state.
     registry.release_gate()
-    extra = {"required": result.get("required")}
+    # Surfaced as ``result.outcome`` -- the backend's post-sync terminal
+    # ChangesRequired name (NO_CHANGES / NORMAL_SYNC). Deliberately NOT named
+    # ``required``: that top-level job field means "conflict resolution needed"
+    # and stays None here. The worker always sets ``required`` on the success
+    # branch, so subscript (not ``.get``) -- a break in that invariant should
+    # fail loudly rather than emit ``{"outcome": None}``.
+    extra = {"outcome": result["required"]}
     if media_enabled:
         _spawn_media_monitor(mw, job_id, extra)
         return
@@ -390,7 +405,19 @@ def resolve_sync(job_id: Optional[str], resolve: Optional[str]) -> dict[str, Any
 
     # The collection is about to close -- raise the gate before we touch it.
     registry.raise_gate()
-    registry.update(job_id, status="running", phase="full_transfer")
+    # Clear the conflict fields: the decision has been made, so ``required`` /
+    # ``legal_directions`` are no longer actionable. Leaving them set would make
+    # later polls (and the terminal success snapshot) look like a conflict still
+    # needing resolution, contradicting the "conflict-only" contract in
+    # SyncJob.required. Safe here: ``job.legal_directions`` was already read
+    # above for the legality check, and SyncJob snapshots are immutable.
+    registry.update(
+        job_id,
+        status="running",
+        phase="full_transfer",
+        required=None,
+        legal_directions=[],
+    )
 
     # Fire the hook on the MAIN thread so the rest of Anki releases the
     # collection early (mirrors qt/aqt/sync.py full_download/full_upload). The
@@ -413,16 +440,34 @@ def resolve_sync(job_id: Optional[str], resolve: Optional[str]) -> dict[str, Any
             immediate=True,
             uses_collection=False,
         )
-    except Exception:  # noqa: BLE001 -- spawn failed; nothing was closed yet
-        # The worker never ran, so the collection is still open. Tear down the
-        # progress dialog (with_progress opened it before spawning) and release
-        # so nothing is left wedged.
+    except Exception as exc:  # noqa: BLE001 -- spawn failed; release everything
+        # The worker has not run yet (close_for_full_sync lives inside it), so
+        # tear down the progress dialog (with_progress opened it before the
+        # spawn) and release so nothing is wedged. It may STILL run later --
+        # submit() queues the work item before it can raise -- with no
+        # done-callback, hence the conservative client message below.
         try:
             mw.progress.finish()
         except Exception:  # noqa: BLE001
             logger.debug("progress.finish after failed spawn failed", exc_info=True)
         registry.end(job_id)
-        raise
+        # Re-raised as a HandlerError so the client gets a classified failure
+        # (code + hint) instead of a bare Python string. The message is
+        # deliberately CONSERVATIVE about what happened: we know the spawn
+        # raised, but not how far ``with_progress`` got, so the client must
+        # treat the transfer as indeterminate rather than trust the local
+        # "worker never ran" reasoning above.
+        logger.exception("Failed to spawn full-sync transfer for job %s", job_id)
+        raise HandlerError(
+            "Failed to start the full-sync transfer; it MAY OR MAY NOT have "
+            f"started and the collection may be closed: {exc}",
+            hint=(
+                "Restart Anki before retrying, then start a new sync with no "
+                "arguments and check the result"
+            ),
+            code="spawn_failed_indeterminate",
+            job_id=job_id,
+        ) from exc
 
     return {"job_id": job_id, "status": "running"}
 
@@ -433,11 +478,17 @@ def _cancel_conflict(job_id: str) -> dict[str, Any]:
     The collection was never closed for a conflict, so there is nothing to
     reopen or roll back. Mark the job terminal and release single-flight (and
     the gate, defensively) so a fresh sync can start.
+
+    The conflict fields (``required`` / ``legal_directions``) are CLEARED: the
+    conflict was abandoned, so nothing is left to resolve. Keeping them would
+    make a poll of the cancelled job still advertise resolve directions.
     """
     registry.update(
         job_id,
         status="cancelled",
         phase="done",
+        required=None,
+        legal_directions=[],
         finished_at=time.time(),
     )
     registry.end(job_id)
@@ -572,9 +623,8 @@ def _finalize_success(
     extra: Optional[dict[str, Any]] = None,
 ) -> None:
     """Mark a job successful and fully release it (gate OFF, single-flight cleared)."""
-    result: dict[str, Any] = {"media_error": media_error}
-    if extra:
-        result.update(extra)
+    result: dict[str, Any] = dict(extra or {})
+    result["media_error"] = media_error
     registry.update(
         job_id,
         status="success",

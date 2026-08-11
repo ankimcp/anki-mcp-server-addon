@@ -75,7 +75,11 @@ class TestSyncDispatch:
 
         # Routed to resolve_sync -> the conflict was resolved (here: cancelled).
         assert out["status"] == "cancelled"
-        assert fresh_registry.get(jid).status == "cancelled"
+        job = fresh_registry.get(jid)
+        assert job.status == "cancelled"
+        # The conflict was abandoned -- nothing is left to resolve.
+        assert job.required is None
+        assert job.legal_directions == []
 
     def test_resolve_without_job_id_is_validation_error(
         self, sync_tool, fresh_registry, install_mw, sync_fakes
