@@ -422,7 +422,36 @@ Both share one `Server` object and run on the same asyncio loop (see "Tunnel Arc
 - Composes with `disabled_tools`: destructive-not-opted-in is always hidden; `disabled_tools` applies on top (an opted-in tool/action can still be disabled).
 - `destructive=True` requires `write=True` (`ValueError` at import time otherwise).
 - Startup validation (`validate_enabled_destructive_tools`) warns on typos and on no-op entries that name a real but non-destructive tool/action.
-- Currently no shipped tool is flagged destructive — the mechanism exists for future high-risk tools (e.g., deck deletion/rename).
+- Shipped destructive primitives: `change_note_type` is the first whole-tool destructive tool (`@Tool(..., destructive=True)`), and `model_fields:remove` is the first destructive action (`_destructive: ClassVar[bool] = True` on its Params model). Both stay hidden until named in `enabled_destructive_tools`.
+
+### Pending Full-Sync Flag (`schema_state.py`)
+
+Every model-mutating tool's success payload carries `will_force_full_sync` (`RESULT_KEY`), added by `attach_full_sync_flag(result, col)`. Contract:
+
+- It reports the **actual post-write collection state** (`Collection.schema_changed()`, i.e. `scm > ls`), never a hardcoded per-tool guess.
+- The flag is **collection-wide and sticky**: once anything marks the schema modified it stays `True` until a full sync clears it. So a tool that changed nothing schema-wise can still legitimately report `True`, and no tool may claim `False` on its own authority.
+- Reads are **fail-safe**: an unexpected failure logs and resolves to `True` (an unnecessary precautionary sync beats an overwritten device).
+- Attach at **one site per tool — the dispatch point** — so a new success path can't silently omit the key.
+- Which operations dirty the schema: field ordinal changes (`add` / `remove` / `reposition`), `change_note_type`. A pure **`rename` does NOT** — rslib's `schemachange.rs` only calls `set_schema_modified` when ordinals move. Adding a new notetype doesn't either.
+- `FULL_SYNC_FLAG_DOC` is the single shared description snippet; append it rather than paraphrasing the caveat per tool.
+
+### Patch Mode (`_patch_helpers.py`)
+
+`update_model_styling`, `update_model_templates` and `update_note_fields` each accept an alternative `old_str`/`new_str` input mode alongside their full-content parameters. The shared contract lives in `_patch_helpers.py`:
+
+- `old_str` must match **exactly once** (`str.count`, non-overlapping). Zero matches = stale client view, more than one = ambiguous; both raise `HandlerError` and write nothing.
+- The zero-match error embeds a short excerpt of the current content anchored near the closest partial match, so the caller can re-sync without an extra read call.
+- `select_mode` enforces that full-content and patch params are mutually exclusive (presence-based, so `{}` selects full mode and is rejected by `reject_empty_full_input`); `require_patch_pair` rejects a half-specified patch.
+- **JSON-literal caveat** (`JSON_LITERAL_CAVEAT`): FastMCP pre-parses string args whose annotation isn't exactly `str`. Our patch params are `str | None`, so a value that is entirely valid JSON (`null`, or a whole array/object) is `json.loads`'d in transit — `null` arrives as `None`, a list/dict fails validation. The vendored SDK isn't ours to patch, so the tool descriptions tell callers to include an adjacent context character.
+
+### Card Rendering (`render_card_tool.py`)
+
+Renders card HTML without the GUI, in two mutually exclusive modes:
+
+- **note mode** (`note_id`) — `card.question()` / `card.answer()` on the note's real cards (the reviewer path). `card_ord` indexes the note's EXISTING cards, so the returned `card_ordinal` (the real template ordinal) can differ when a note is missing cards.
+- **unsaved mode** (`model_name` + `fields`) — `Note.ephemeral_card()`, the same call Anki's card layout preview uses. It renders through `render_uncommitted_card_legacy`, a read-only backend call: **nothing is inserted or updated**, the note never reaches the collection.
+
+Both return `question_and_style()` / `answer_and_style()`, so the HTML already carries the notetype CSS in a leading `<style>` block. The output is **pre-browser** HTML: no JavaScript runs, MathJax delimiters come back verbatim (Anki typesets them in the webview), `[sound:...]`/TTS are stripped (they travel as AV tags this tool doesn't return), and media keeps bare relative filenames. LaTeX is the exception — `[latex]`/`[$]` blocks ARE compiled to `<img src="latex-<hash>.png">`, shelling out to latex/dvipng exactly like the reviewer.
 
 ## Development Workflow
 

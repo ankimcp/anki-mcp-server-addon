@@ -135,7 +135,7 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>card_management</b> - 9 actions: reposition, change_deck, bury, unbury, suspend, unsuspend, set_flag, set_due_date, forget_cards</li>
 <li><b>tag_management</b> - 6 actions: add_tags, remove_tags, replace_tags, get_tags, clear_unused_tags, batch_tags</li>
 <li><b>filtered_deck</b> - 5 actions: create_or_update, rebuild, empty, delete, get_info</li>
-<li><b>model_fields</b> - Manage note-type fields: add, rename, reposition (plus an opt-in destructive remove). Each action triggers a one-way full sync on the next sync</li>
+<li><b>model_fields</b> - Manage note-type fields: add, rename, reposition (plus an opt-in destructive remove). Add, remove and reposition change field ordinals and force a one-way full sync on the next sync; a pure rename does not. Every result reports the collection's actual pending-full-sync state</li>
 </ul>
 
 <h3>FSRS Tools</h3>
