@@ -17,8 +17,8 @@ def query_syntax() -> dict[str, Any]:
     """Get comprehensive documentation for Anki's search query syntax.
 
     This is static documentation that doesn't require collection access.
-    Use this to understand how to construct search queries for find_notes,
-    find_cards, and other search-based tools.
+    Use this to understand how to construct search queries for find_notes
+    and other search-based tools.
 
     Returns:
         dict: Query syntax documentation organized by category:
@@ -168,8 +168,8 @@ def query_syntax() -> dict[str, Any]:
                     "description": "Cards reviewed at least once",
                 },
                 "prop:rated": {
-                    "example": "prop:rated:1:1",
-                    "description": "Cards rated 'Again' in last 1 day (1=again,2=hard,3=good,4=easy)",
+                    "example": "prop:rated=-7:1",
+                    "description": "Cards answered 'Again' exactly 7 days ago (1=again,2=hard,3=good,4=easy). prop: always needs an operator; use rated:N:ANSWER for 'within the last N days'",
                 },
             },
             "operators": ["=", "!=", "<", ">", "<=", ">="],
@@ -207,8 +207,8 @@ def query_syntax() -> dict[str, Any]:
                     "description": "Notes using the 'Basic' note type",
                 },
                 "card:NAME": {
-                    "example": "card:Card 1",
-                    "description": "Cards using the 'Card 1' template",
+                    "example": '"card:Card 1"',
+                    "description": "Cards using the 'Card 1' template (quote the whole term when the template name contains spaces)",
                 },
                 "card:N": {
                     "example": "card:2",

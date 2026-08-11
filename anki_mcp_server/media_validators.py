@@ -169,16 +169,40 @@ def validate_media_file_path(
 # Part 3: URL validation
 # ---------------------------------------------------------------------------
 
+# IPv6 transition/translation prefixes that encode or tunnel to IPv4 targets.
+# Python's stdlib ``ipaddress`` flags most of these via is_private/is_reserved,
+# but NOT all — notably AMT (2001:3::/32), which it classifies as global unicast.
+# We pin the full set called out in GHSA-5286-6cm5-w3qv so SSRF coverage of these
+# ranges is explicit and independent of the CPython version Anki bundles.
+_BLOCKED_IPV6_PREFIXES = (
+    ipaddress.IPv6Network("64:ff9b::/96"),   # RFC 6052 NAT64 well-known prefix
+    ipaddress.IPv6Network("2002::/16"),      # RFC 3056 6to4
+    ipaddress.IPv6Network("2001::/32"),      # RFC 4380 Teredo
+    ipaddress.IPv6Network("2001:2::/48"),    # RFC 5180 benchmarking
+    ipaddress.IPv6Network("2001:3::/32"),    # RFC 7450 AMT (stdlib treats as global)
+)
+
+
 def _check_ip_blocked(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Return True if the IP address belongs to a restricted range."""
-    return (
+    """Return True if the IP address belongs to a restricted range.
+
+    Combines the stdlib range classification (which covers the bulk of
+    private/reserved/loopback/transition ranges) with an explicit denylist of
+    IPv6 transition prefixes the stdlib does not flag — see
+    ``_BLOCKED_IPV6_PREFIXES`` and GHSA-5286-6cm5-w3qv.
+    """
+    if (
         addr.is_private
         or addr.is_loopback
         or addr.is_link_local
         or addr.is_reserved
         or addr.is_multicast
         or addr.is_unspecified
-    )
+    ):
+        return True
+    if isinstance(addr, ipaddress.IPv6Address):
+        return any(addr in prefix for prefix in _BLOCKED_IPV6_PREFIXES)
+    return False
 
 
 def validate_media_url(

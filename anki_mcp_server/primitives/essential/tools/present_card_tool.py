@@ -7,7 +7,8 @@ from ....handler_wrappers import HandlerError, get_col
 @Tool(
     "present_card",
     "Retrieve a card's content for review. WORKFLOW: 1) Show question, 2) Wait for user answer, 3) Show answer with show_answer=true, 4) Evaluate and suggest rating (1-4), 5) Wait for user confirmation (\"ok\"/\"next\" = accept, or they provide different rating), 6) Only then use rate_card. "
-    "Returns a card object with question/answer (rendered HTML), deck_name, note_type, and scheduling fields (interval, ease_factor, due, reviews, lapses).",
+    "Returns a card object with card_id, question (rendered HTML, always returned), answer (rendered HTML, only when show_answer=true), deck_name, filtered_deck_name, note_type, and scheduling fields (interval, ease_factor, due, reviews, lapses). "
+    "deck_name is the card's home deck; filtered_deck_name is always present and is null unless the card is currently being studied from a filtered deck.",
 )
 def present_card(card_id: int, show_answer: bool = False) -> dict[str, Any]:
     col = get_col()
@@ -17,18 +18,25 @@ def present_card(card_id: int, show_answer: bool = False) -> dict[str, Any]:
     except Exception:
         raise HandlerError(
             f"Card not found with ID {card_id}",
-            hint="Verify the card ID is correct using get_due_cards or findCards",
+            hint="Verify the card ID is correct using get_due_cards or cards_stats (find_notes returns note IDs, not card IDs)",
         )
 
     note = card.note()
-    deck = col.decks.get(card.did)
-    deck_name = deck["name"] if deck else "Unknown"
+    # name_if_exists() -> None for a dangling deck id. col.decks.get() defaults
+    # to default=True and would silently return the Default deck instead.
+    deck_name = col.decks.name_if_exists(card.current_deck_id()) or "Unknown"
+
+    filtered_deck_name = None
+    if card.odid:
+        filtered_deck_name = col.decks.name_if_exists(card.did) or "Unknown"
+
     model = note.note_type()
     note_type = model["name"] if model else "Unknown"
 
     card_info = {
         "card_id": card.id,
         "deck_name": deck_name,
+        "filtered_deck_name": filtered_deck_name,
         "question": card.question(),
         "note_type": note_type,
         "due": card.due,

@@ -8,9 +8,77 @@ from typing import Any
 
 SERVER_URL = os.environ.get("MCP_SERVER_URL", "http://localhost:3141")
 
+# Deliberately unpinned -- the suite tracks the latest Inspector release and
+# requires 2.x: a tool error exits non-zero with a JSON error envelope on
+# stderr while the result envelope is still written to stdout.
+INSPECTOR_PACKAGE = "@modelcontextprotocol/inspector"
+
+# Inspector CLI 2.x stderr error codes that still leave a usable result envelope
+# on stdout: the call reached the server and completed, the result just reports
+# that the tool itself failed.
+RESULT_EMITTED_ERROR_CODES = {"tool_is_error"}
+
+
+def _cli_error_code(stderr: str) -> str | None:
+    """Extract ``error.code`` from the Inspector CLI's JSON error envelope.
+
+    The 2.x CLI writes exactly ``{"error":{"code":...,"message":...}}`` to
+    stderr on failure, but npx and node may prepend unrelated warning lines, so
+    each line is tried and the first one carrying a code wins.
+
+    Args:
+        stderr: Captured stderr from the CLI process.
+
+    Returns:
+        The error code, or None if stderr holds no recognizable envelope.
+    """
+    for line in stderr.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            envelope = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        error = envelope.get("error") if isinstance(envelope, dict) else None
+        if isinstance(error, dict) and isinstance(error.get("code"), str):
+            return error["code"]
+    return None
+
+
+def _is_error_result(stdout: str) -> bool:
+    """Report whether stdout holds an MCP result envelope flagged ``isError``.
+
+    Checked alongside the stderr error code so a non-zero exit is tolerated even
+    if the envelope on stderr is missing or reshaped: stdout carrying a real
+    ``isError`` result is proof on its own that the call completed. Stays
+    fail-closed for aborts that emit no result -- empty stdout (unknown tool) or
+    non-result JSON -- which report False and let the caller raise.
+
+    Args:
+        stdout: Captured stdout from the CLI process.
+
+    Returns:
+        True if stdout parses as a JSON object with a truthy ``isError``.
+    """
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(payload, dict) and bool(payload.get("isError"))
+
 
 def run_inspector(method: str, **kwargs) -> dict[str, Any]:
     """Run MCP Inspector CLI and return parsed JSON response.
+
+    A tool returning ``isError: true`` is NOT treated as a failure: the CLI
+    exits non-zero in that case but still prints the result envelope to
+    stdout, so the envelope is returned and callers assert on ``isError``
+    themselves. Invalid arguments to an
+    existing tool land here too -- the server answers with an ``isError``
+    envelope, which is returned, not raised. Only failures that leave no usable
+    result raise: CLI-level usage errors (missing ``--tool-name``, an unknown
+    ``--method``), unknown tool names, and an unreachable server.
 
     Args:
         method: MCP method (e.g., "tools/list", "tools/call", "resources/list")
@@ -23,7 +91,10 @@ def run_inspector(method: str, **kwargs) -> dict[str, Any]:
         RuntimeError: If CLI fails or returns invalid JSON.
     """
     cmd = [
-        "npx", "@modelcontextprotocol/inspector", "--cli",
+        # -y: a no-op once the package is cached, but under `pytest -s` stdin is
+        # the real TTY and npx's install prompt would block invisibly until the
+        # timeout (default pytest capture points stdin at /dev/null, no prompt).
+        "npx", "-y", INSPECTOR_PACKAGE, "--cli",
         SERVER_URL,
         "--transport", "http",
         "--method", method,
@@ -58,13 +129,25 @@ def run_inspector(method: str, **kwargs) -> dict[str, Any]:
         timeout=30,
     )
 
-    if result.returncode != 0:
-        raise RuntimeError(f"Inspector failed: {result.stderr}")
+    # A non-zero exit is only tolerated when the call demonstrably completed with
+    # an error *result*: either channel saying so is enough, since the stderr
+    # envelope is the less reliable of the two.
+    if result.returncode != 0 and not (
+        _cli_error_code(result.stderr) in RESULT_EMITTED_ERROR_CODES
+        or _is_error_result(result.stdout)
+    ):
+        raise RuntimeError(
+            f"Inspector failed (exit {result.returncode}): "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
 
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError as e:
-        raise RuntimeError(f"Invalid JSON response: {result.stdout}") from e
+        raise RuntimeError(
+            f"Invalid JSON response (exit {result.returncode}): "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        ) from e
 
 
 def call_tool(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -86,6 +169,33 @@ def call_tool(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     if "structuredContent" in result:
         return result["structuredContent"]
     # Fallback to raw result
+    return result
+
+
+def delete_filtered_deck(deck_id: int) -> dict[str, Any]:
+    """Delete a filtered deck, returning its cards to their home decks.
+
+    Intended for test cleanup (``finally`` blocks), so it never raises on a
+    failed delete: a cleanup failure is printed and surfaces in pytest output
+    instead of masking the assertion that actually failed.
+
+    Args:
+        deck_id: ID of the filtered deck to delete.
+
+    Returns:
+        Tool execution result.
+    """
+    try:
+        result = call_tool("filtered_deck", {
+            "params": {"action": "delete", "deck_id": deck_id},
+        })
+    except Exception as e:
+        print(f"cleanup failed: could not delete filtered deck {deck_id}: {e}")
+        return {"isError": True, "error": str(e)}
+    if result.get("isError"):
+        print(
+            f"cleanup failed: could not delete filtered deck {deck_id}: {result}"
+        )
     return result
 
 

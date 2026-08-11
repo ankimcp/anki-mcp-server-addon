@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .conftest import unique_id
-from .helpers import call_tool, list_tools
+from .helpers import call_tool, delete_filtered_deck, list_tools
 
 
 # -- Helpers ------------------------------------------------------------------
@@ -131,24 +131,34 @@ class TestFilteredDeckCreateOrUpdate:
         # Create a regular deck with that name first
         call_tool("create_deck", {"deck_name": existing_deck})
 
-        # Now create a filtered deck with the same name
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "name": existing_deck,
-                "search_terms": [
-                    {"search": "deck:*", "limit": 1},
-                ],
-                "allow_empty": True,
-            },
-        })
+        # This filtered deck pulls from a collection-wide "deck:*" search, so it
+        # must not outlive the test: any card it captures would stay parked in
+        # it (card.odid set) for every later test in the shared collection.
+        filtered_deck_id: int | None = None
 
-        assert result.get("isError") is not True
-        assert result["deck_id"] > 0
-        # Anki should have appended '+' to avoid the collision
-        assert result["name"] != existing_deck
-        assert result["name"].startswith(existing_deck)
-        assert "+" in result["name"]
+        try:
+            # Now create a filtered deck with the same name
+            result = call_tool("filtered_deck", {
+                "params": {
+                    "action": "create_or_update",
+                    "name": existing_deck,
+                    "search_terms": [
+                        {"search": "deck:*", "limit": 1},
+                    ],
+                    "allow_empty": True,
+                },
+            })
+            filtered_deck_id = result.get("deck_id")
+
+            assert result.get("isError") is not True
+            assert result["deck_id"] > 0
+            # Anki should have appended '+' to avoid the collision
+            assert result["name"] != existing_deck
+            assert result["name"].startswith(existing_deck)
+            assert "+" in result["name"]
+        finally:
+            if filtered_deck_id is not None:
+                delete_filtered_deck(filtered_deck_id)
 
     def test_update_existing_filtered_deck(self):
         """Update an existing filtered deck (change search terms)."""

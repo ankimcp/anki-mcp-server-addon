@@ -19,7 +19,7 @@ def _has_audio(fields: list[str]) -> bool:
 
 @Tool(
     "get_due_cards",
-    "Retrieve the next single card due for review from a specified deck in true scheduler order. IMPORTANT: Use sync tool FIRST before getting cards to ensure latest data. After getting the card, use present_card to show it to the user. Returns one card per call to ensure correct scheduler interleaving. The deck_name parameter is required - you must specify which deck to study. For voice-mode review, use skip_images=True and/or skip_audio=True to filter out cards with media. Cards with media are temporarily buried (removed from queue) and can be unburied later using the card_management tool. Response includes has_images and has_audio flags for each card.",
+    "Retrieve the next single card due for review from a specified deck in true scheduler order. IMPORTANT: Use sync tool FIRST before getting cards to ensure latest data. After getting the card, use present_card to show it to the user. Returns one card per call to ensure correct scheduler interleaving. The deck_name parameter is required - you must specify which deck to study. For voice-mode review, use skip_images=True and/or skip_audio=True to filter out cards with media. Cards with media are temporarily buried (removed from queue) and can be unburied later using the card_management tool. Response includes has_images and has_audio flags for each card. deckName is the card's home deck; filteredDeckName is always present and is null unless the card is currently being studied from a filtered deck.",
     write=True,
 )
 def get_due_cards(
@@ -111,9 +111,14 @@ def get_due_cards(
                 front = field_values[0] if len(field_values) > 0 else ""
                 back = field_values[1] if len(field_values) > 1 else ""
 
-            # Get deck name
-            deck = col.decks.get(card.did)
-            deck_name_str = deck["name"] if deck else "Unknown"
+            # Home deck. name_if_exists() -> None for a dangling deck id.
+            # col.decks.get() defaults to default=True and would silently
+            # return the Default deck instead.
+            deck_name_str = col.decks.name_if_exists(card.current_deck_id()) or "Unknown"
+
+            filtered_deck_name = None
+            if card.odid:
+                filtered_deck_name = col.decks.name_if_exists(card.did) or "Unknown"
 
             # Get model name
             model = note.note_type()
@@ -131,6 +136,7 @@ def get_due_cards(
                 "front": front,
                 "back": back,
                 "deckName": deck_name_str,
+                "filteredDeckName": filtered_deck_name,
                 "modelName": model_name,
                 "queueType": queue_type,
                 "due": card.due,
