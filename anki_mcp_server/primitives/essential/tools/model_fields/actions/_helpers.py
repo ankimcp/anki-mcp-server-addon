@@ -13,14 +13,27 @@ from typing import Any
 
 from ......handler_wrappers import HandlerError
 
-# Advisory warning attached to schema-changing results (add / remove / rename / reposition).
-# These mutations bump the notetype schema, which forces Anki into a one-way
-# "full sync" the next time the collection syncs. This is advisory only -- the
-# addon does not change any sync behavior, it just surfaces the consequence.
+# Advisory warning attached to results that DO bump the notetype schema:
+# add / remove / reposition. These change field ordinals, which is what makes
+# rslib call set_schema_modified (schemachange.rs -> ords_changed), forcing Anki
+# into a one-way "full sync" on the next sync. Advisory only -- the addon does
+# not change any sync behavior, it just surfaces the consequence.
 FULL_SYNC_WARNING = (
     "This is a schema change. Anki will require a one-way full sync on the next "
     "sync, which overwrites the collection on AnkiWeb (and other devices) with "
     "this one. Sync your other devices first if they hold unsynced changes."
+)
+
+# rename is the exception: pylib's rename_field only rewrites field["name"] and
+# leaves ordinals (and the sort field) untouched, so rslib never marks the
+# schema modified. Claiming FULL_SYNC_WARNING here would tell the user to brace
+# for a destructive full sync that this action did not cause -- so rename gets
+# its own, weaker note. The authoritative per-call answer is the
+# "will_force_full_sync" flag on the result, which reads real collection state.
+RENAME_SYNC_NOTE = (
+    "Renaming a field does not itself require a full sync. Check "
+    '"will_force_full_sync" on this result for the collection\'s actual state '
+    "-- it can still be true if an earlier operation modified the schema."
 )
 
 

@@ -3,12 +3,16 @@ import re
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
+from ....schema_state import FULL_SYNC_FLAG_DOC, attach_full_sync_flag
 
 
 @Tool(
     "create_model",
     "Create a new note type (model) in Anki with custom fields, card templates, and styling. Useful for creating specialized models like RTL (Right-to-Left) language models for Hebrew, Arabic, etc. Each model defines the structure of notes and how cards are generated from them. "
-    "Returns model_id, fields list, template_count, and any template warnings.",
+    "Returns model_id, fields list, template_count, and any template warnings.\n\n"
+    + FULL_SYNC_FLAG_DOC
+    + " Creating a note type does not itself modify the schema, so this is "
+      "typically false unless the collection was already dirty.",
     write=True,
 )
 def create_model(
@@ -77,11 +81,21 @@ def create_model(
 
     mm = col.models
 
+    # ModelManager has no new_cloze() -- it only exposes new()/new_field()/
+    # new_template(). A cloze note type is just a stock notetype whose "type"
+    # is MODEL_CLOZE (schema11 maps the "type" key onto rslib's
+    # NotetypeConfig.kind), so flip it after new(). Mirrors AnkiConnect's
+    # createModel.
+    model = mm.new(model_name)
     if is_cloze:
-        model = mm.new_cloze(model_name)
-    else:
-        model = mm.new(model_name)
+        from anki.consts import MODEL_CLOZE
 
+        model["type"] = MODEL_CLOZE
+
+    # mm.new() returns the stock Basic notetype with "flds"/"tmpls" already
+    # emptied, so these two removal loops are no-ops on a fresh model; they
+    # stay as a guard in case a future Anki changes that. The caller's
+    # in_order_fields / card_templates therefore become THE fields/templates.
     for field in model["flds"][:]:
         mm.remove_field(model, field)
 
@@ -128,4 +142,6 @@ def create_model(
         response["warnings"] = warnings
         response["message"] += ". Note: Some warnings were detected (see warnings field)."
 
-    return response
+    # Read the collection's ACTUAL post-write state -- never hardcoded. Adding a
+    # notetype does not set the flag, but an earlier operation may already have.
+    return attach_full_sync_flag(response, col)

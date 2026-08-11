@@ -12,6 +12,11 @@ so the otherwise-hidden ``model_fields:remove`` action is revealed here (the
 REVEAL half of the destructive hide/reveal coverage; the HIDE half lives in
 test_destructive_tools_e2e.py against the default server).
 
+That list opts in the ACTION only, so this suite is simultaneously the HIDE half
+for the WHOLE-TOOL destructive case: ``change_note_type`` is declared
+``@Tool(..., destructive=True)`` and must be absent from tools/list here (it is
+opted in on the default server instead -- see test_change_note_type.py).
+
 Run with:
     MCP_SERVER_URL=http://localhost:3142 pytest tests/e2e/test_tool_filtering_e2e.py -v
 """
@@ -179,3 +184,25 @@ class TestEnabledDestructiveAction:
                 f"Expected non-destructive action '{action}' to remain. "
                 f"Found: {schema_actions}"
             )
+
+
+class TestWholeToolDestructiveNotOptedIn:
+    """HIDE half for a WHOLE-tool destructive tool: change_note_type.
+
+    ``change_note_type`` is declared ``@Tool(..., destructive=True)``, so the
+    entire tool -- not just an action -- is withheld from tools/list unless the
+    operator names it in enabled_destructive_tools. The filtered config opts in
+    only ``model_fields:remove``, so change_note_type must be absent here.
+
+    The REVEAL half runs in the default suite (port 3141), whose config does opt
+    it in; see test_change_note_type.py.
+    """
+
+    def test_change_note_type_hidden(self):
+        """The tool is absent because this config does not opt it in."""
+        tool_names = [t["name"] for t in list_tools()]
+        assert "change_note_type" not in tool_names, (
+            "change_note_type is destructive and must stay hidden unless "
+            "enabled_destructive_tools lists it. Found: "
+            f"{sorted(tool_names)}"
+        )

@@ -3,7 +3,7 @@ from typing import Any
 
 from ......handler_wrappers import HandlerError, get_col
 from ..._model_helpers import get_model_copy_or_raise
-from ._helpers import FULL_SYNC_WARNING, field_names, resolve_field_or_raise
+from ._helpers import RENAME_SYNC_NOTE, field_names, resolve_field_or_raise
 
 
 def rename_field_impl(model_name: str, field_name: str, new_name: str) -> dict[str, Any]:
@@ -54,6 +54,6 @@ def rename_field_impl(model_name: str, field_name: str, new_name: str) -> dict[s
         "warning": (
             f"Card templates that reference {{{{{field_name}}}}} were NOT updated and will "
             f"break until you fix them. Update them to {{{{{target}}}}} with the "
-            "update_model_templates tool. " + FULL_SYNC_WARNING
+            "update_model_templates tool. " + RENAME_SYNC_NOTE
         ),
     }

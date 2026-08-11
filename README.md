@@ -313,7 +313,7 @@ Tools or actions classified as destructive (high-risk operations) are **hidden f
 - `disabled_tools` still applies on top — an opted-in tool can still be disabled
 - Entries that don't match anything, or match a non-destructive tool/action, produce console warnings
 
-This is server-side enforcement: until opted in, destructive tools are absent from the MCP schema, so even a misbehaving client cannot call them. No currently shipped tool is destructive — this mechanism exists for future high-risk tools (e.g., deck deletion).
+This is server-side enforcement: until opted in, destructive tools are absent from the MCP schema, so even a misbehaving client cannot call them. Currently shipped destructive entries: `change_note_type` (whole tool — rewrites every selected note's field layout) and `model_fields:remove` (action — permanently deletes a field and its content on every note of the type).
 
 ### Custom Path
 
@@ -464,8 +464,10 @@ Optional hardening via config:
 | `update_model_styling` | Update CSS styling for a note type |
 | `model_templates` | Read the Front/Back HTML templates for each card type in a note type |
 | `update_model_templates` | Update Front/Back template HTML. Rejects unrecognized keys (case-sensitive) and unknown template names up front, applying all edits atomically — a failed call leaves the model unchanged |
-| `model_fields` | Manage fields on an existing note type: `add` (optionally at a 0-based index), `rename` (preserves content; card templates are **not** auto-updated), `reposition` (reorder). A `remove` action also exists but is [destructive](#destructive-tools-opt-in) — hidden unless opted in via `enabled_destructive_tools`. Every action is a schema change that forces a one-way full sync |
+| `model_fields` | Manage fields on an existing note type: `add` (optionally at a 0-based index), `rename` (preserves content; card templates are **not** auto-updated), `reposition` (reorder). A `remove` action also exists but is [destructive](#destructive-tools-opt-in) — hidden unless opted in via `enabled_destructive_tools`. `add`, `remove` and `reposition` change field ordinals and force a one-way full sync; a pure `rename` does not. Every result carries `will_force_full_sync`, the collection's actual (sticky, collection-wide) state after the write |
 | `create_model` | Create a new note type |
+| `change_note_type` | Move existing notes to a different note type, remapping fields by name (`{old field: new field or null}`). [Destructive](#destructive-tools-opt-in) — hidden unless opted in via `enabled_destructive_tools`. Two-step flow: `dry_run=true` returns the resolved plan (mapping, dropped fields, cards removed), then the same call with `dry_run=false` **and** `confirm=true` applies it. All notes must share one source note type |
+| `render_card` | Render a card's question/answer HTML exactly as Anki produces it, without the GUI: either a card of an existing note (`note_id`), or an unsaved `model_name` + `fields` preview that is never added to the collection. Returns pre-browser HTML (no JavaScript has run, MathJax is not typeset) |
 | `store_media_file` | Store a media file (image/audio) via base64, file path, or URL. File paths are validated against a media-type allowlist; URLs are checked for SSRF |
 | `get_media_files_names` | List media files matching a pattern |
 | `delete_media_file` | Move a media file to Anki's trash (recoverable via Check Media) |
