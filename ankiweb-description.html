@@ -29,10 +29,19 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>Diagnostic logging</b> - Opt-in <code>log_to_file</code> writes a rotating, secret-redacted log to <code>user_files/ankimcp.log</code>, and the settings dialog adds "Open log folder" / "Copy diagnostics" buttons to make troubleshooting easy</li>
 <li><b>Field management</b> - Add, rename, and reposition note-type fields from AI clients via the <code>model_fields</code> tool (with an opt-in destructive remove)</li>
 <li><b>Bulk card stats</b> - The read-only <code>cards_stats</code> tool returns compact per-card scheduling metrics (type, queue, interval, tags, <code>dueToday</code>) for a whole deck including subdecks, FSRS-independent — a lean bulk read for analytics</li>
+<li><b>Card preview without the GUI</b> - The <code>render_card</code> tool returns a card's rendered HTML, either for an existing note or for an unsaved note type + fields combination that is never added to your collection</li>
 </ul>
 
 <h2>What's New in v0.27.0</h2>
 <ul>
+<li><b>See a card before you make it — <code>render_card</code></b> - New tool renders a card's question/answer HTML exactly as Anki produces it, without opening the GUI. Point it at an existing note (<code>note_id</code>), or hand it a note type plus field values and it renders an <i>unsaved</i> preview that is never added to your collection — so an AI can check how a template actually looks before creating notes. Output is the pre-browser HTML: no JavaScript has run and MathJax delimiters come back verbatim, while <code>[latex]</code> blocks are compiled to image references like they are in the reviewer (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/68">#68</a>)</li>
+<li><b>Move notes between note types — <code>change_note_type</code></b> - New tool re-types existing notes, mapping fields by name (<code>{old field: new field or null}</code>). It's destructive, so it stays hidden until you opt in via <code>enabled_destructive_tools</code>, and it uses a two-step flow: <code>dry_run=true</code> returns the resolved plan (field mapping, dropped content, cards that would be deleted), then the same call with <code>confirm=true</code> applies it. It refuses duplicate note IDs, batches mixing several source note types, and default mappings that would silently drop content. Cards whose template has no counterpart in the target type are genuinely deleted — the dry run tells you how many in advance (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/68">#68</a>)</li>
+<li><b>Patch mode for surgical edits</b> - <code>update_model_styling</code>, <code>update_model_templates</code> and <code>update_note_fields</code> accept <code>old_str</code> + <code>new_str</code> for a find-and-replace edit instead of rewriting the whole CSS/template/field. The snippet must match exactly once: on zero or multiple matches nothing is written, and a zero-match error comes back with an excerpt of the current content so the client can correct the snippet and retry without re-reading everything (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/68">#68</a>)</li>
+<li><b>LaTeX preamble is now readable and writable</b> - <code>model_styling(include_latex=true)</code> returns a note type's <code>latex_pre</code>, <code>latex_post</code> and <code>latex_svg</code> settings, and <code>update_model_styling</code> can write them. That makes it possible to fix a broken LaTeX note type from an AI client — e.g. adding <code>\usepackage{tikz}</code> to the preamble so TikZ diagrams render (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/68">#68</a>)</li>
+<li><b>Cheaper collection surveys</b> - <code>notes_info</code> gains <code>excerpt_chars</code>, which caps every returned field value at that many characters and marks each field with <code>truncated</code> and <code>fullLength</code>. <code>find_notes</code> gains <code>include_first_field</code>, which adds a <code>noteLabels</code> array (<code>{noteId, firstField, truncated, fullLength}</code>) so you can search and label in a single call. Both exist to let an AI skim a large deck for a few tokens per note instead of pulling full field content (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/68">#68</a>)</li>
+<li><b>Honest full-sync warnings</b> - Every note-type-mutating tool result now carries <code>will_force_full_sync</code>, read from the collection <i>after</i> the write, so it reports the real pending state (which is sticky until you actually do a full sync) instead of a guess. This also corrects an earlier claim: on <code>model_fields</code>, <code>add</code>/<code>remove</code>/<code>reposition</code> do force a one-way full sync, but a pure <code>rename</code> does not (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/68">#68</a>)</li>
+<li><b>Cloze note types can finally be created</b> - <code>create_model</code> with <code>is_cloze=true</code> previously failed every time (it called an Anki API that doesn't exist). Cloze note types now get created correctly (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/68">#68</a>)</li>
+<li><b>Clearer <code>sync</code> results</b> - <i>Breaking for clients that parse the payload:</i> the success payload's inner <code>result.required</code> is renamed to <code>result.outcome</code>, so it's no longer confused with the top-level <code>required</code> field that reports a full-sync conflict. That top-level field is now cleared once a conflict is resolved or cancelled, and a failure to start the sync job returns a structured error with a hint instead of an opaque failure. <code>create_model</code> also no longer writes the new note type twice (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/67">#67</a>)</li>
 <li><b>Ask about the card on your screen</b> - <code>gui_current_card</code> is now reliable while you review in Anki's own window: it reports the note ID behind the card, and the next-review intervals it returns are taken from the same scheduler states Anki uses to label the answer buttons, so they match what you see on screen even with FSRS or custom scheduling. Tool descriptions now steer AI clients to read along while <i>you</i> press the answer buttons — never to rate cards for you mid-review</li>
 <li><b>Breaking: home deck vs. filtered deck</b> - When a card is being studied from a filtered deck, <code>deckName</code>/<code>deck_name</code> (in <code>gui_current_card</code>, <code>present_card</code>, and <code>get_due_cards</code>) now report the card's <i>home</i> deck instead of the filtered deck. The filtered deck is exposed separately in a new always-present <code>filteredDeckName</code>/<code>filtered_deck_name</code> field (<code>null</code> outside filtered study)</li>
 <li><b>GUI tool fixes</b> - <code>gui_show_answer</code> no longer acts outside review mode; stale hints across several tools referenced tool names that don't exist (e.g. <code>findCards</code>, <code>guiBrowse</code>) and now point to the real ones</li>
@@ -107,11 +116,11 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>sync</b> - Synchronize collection with AnkiWeb (asynchronous job: start a sync, poll its status, resolve full-sync conflicts)</li>
 <li><b>list_decks</b> - List all decks with review counts</li>
 <li><b>create_deck</b> - Create a new deck</li>
-<li><b>find_notes</b> - Search for notes using Anki's search syntax</li>
-<li><b>notes_info</b> - Get detailed information about notes (supports <code>include_fields</code> / <code>exclude_fields</code> for response filtering)</li>
+<li><b>find_notes</b> - Search for notes using Anki's search syntax (optional <code>include_first_field</code> returns first-field labels alongside the IDs)</li>
+<li><b>notes_info</b> - Get detailed information about notes (supports <code>include_fields</code> / <code>exclude_fields</code> for response filtering, and <code>excerpt_chars</code> for truncated field values)</li>
 <li><b>add_note</b> - Add a new note to a deck</li>
 <li><b>add_notes</b> - Batch-add up to <code>max_notes_per_batch</code> notes (default 100) with atomic undo and partial success</li>
-<li><b>update_note_fields</b> - Update fields of existing notes</li>
+<li><b>update_note_fields</b> - Update fields of existing notes (full replace, or <code>old_str</code>/<code>new_str</code> patch mode)</li>
 <li><b>update_notes</b> - Batch-update fields of multiple notes in one atomic undo step (validates every entry first; partial success)</li>
 <li><b>delete_notes</b> - Delete notes from the collection</li>
 <li><b>get_due_cards</b> - Get cards due for review (supports voice mode)</li>
@@ -120,11 +129,13 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><b>rate_card</b> - Rate a card after review (Again/Hard/Good/Easy)</li>
 <li><b>model_names</b> - List available note types</li>
 <li><b>model_field_names</b> - Get field names for a note type</li>
-<li><b>model_styling</b> - Get CSS styling for a note type</li>
-<li><b>update_model_styling</b> - Update CSS styling for a note type</li>
+<li><b>model_styling</b> - Get CSS styling for a note type (<code>include_latex=true</code> also returns the LaTeX preamble)</li>
+<li><b>update_model_styling</b> - Update CSS styling for a note type (full replace or <code>old_str</code>/<code>new_str</code> patch mode; can also write the LaTeX preamble)</li>
 <li><b>model_templates</b> - Read the Front/Back HTML templates for each card type</li>
-<li><b>update_model_templates</b> - Update Front/Back template HTML (rejects unrecognized keys)</li>
-<li><b>create_model</b> - Create a new note type</li>
+<li><b>update_model_templates</b> - Update Front/Back template HTML (rejects unrecognized keys; full replace or <code>old_str</code>/<code>new_str</code> patch mode)</li>
+<li><b>create_model</b> - Create a new note type (regular or cloze)</li>
+<li><b>change_note_type</b> - Move existing notes to a different note type with name-based field mapping, via a <code>dry_run</code> then <code>confirm=true</code> flow. Destructive — hidden unless opted in via <code>enabled_destructive_tools</code></li>
+<li><b>render_card</b> - Render a card's question/answer HTML exactly as Anki produces it, without the GUI: an existing note, or an unsaved note type + fields preview that is never added to the collection</li>
 <li><b>store_media_file</b> - Store a media file (image/audio) via base64, file path, or URL. Validates media type and blocks SSRF</li>
 <li><b>get_media_files_names</b> - List media files matching a pattern</li>
 <li><b>delete_media_file</b> - Move a media file to Anki's trash (recoverable via Check Media)</li>
@@ -207,7 +218,7 @@ AI-powered study sessions, card creation, and collection management.</p>
 <li><code>"card_management:bury"</code> — disables a specific action</li>
 </ul>
 
-<p>Use <code>enabled_destructive_tools</code> to opt in to high-risk actions that are hidden by default, e.g. <code>"model_fields:remove"</code> to expose the destructive field-removal action.</p>
+<p>Use <code>enabled_destructive_tools</code> to opt in to high-risk tools and actions that are hidden by default, e.g. <code>"change_note_type"</code> to expose the note-type conversion tool, or <code>"model_fields:remove"</code> to expose the destructive field-removal action.</p>
 
 <h2>Requirements</h2>
 <p>Anki 25.07 or later (Python 3.13). Earlier versions ship Python 3.9 which is not supported.</p>

@@ -444,14 +444,14 @@ Optional hardening via config:
 | `sync` | Synchronize collection with AnkiWeb (asynchronous job: `sync()` starts a sync, `sync(job_id)` polls its status, `sync(job_id, resolve=...)` resolves a full-sync conflict) |
 | `list_decks` | List all decks in the collection |
 | `create_deck` | Create a new deck |
-| `find_notes` | Search for notes using Anki's search syntax |
-| `notes_info` | Get detailed information about notes |
+| `find_notes` | Search for notes using Anki's search syntax. `include_first_field=true` adds a `noteLabels` array (`{noteId, firstField, truncated, fullLength}`) so you can search and label notes in one call |
+| `notes_info` | Get detailed information about notes. `excerpt_chars` caps every field value at that many characters, marking each with `truncated`/`fullLength` — a cheap way to survey many notes |
 | `add_note` | Add a new note to a deck |
 | `add_notes` | Batch-add up to `max_notes_per_batch` notes (default 100) sharing the same deck and model. Uses Anki's native batch API for atomic undo. Supports partial success — individual failures don't affect others |
 | `card_management` | Manage cards with 9 actions: `reposition` (set learning order), `change_deck` (move between decks), `bury`/`unbury` (hide until tomorrow), `suspend`/`unsuspend` (indefinitely exclude from review), `set_flag` (color flags 0-7), `set_due_date` (reschedule with days DSL), `forget_cards` (reset to new) |
 | `tag_management` | Manage tags with 6 actions: `add_tags`/`remove_tags` (bulk add/remove on notes), `replace_tags` (swap one tag for another), `get_tags` (list all, or scoped to a deck via the optional `deck` param — distinct tags on notes with a card in that deck, subdecks included), `clear_unused_tags` (remove orphans), `batch_tags` (apply multiple add/remove operations in one call, partial success) |
 | `filtered_deck` | Filtered deck lifecycle: `create_or_update` (create or modify filtered decks with search terms), `rebuild` (repopulate), `empty` (return cards to home decks), `delete` |
-| `update_note_fields` | Update fields of existing notes |
+| `update_note_fields` | Update fields of existing notes. Two modes: full replace, or patch via `old_str`/`new_str` (find-and-replace within a field; must match exactly once or nothing is written) |
 | `update_notes` | Batch-update fields of multiple notes in one atomic undo step (single backend call). Validates every entry first; supports partial success up to `max_notes_per_batch` |
 | `delete_notes` | Delete notes from the collection |
 | `get_due_cards` | Get next due card for review (supports `skip_images`/`skip_audio` for voice mode) |
@@ -460,10 +460,10 @@ Optional hardening via config:
 | `rate_card` | Rate a card after review (Again/Hard/Good/Easy) |
 | `model_names` | List available note types |
 | `model_field_names` | Get field names and descriptions for a note type |
-| `model_styling` | Get CSS styling for a note type |
-| `update_model_styling` | Update CSS styling for a note type |
+| `model_styling` | Get CSS styling for a note type. `include_latex=true` also returns the LaTeX preamble (`latex_pre`, `latex_post`, `latex_svg`) |
+| `update_model_styling` | Update CSS styling for a note type — full replace, or patch via `old_str`/`new_str` (must match exactly once). Can also write the LaTeX preamble (`latex_pre`/`latex_post`/`latex_svg`) |
 | `model_templates` | Read the Front/Back HTML templates for each card type in a note type |
-| `update_model_templates` | Update Front/Back template HTML. Rejects unrecognized keys (case-sensitive) and unknown template names up front, applying all edits atomically — a failed call leaves the model unchanged |
+| `update_model_templates` | Update Front/Back template HTML — full replace, or patch via `old_str`/`new_str` (must match exactly once). Rejects unrecognized keys (case-sensitive) and unknown template names up front, applying all edits atomically — a failed call leaves the model unchanged |
 | `model_fields` | Manage fields on an existing note type: `add` (optionally at a 0-based index), `rename` (preserves content; card templates are **not** auto-updated), `reposition` (reorder). A `remove` action also exists but is [destructive](#destructive-tools-opt-in) — hidden unless opted in via `enabled_destructive_tools`. `add`, `remove` and `reposition` change field ordinals and force a one-way full sync; a pure `rename` does not. Every result carries `will_force_full_sync`, the collection's actual (sticky, collection-wide) state after the write |
 | `create_model` | Create a new note type |
 | `change_note_type` | Move existing notes to a different note type, remapping fields by name (`{old field: new field or null}`). [Destructive](#destructive-tools-opt-in) — hidden unless opted in via `enabled_destructive_tools`. Two-step flow: `dry_run=true` returns the resolved plan (mapping, dropped fields, cards removed), then the same call with `dry_run=false` **and** `confirm=true` applies it. All notes must share one source note type |
