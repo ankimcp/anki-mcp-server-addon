@@ -58,7 +58,8 @@ class Config:
     enabled_destructive_tools: List[str] = field(default_factory=list)
 
     # Batch operation limits
-    # Maximum notes per add_notes / update_notes call (default 100)
+    # Maximum notes per add_notes / update_notes / change_note_type call
+    # (default 100)
     max_notes_per_batch: int = 100
 
     # Tunnel settings
@@ -162,8 +163,9 @@ class Config:
 def get_max_notes_per_batch() -> int:
     """Read max_notes_per_batch from the addon config, falling back to the default.
 
-    Shared by batch tools (add_notes, update_notes). Imports aqt at runtime so
-    pure-logic tests can import this module without Anki installed.
+    Shared by batch tools (add_notes, update_notes, change_note_type). Imports
+    aqt at runtime so pure-logic tests can import this module without Anki
+    installed.
 
     Note: ``__name__.split(".")[0]`` resolves to the addon's top-level package
     name (on AnkiWeb installs that is the addon ID directory, e.g. "124672614"),

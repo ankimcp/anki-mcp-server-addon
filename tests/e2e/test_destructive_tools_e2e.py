@@ -2,21 +2,25 @@
 
 SCOPE
 -----
-A real destructive action now exists: ``model_fields:remove`` (its Params model
-sets ``_destructive = True``), making it the codebase's first destructive
-action. Destructive actions are HIDDEN from ``tools/list`` unless the operator
-opts in via ``enabled_destructive_tools``. Full hide/reveal coverage is split
-across the two E2E suites:
+Two real destructive things ship today: the ACTION ``model_fields:remove`` (its
+Params model sets ``_destructive = True``) and the whole TOOL
+``change_note_type`` (``@Tool(..., destructive=True)``). Both are HIDDEN from
+``tools/list`` unless the operator opts in via ``enabled_destructive_tools``.
+Neither server opts in to both, so hide/reveal coverage is split across the two
+E2E suites -- each one is the HIDE side for what the other reveals:
 
-  * HIDE half (this file): runs against the DEFAULT, unfiltered server (port
-    3141, ``.docker/config.json``), which does NOT set
-    ``enabled_destructive_tools``. So ``model_fields`` is present but its schema
-    must NOT advertise the ``remove`` action -- it is hidden by default.
-  * REVEAL half + behavioral remove tests: run in the filtered suite (port
-    3142, ``.docker/config-filtered.json``), which opts in via
-    ``enabled_destructive_tools: ["model_fields:remove"]``. See
-    ``test_tool_filtering_e2e.py`` (reveal assertion) and
-    ``test_model_fields_remove.py`` (behavioral remove tests).
+  * This file runs against the DEFAULT server (port 3141,
+    ``.docker/config.json``), whose ``enabled_destructive_tools`` lists ONLY
+    ``"change_note_type"``. So the destructive ACTION is hidden here:
+    ``model_fields`` is present but its schema must NOT advertise ``remove``.
+    The opted-in ``change_note_type`` is exercised in
+    ``test_change_note_type.py``, which runs against this same server.
+  * The filtered suite (port 3142, ``.docker/config-filtered.json``) opts in the
+    other way round, via ``enabled_destructive_tools: ["model_fields:remove"]``:
+    it REVEALS the remove action (``test_tool_filtering_e2e.py`` reveal
+    assertion, plus behavioral tests in ``test_model_fields_remove.py``) and is
+    the HIDE side for the whole-tool case, asserting ``change_note_type`` is
+    absent there.
 
 This file also asserts a SAFETY PROPERTY: the destructive gate must not hide or
 alter the normal (non-destructive) toolset.
@@ -33,7 +37,8 @@ from .helpers import list_tools, schema_action_names
 
 
 # Tools that exist today and must remain visible -- the destructive gate must
-# not have silently removed any of them (none are flagged destructive).
+# not have silently removed any of them (none of THESE are flagged destructive;
+# the destructive ones are covered by the hide/reveal classes below).
 _EXPECTED_PRESENT_TOOLS = {
     "find_notes",
     "add_note",
@@ -45,7 +50,7 @@ _EXPECTED_PRESENT_TOOLS = {
 
 
 class TestDestructiveGateDoesNotHideNormalTools:
-    """Safety property: with nothing flagged destructive, nothing is hidden."""
+    """Safety property: the gate hides ONLY what is flagged destructive."""
 
     def test_server_healthy_and_returns_tools(self):
         """list_tools succeeds and returns a non-empty toolset."""
@@ -56,8 +61,8 @@ class TestDestructiveGateDoesNotHideNormalTools:
     def test_normal_toolset_unaffected_by_destructive_mechanism(self):
         """The known core tools are all still present.
 
-        If the destructive gating accidentally hid tools when no tool is
-        flagged destructive, these would go missing.
+        None of them is flagged destructive, so if the gating over-reached
+        beyond the tools/actions that actually are, these would go missing.
         """
         tools = list_tools()
         names = {t["name"] for t in tools}
@@ -93,9 +98,10 @@ class TestDestructiveGateDoesNotHideNormalTools:
 class TestDestructiveActionHiddenByDefault:
     """HIDE half: model_fields:remove is destructive and hidden by default.
 
-    Runs against the default, unfiltered server (port 3141), which does NOT set
-    enabled_destructive_tools -- so the remove action must be absent from the
-    model_fields schema while the tool itself stays present.
+    Runs against the default, unfiltered server (port 3141), whose
+    enabled_destructive_tools lists only "change_note_type" and therefore does
+    NOT opt in "model_fields:remove" -- so the remove action must be absent from
+    the model_fields schema while the tool itself stays present.
     """
 
     def test_model_fields_tool_present(self):
