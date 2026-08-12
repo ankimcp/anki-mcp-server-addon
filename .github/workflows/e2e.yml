@@ -6,10 +6,30 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:  # Manual trigger
+  # Callable so the nightly Inspector canary can run this exact suite against a
+  # different Inspector release without duplicating the job.
+  workflow_call:
+    inputs:
+      inspector_version:
+        description: >-
+          npm version/dist-tag of @modelcontextprotocol/inspector to test with.
+          Empty (the default) means the pin in tests/e2e/helpers.py.
+        type: string
+        required: false
+        default: ""
 
 concurrency:
-  group: e2e-${{ github.ref }}
+  # github.workflow is the CALLER's workflow name for a called workflow, so a
+  # nightly canary run and a push to the same ref land in different groups and
+  # cannot cancel each other.
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  # Consumed by tests/e2e/helpers.py and by the Makefile's readiness probes, so
+  # both the suite and the probe use the same Inspector. Empty string = each
+  # falls back to its own pinned default (they are kept in sync).
+  INSPECTOR_VERSION: ${{ inputs.inspector_version || '' }}
 
 jobs:
   e2e:
@@ -34,6 +54,20 @@ jobs:
         run: |
           pip install pytest
 
+      - name: Validate and report the Inspector under test
+        # INSPECTOR_VERSION reaches an `npx ...@$VERSION` command line, and a
+        # workflow_dispatch input is caller-supplied, so it is checked against a
+        # strict npm version/dist-tag pattern first (same defence-in-depth as
+        # anki-compat.yml's aqt_version).
+        run: |
+          if [ -n "$INSPECTOR_VERSION" ] && \
+             ! printf '%s' "$INSPECTOR_VERSION" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$'; then
+            echo "::error::Invalid inspector_version: $INSPECTOR_VERSION"
+            exit 1
+          fi
+          echo "INSPECTOR_VERSION=${INSPECTOR_VERSION:-<pinned default>}"
+          echo "### MCP Inspector: \`${INSPECTOR_VERSION:-pinned default}\`" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Pull headless-anki image
         run: |
           docker pull ghcr.io/ankimcp/headless-anki:qt-vnc-v1.0.0
@@ -54,12 +88,20 @@ jobs:
           path: anki_mcp_server.ankiaddon
           retention-days: 14
 
-      - name: Show container logs on failure
-        if: failure()
+      # always(), not failure(): a job that hits `timeout-minutes` is marked
+      # CANCELLED, so failure() is false and this step would be skipped -- and
+      # make's own log-dump branch never runs either, because make was killed
+      # mid-suite. That is exactly the hung-server case where the logs matter
+      # most. Guarded with `|| true` and placed before the teardown step so the
+      # container is still around. Flags mirror the Makefile's log-dump targets:
+      # tailed so a chatty container cannot bury the pytest traceback, and
+      # timestamped/uncoloured so the dump is readable in the Actions log.
+      - name: Show container logs
+        if: always()
         working-directory: .docker
         run: |
-          docker compose logs 2>/dev/null || true
-          docker compose -f docker-compose.filtered.yml logs 2>/dev/null || true
+          docker compose logs --no-color --timestamps --tail=2000 2>/dev/null || true
+          docker compose -f docker-compose.filtered.yml logs --no-color --timestamps --tail=2000 2>/dev/null || true
 
       - name: Stop all containers
         if: always()

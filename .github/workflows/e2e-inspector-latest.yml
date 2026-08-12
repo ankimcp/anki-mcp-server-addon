@@ -1,0 +1,41 @@
+# MCP Inspector canary.
+#
+# tests/e2e/helpers.py pins @modelcontextprotocol/inspector to an exact version
+# so a build is reproducible and an upstream release cannot break a release
+# build the moment it lands. The cost of pinning is that upstream breakage is
+# discovered late -- typically by whoever bumps the pin, under time pressure.
+#
+# This nightly pays that cost up front: the same E2E suite, run against
+# `latest`. A breaking Inspector release therefore shows up as a red canary the
+# next morning, not as a blocked release. It is expected to go red occasionally
+# and is NOT a merge gate.
+#
+# NOTE: scheduled (cron) workflows only run from the repository's DEFAULT
+# branch, so the nightly run activates only after this file is merged to main.
+# Until then, use the workflow_dispatch trigger to run it manually.
+
+name: E2E (Inspector latest)
+
+on:
+  schedule:
+    # Daily at 04:41 UTC (off-the-hour to avoid cron congestion, and before the
+    # Anki compatibility canary at 05:17 so the two do not contend for runners).
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+    inputs:
+      inspector_version:
+        description: "npm version or dist-tag to test (default: latest)."
+        required: false
+        default: "latest"
+
+concurrency:
+  group: e2e-inspector-latest
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    # Reuses the real E2E workflow rather than restating its 10 steps, so the
+    # canary can never drift away from what CI actually runs.
+    uses: ./.github/workflows/e2e.yml
+    with:
+      inspector_version: ${{ inputs.inspector_version || 'latest' }}

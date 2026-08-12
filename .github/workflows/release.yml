@@ -47,12 +47,20 @@ jobs:
         run: |
           make e2e-filtered
 
-      - name: Show container logs on failure
-        if: failure()
+      # always(), not failure(): a job that hits `timeout-minutes` is marked
+      # CANCELLED, so failure() is false and this step would be skipped -- and
+      # make's own log-dump branch never runs either, because make was killed
+      # mid-suite. That is exactly the hung-server case where the logs matter
+      # most. Guarded with `|| true` and placed before the teardown step so the
+      # container is still around. Flags mirror the Makefile's log-dump targets:
+      # tailed so a chatty container cannot bury the pytest traceback, and
+      # timestamped/uncoloured so the dump is readable in the Actions log.
+      - name: Show container logs
+        if: always()
         working-directory: .docker
         run: |
-          docker compose logs 2>/dev/null || true
-          docker compose -f docker-compose.filtered.yml logs 2>/dev/null || true
+          docker compose logs --no-color --timestamps --tail=2000 2>/dev/null || true
+          docker compose -f docker-compose.filtered.yml logs --no-color --timestamps --tail=2000 2>/dev/null || true
 
       - name: Stop all containers
         if: always()
@@ -61,9 +69,19 @@ jobs:
           docker compose down 2>/dev/null || true
           docker compose -f docker-compose.filtered.yml down 2>/dev/null || true
 
+  # Builds the .ankiaddon and publishes the GitHub Release. Deliberately does
+  # NOT talk to the MCP registry -- that lives in the `registry` job below, so a
+  # registry failure can be re-run on its own.
+  #
+  # WARNING: re-running THIS job re-runs `./package.sh`, and package.sh does a
+  # fresh `pip download` with only `mcp` upper-bounded, so the rebuilt
+  # .ankiaddon is not byte-identical to the one users already downloaded. That
+  # is why `overwrite_files: false` is set below: a re-run leaves the published
+  # asset alone instead of silently swapping it.
   release:
     runs-on: ubuntu-latest
     needs: test
+    timeout-minutes: 15
     permissions:
       contents: write
 
@@ -75,6 +93,12 @@ jobs:
         with:
           python-version: '3.x'
 
+      # __version__ is the single source of truth. Verified BEFORE anything is
+      # published so a mismatched tag stops the job while it is still a no-op.
+      - name: Resolve version and verify tag
+        id: version
+        run: python .github/scripts/resolve_version.py --expect-tag "$GITHUB_REF_NAME"
+
       - name: Build addon
         run: ./package.sh
 
@@ -83,23 +107,117 @@ jobs:
         with:
           files: '*.ankiaddon'
           generate_release_notes: true
+          # Defaults to true. Turned off so an accidental "Re-run all jobs"
+          # cannot replace an already-published .ankiaddon with a freshly and
+          # differently vendored rebuild of the same tag.
+          overwrite_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Separate job so a registry problem can be re-run in isolation. It holds only
+  # `contents: read`, so re-running it cannot touch the Release or its assets no
+  # matter what it does.
+  registry:
+    name: Publish to MCP Registry
+    runs-on: ubuntu-latest
+    needs: release
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      # Re-derived rather than passed down as a job output from `release`. Two
+      # reasons: this job then does not depend on GitHub preserving another
+      # job's outputs across a partial re-run, and it re-checks tag ==
+      # v{__version__}, so re-running only this job can never publish a version
+      # the tag does not name.
+      - name: Resolve version and verify tag
+        id: version
+        run: python .github/scripts/resolve_version.py --expect-tag "$GITHUB_REF_NAME"
+
       - name: Install mcp-publisher
         run: |
+          # pipefail: without it the pipeline's status is tar's, so a curl that
+          # 404s or dies mid-transfer would be masked by a tar that happens to
+          # exit 0 (GitHub's default shell is `bash -e`, not `bash -eo pipefail`).
+          set -o pipefail
           curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/v1.6.0/mcp-publisher_linux_amd64.tar.gz" \
             | tar xz mcp-publisher
 
-      - name: Publish to MCP Registry
+      # server.json carries its own version field, which the registry rejects as
+      # a duplicate if it lags __version__. It is derived here rather than kept
+      # in sync by hand: the committed value went stale at 0.19.0 and silently
+      # failed every release from 0.20.0 to 0.27.0.
+      - name: Sync server.json version from __version__
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib
+
+          path = pathlib.Path("server.json")
+          data = json.loads(path.read_text())
+          data["version"] = os.environ["VERSION"]
+          path.write_text(json.dumps(data, indent=2) + "\n")
+          print(f"server.json version -> {data['version']}")
+          PY
+
+      # The publisher's exit codes and output are LOGGED AND THEN IGNORED, on
+      # purpose. Grading a release by reading the publisher's prose has now
+      # failed open three times; most recently the registry's DNS-auth 401 body
+      # embeds the Go resolver's "lookup <domain> on 34.118.224.10:53: no such
+      # host", which every reasonable "is this a transport failure?" allowlist
+      # reads as an outage and waves through. There is no version of that
+      # heuristic that is safe, because the strings belong to someone else.
+      #
+      # The next step asks the registry what it actually has instead. That also
+      # makes this step naturally idempotent: on a re-run after a successful
+      # publish the publisher fails with a duplicate-version error, we ignore
+      # it, and the verification finds the version live and passes.
+      - name: Run mcp-publisher (result is not graded here)
         env:
           MCP_REGISTRY_PRIVATE_KEY: ${{ secrets.MCP_REGISTRY_PRIVATE_KEY }}
         run: |
-          if ! ./mcp-publisher login dns --domain ankimcp.ai --private-key "$MCP_REGISTRY_PRIVATE_KEY"; then
-            echo "::error::MCP registry login failed — see logs"
-            exit 0
+          # Kept even though nothing classifies errors any more: an unbounded
+          # publisher call would sit until this job's timeout-minutes and give
+          # us a cancelled job with no verification step at all. Failing here
+          # with a precise message beats failing later with "the registry
+          # accepted nothing", which would be true but misleading.
+          if ! command -v timeout >/dev/null; then
+            echo "::error::coreutils 'timeout' is unavailable — refusing to run the publisher unbounded"
+            exit 1
           fi
-          if ! ./mcp-publisher publish; then
-            echo "::error::MCP registry publish failed — see logs"
-            exit 0
-          fi
+
+          # login's output is discarded, never captured and never echoed. The
+          # private key is passed as an argv value (mcp-publisher v1.6.0 offers
+          # no env or stdin alternative), so any message the publisher chooses
+          # to print -- a usage string, a parse error quoting the bad value --
+          # is a potential place for it to appear. Only the exit code is
+          # reported, and nothing reads it.
+          login_status=0
+          timeout 120 ./mcp-publisher login dns \
+            --domain ankimcp.ai \
+            --private-key "$MCP_REGISTRY_PRIVATE_KEY" >/dev/null 2>&1 || login_status=$?
+          echo "mcp-publisher login exit status: $login_status (output suppressed: the private key is an argv value)"
+
+          # publish authenticates from the token file login wrote, so its output
+          # cannot contain the key and is printed in full.
+          publish_status=0
+          timeout 120 ./mcp-publisher publish || publish_status=$?
+          echo "mcp-publisher publish exit status: $publish_status"
+
+      - name: Verify the registry actually has this version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python .github/scripts/check_registry_version.py \
+            --version "$VERSION" \
+            --hint-missing "the registry accepted nothing — see the mcp-publisher output above" \
+            --hint-unverified "could not verify; the registry may be down — re-run this job"

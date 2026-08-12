@@ -12,11 +12,14 @@ make e2e-up                     # Build addon + start headless Anki container (p
 make e2e-test                   # Run E2E tests (excludes test_tool_filtering_e2e.py)
 make e2e-down                   # Stop container
 make e2e-debug                  # Start container and keep it running (VNC at localhost:5900)
-make e2e-logs                   # Tail container logs
+make e2e-logs                   # Follow container logs (-f, interactive only — never in CI)
+make e2e-logs-dump              # Dump last 2000 lines of container logs and exit (CI-safe)
 make e2e-filtered               # Filtered tests only: build → Docker (port 3142) → test → teardown
 make e2e-filtered-up            # Start filtered container (docker-compose.filtered.yml)
-make e2e-filtered-test          # Run test_tool_filtering_e2e.py against port 3142
+make e2e-filtered-test          # Run test_tool_filtering_e2e.py + test_model_fields_remove.py against port 3142
 make e2e-filtered-down          # Stop filtered container
+make e2e-filtered-logs-dump     # Dump last 2000 lines of filtered container logs and exit (CI-safe)
+make e2e INSPECTOR_VERSION=latest       # Same cycle against the newest MCP Inspector (nightly canary does this)
 pytest tests/e2e/ -v --ignore=tests/e2e/test_tool_filtering_e2e.py  # Run tests directly
 pytest tests/e2e/test_note_tools.py -v  # Run a single test file
 pytest tests/unit/ -v                   # Run unit tests (tunnel in-memory transport)
@@ -352,7 +355,25 @@ Follow the existing module patterns:
 
 ### Versioning & Releases
 
-Version lives in `__init__.py:__version__`. Release process: bump version → commit → push tag `v*.*.*` → CI runs E2E tests → creates GitHub Release with `.ankiaddon` artifact.
+Version lives in `__init__.py:__version__`. Release process: bump version → commit → push tag `v*.*.*` → CI runs E2E tests → `release` job creates the GitHub Release with the `.ankiaddon` artifact → `registry` job publishes to the MCP registry.
+
+`__version__` is the ONLY version to bump by hand. `server.json` also carries a `version`, but the schema makes it required, so it holds the sentinel `0.0.0-set-by-ci` — the `registry` job **overwrites it** from `__version__` before publishing, and neither release job runs at all unless the pushed tag equals `v{__version__}`. Do not hand-sync `server.json` — it drifted to a stale `0.19.0` once and the registry silently rejected every release from 0.20.0 to 0.27.0 as a duplicate version. Version resolution + tag check live in `.github/scripts/resolve_version.py`, shared by every workflow that needs them so they cannot disagree.
+
+**The registry result is verified, never inferred.** `mcp-publisher login` and `publish` are run, their exit codes are logged, and then **both are ignored**. The job's verdict comes from asking the registry what it actually has, via `.github/scripts/check_registry_version.py`:
+
+`GET https://registry.modelcontextprotocol.io/v0.1/servers/{name url-encoded}/versions/{version}`
+
+- HTTP 200 + matching `name`/`version` + `_meta["io.modelcontextprotocol.registry/official"].status == "active"` → **green**.
+- HTTP 404 → **red**: the registry accepted nothing.
+- Anything else (transport error, 5xx, 429, unparseable body) → **red**: could not verify, re-run the job.
+
+The `%2F` encoding of the `/` in the server name is mandatory (an unencoded slash 404s), and the exact-version endpoint is used deliberately instead of `?search=`, which is nginx-cached with a 30s TTL and no purge-on-publish and would additionally paginate out of correctness over time.
+
+Do NOT reintroduce error-text classification. Three successive attempts to grade the release by pattern-matching the publisher's output all failed open; the last one because the registry's DNS-auth 401 body embeds the Go resolver's `lookup <domain> on 34.118.224.10:53: no such host`, which any "is this a transport failure?" allowlist reads as an outage. The strings belong to someone else and can be reworded at any time. This design also makes the job idempotent: on a re-run after a successful publish the publisher fails with a duplicate-version error, that is ignored, and verification finds the version live and passes.
+
+**Job split.** `release` (builds + publishes the GitHub Release, `contents: write`) and `registry` (`needs: release`, `contents: read`) are separate jobs so a registry problem can be re-run alone. That matters because `package.sh` does a fresh `pip download` on every build with only `mcp` upper-bounded, so a rebuild of the same tag is not byte-identical — re-running the `release` job would otherwise replace an `.ankiaddon` users may already have downloaded. Two guards: the `registry` job cannot touch the Release (read-only token), and `Create Release` sets `overwrite_files: false` so even an accidental "Re-run all jobs" leaves the published asset alone.
+
+**Drift check.** `.github/workflows/registry-drift.yml` runs weekly (and on demand), reads `__version__` off the default branch and does the same exact-endpoint GET. On anything but a clean yes it opens a `registry-drift`-labelled issue — deduped to at most one open issue at a time — and fails the job. This exists because nothing ever compared registry state to repo state, and that gap is what cost two months.
 
 ### Source Install Mode (Nix)
 
@@ -475,20 +496,24 @@ make e2e-test                   # Run pytest (excludes tool filtering tests)
 make e2e-down                   # Stop container
 ```
 
-**Two test suites**: `make e2e` runs both the regular suite (port 3141, all tools enabled) and the filtered suite (port 3142, `docker-compose.filtered.yml` with `disabled_tools` config). The filtering tests live in `test_tool_filtering_e2e.py` and are excluded from `make e2e-test` — they have their own `make e2e-filtered-*` targets.
+**Two test suites**: `make e2e` runs both the regular suite (port 3141, all tools enabled) and the filtered suite (port 3142, `docker-compose.filtered.yml`, which sets both `disabled_tools` and `enabled_destructive_tools`). `make e2e-filtered-test` runs `test_tool_filtering_e2e.py` **and `test_model_fields_remove.py`** — the latter is not a filtering test, it just needs the filtered container's `enabled_destructive_tools: ["model_fields:remove"]` to see the destructive action at all (it self-skips on port 3141). Both are excluded from `make e2e-test`.
+
+**MCP Inspector pin**: the test client is pinned to an exact npm version, in **two places that must stay in sync** — `INSPECTOR_DEFAULT_VERSION` in `tests/e2e/helpers.py` (used by the suite) and `INSPECTOR_VERSION` in the `Makefile` (used by the readiness probes). Both honour an `INSPECTOR_VERSION` environment variable, and `make` exports it, so `make e2e INSPECTOR_VERSION=latest` moves both at once. The pin buys reproducibility; the cost — finding upstream breakage late — is paid by `.github/workflows/e2e-inspector-latest.yml`, a nightly that reuses `e2e.yml` via `workflow_call` with `latest`. A breaking Inspector release therefore shows up as a red canary, not as a blocked release. The suite needs Inspector **2.x** specifically: a tool error must exit non-zero, write a `{"error":{"code":...}}` envelope to stderr, and still write the result envelope to stdout.
 
 **Environment variables:**
 - `MCP_SERVER_URL` — override server URL (default: `http://localhost:3141`)
-- `E2E_MAX_WAIT` — seconds to wait for server readiness (default: `60`)
+- `E2E_MAX_WAIT` — wall-clock seconds to wait for server readiness (default: `60`)
 - `E2E_KEEP_RUNNING` — set to `1` to keep container running after tests
+- `INSPECTOR_VERSION` — npm version/dist-tag of the Inspector CLI (default: the pin; empty = the pin)
 
-**Server readiness**: `conftest.py` has a `session`-scoped `wait_for_server` fixture that polls the server up to `E2E_MAX_WAIT` seconds before any tests run — no need to manually wait.
+**Server readiness**: `conftest.py` has a `session`-scoped `wait_for_server` fixture that polls the server before any tests run — no need to manually wait. `E2E_MAX_WAIT` is a **wall-clock budget measured against `time.monotonic()`, not an attempt count**: it used to be `range(MAX_WAIT_SECONDS)`, i.e. 60 attempts, and one attempt can cost ~111s (helpers.py's 45s Inspector timeout + a silent-timeout retry + the drain), so the real ceiling was ~110 minutes. The budget bounds when polling STOPS STARTING, so the true worst case is the budget plus one in-flight probe.
 
 **Docker setup** (`.docker/`): The `docker-compose.yml` mounts `config.json` that binds the MCP server to `0.0.0.0` inside the container (instead of the default `127.0.0.1`) so the host can reach port 3141. It also mounts a custom `entrypoint.sh` that installs the `.ankiaddon` and starts headless Anki. CI pins `ghcr.io/ankimcp/headless-anki:qt-vnc-v1.0.0`.
 
 **Debugging failed tests:**
 - `make e2e-debug` — keeps container running after start; VNC available at `localhost:5900`
-- `make e2e-logs` — tail Docker container logs
+- `make e2e-logs` — follow Docker container logs (`-f`; interactive only, it would hang CI)
+- `make e2e-logs-dump` / `make e2e-filtered-logs-dump` — dump the last 2000 lines and exit (what CI uses)
 - Run Anki from terminal to see `print()`/`logging` output:
   ```bash
   # macOS
@@ -533,9 +558,13 @@ This project has **no configured linters, formatters, or type checkers** (no ruf
 
 ### CI / Release
 
-- **E2E tests** run on every push and PR to `main` (`.github/workflows/e2e.yml`). Uses `concurrency: cancel-in-progress: true` — pushing again auto-cancels any in-progress E2E run for the same branch.
-- **Releases** trigger on `v*.*.*` tags — runs E2E first, then creates GitHub Release with the `.ankiaddon` artifact (`.github/workflows/release.yml`)
+- **E2E tests** run on every push and PR to `main` (`.github/workflows/e2e.yml`). Uses `concurrency: cancel-in-progress: true` — pushing again auto-cancels any in-progress E2E run for the same branch. The concurrency group includes `github.workflow`, so a nightly canary run and a push to the same ref cannot cancel each other. Also `workflow_call`-able with an `inspector_version` input.
+- **Releases** trigger on `v*.*.*` tags (`.github/workflows/release.yml`): `test` → `release` (GitHub Release + `.ankiaddon`) → `registry` (MCP registry publish + outcome verification). The last two are separate jobs on purpose — see "Versioning & Releases".
+- **Nightly Inspector canary** (`e2e-inspector-latest.yml`) reuses `e2e.yml` with `INSPECTOR_VERSION=latest`. Expected to go red occasionally; NOT a merge gate.
+- **Weekly registry drift check** (`registry-drift.yml`) compares the registry against `__version__` and files a deduped issue on mismatch.
+- **Anki compatibility canary** (`anki-compat.yml`) tests the import chain daily against the latest `aqt`, incl. betas.
 - **Version** lives in `__init__.py` as `__version__`. Bump it there before tagging a release.
+- Scheduled workflows only run from the **default branch** — new cron triggers do nothing until merged to `main`; use `workflow_dispatch` in the meantime.
 
 ## Known Gotchas
 

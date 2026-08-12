@@ -1,0 +1,135 @@
+# MCP registry drift check.
+#
+# Nothing in this repo ever compared "what the registry lists" to "what the repo
+# is at". That gap is what actually cost two months: server.json's version froze
+# at 0.19.0, the registry rejected every subsequent release as a duplicate, the
+# publish step swallowed the error, and no other signal existed. The release job
+# now verifies its own outcome, but a verification that only runs at release
+# time cannot catch a record that is withdrawn, deactivated, or never landed
+# because the release job itself was skipped.
+#
+# So: once a week, read __version__ off the default branch and ask the registry
+# whether that exact version is live. Loud on anything that is not a clean yes.
+#
+# NOTE: scheduled (cron) workflows only run from the repository's DEFAULT
+# branch, so the weekly run activates only after this file is merged to main.
+# Until then, use the workflow_dispatch trigger to run it manually.
+
+name: Registry Drift Check
+
+on:
+  schedule:
+    # Mondays at 06:23 UTC (off-the-hour to avoid cron congestion).
+    - cron: "23 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: registry-drift
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write  # Needed for `gh issue create` / `gh label create` below.
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      # No --expect-tag: this runs on a branch, not a tag.
+      - name: Resolve version
+        id: version
+        run: python .github/scripts/resolve_version.py
+
+      # continue-on-error so the reporting steps below can run and read
+      # `steps.check.outcome`; the final step re-fails the job.
+      - name: Check the registry against __version__
+        id: check
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python .github/scripts/check_registry_version.py \
+            --version "$VERSION" \
+            --hint-missing "the MCP registry does not list the current __version__" \
+            --hint-unverified "could not reach or parse the MCP registry"
+
+      - name: Open a drift issue
+        # Only from the scheduled run or a dispatch on the default branch --
+        # never from a feature-branch dispatch, which would spam issues during
+        # development.
+        if: >-
+          steps.check.outcome == 'failure' &&
+          (github.event_name == 'schedule' ||
+           github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Dynamic values go through env, never inlined ${{ }} in the script,
+          # to avoid script injection.
+          VERSION: ${{ steps.version.outputs.version }}
+          OUTCOME: ${{ steps.check.outputs.outcome }}
+          DETAIL: ${{ steps.check.outputs.detail }}
+          CHECK_URL: ${{ steps.check.outputs.url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          LABEL=registry-drift
+
+          # Idempotent, and cheap insurance: the label may not exist yet, and
+          # `gh issue list --label` behaviour on an unknown label is not
+          # something we want the dedupe to depend on. Creating it first makes
+          # the query well-defined.
+          gh label create "$LABEL" \
+            --color B60205 \
+            --description "MCP registry state does not match the repo" \
+            2>/dev/null || true
+
+          # DEDUPE: at most one open drift issue at a time. A weekly check that
+          # opened a fresh issue every Monday for the same unfixed problem would
+          # be noise, and noise is how the original bug survived two months.
+          # Close the issue once the registry is fixed; the next run reopens a
+          # new one if it is not.
+          EXISTING=$(gh issue list --label "$LABEL" --state open --limit 1 --json number \
+            --jq '.[0].number // empty' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            echo "::warning::Drift persists; issue #${EXISTING} is already open, not filing another"
+            exit 0
+          fi
+
+          TITLE="MCP registry drift: ${VERSION} is not live (${OUTCOME})"
+          BODY=$(printf '%s\n' \
+            "The weekly MCP registry drift check did not get a clean yes." \
+            "" \
+            "- **Repo \`__version__\`**: \`${VERSION}\`" \
+            "- **Outcome**: \`${OUTCOME}\`" \
+            "- **Detail**: ${DETAIL}" \
+            "- **Endpoint**: ${CHECK_URL}" \
+            "- **Run**: ${RUN_URL}" \
+            "" \
+            "If the outcome is \`missing\`, the registry has no record of this version:" \
+            "re-run the \`registry\` job of the corresponding Release workflow run." \
+            "If it is \`unverified\`, the registry may have been unreachable or may have" \
+            "changed its response shape — check the run log before assuming an outage.")
+          gh issue create \
+            --title "$TITLE" \
+            --body "$BODY" \
+            --label "$LABEL" \
+            || echo "::warning::Failed to create issue — the job failure below is the remaining signal"
+
+      - name: Fail the job on drift
+        # Belt and braces alongside the issue: if `gh` is broken or the repo's
+        # issue permissions change, a red scheduled run is still a signal.
+        if: steps.check.outcome == 'failure'
+        env:
+          OUTCOME: ${{ steps.check.outputs.outcome }}
+        run: |
+          echo "::error::Registry drift check failed (outcome: ${OUTCOME})"
+          exit 1
