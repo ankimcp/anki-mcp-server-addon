@@ -52,7 +52,14 @@ env:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The two suites together normally take 15-18.5 minutes, so a 20-minute cap
+    # left as little as 7% headroom and a slow runner blew it -- run 31609907342
+    # was killed at 20m33s with every test so far PASSING, 96% through the
+    # regular suite and before the filtered suite had started at all.
+    # That failure is also badly disguised: exceeding timeout-minutes ends the
+    # run CANCELLED, which is indistinguishable at a glance from the
+    # cancel-in-progress concurrency guard superseding an older push.
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code

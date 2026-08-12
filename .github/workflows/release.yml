@@ -44,7 +44,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     needs: version-gate
-    timeout-minutes: 20
+    # Same two suites as e2e.yml, so the same 30-minute budget and the same
+    # reasoning -- see the comment on that job. Here the stakes are higher: a
+    # timeout gates the release, and it ends CANCELLED rather than failed.
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
