@@ -465,15 +465,6 @@ Every model-mutating tool's success payload carries `will_force_full_sync` (`RES
 - `select_mode` enforces that full-content and patch params are mutually exclusive (presence-based, so `{}` selects full mode and is rejected by `reject_empty_full_input`); `require_patch_pair` rejects a half-specified patch.
 - **JSON-literal caveat** (`JSON_LITERAL_CAVEAT`): FastMCP pre-parses string args whose annotation isn't exactly `str`. Our patch params are `str | None`, so a value that is entirely valid JSON (`null`, or a whole array/object) is `json.loads`'d in transit — `null` arrives as `None`, a list/dict fails validation. The vendored SDK isn't ours to patch, so the tool descriptions tell callers to include an adjacent context character.
 
-### Card Rendering (`render_card_tool.py`)
-
-Renders card HTML without the GUI, in two mutually exclusive modes:
-
-- **note mode** (`note_id`) — `card.question()` / `card.answer()` on the note's real cards (the reviewer path). `card_ord` indexes the note's EXISTING cards, so the returned `card_ordinal` (the real template ordinal) can differ when a note is missing cards.
-- **unsaved mode** (`model_name` + `fields`) — `Note.ephemeral_card()`, the same call Anki's card layout preview uses. It renders through `render_uncommitted_card_legacy`, a read-only backend call: **nothing is inserted or updated**, the note never reaches the collection.
-
-Both return `question_and_style()` / `answer_and_style()`, so the HTML already carries the notetype CSS in a leading `<style>` block. The output is **pre-browser** HTML: no JavaScript runs, MathJax delimiters come back verbatim (Anki typesets them in the webview), `[sound:...]`/TTS are stripped (they travel as AV tags this tool doesn't return), and media keeps bare relative filenames. LaTeX is the exception — `[latex]`/`[$]` blocks ARE compiled to `<img src="latex-<hash>.png">`, shelling out to latex/dvipng exactly like the reviewer.
-
 ## Development Workflow
 
 ### E2E Tests
