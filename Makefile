@@ -1,5 +1,6 @@
-.PHONY: build unit e2e e2e-full e2e-up e2e-down e2e-test e2e-logs e2e-debug \
-       e2e-filtered e2e-filtered-up e2e-filtered-down e2e-filtered-test e2e-filtered-logs
+.PHONY: build unit e2e e2e-full e2e-up e2e-down e2e-test e2e-logs e2e-logs-dump e2e-debug \
+       e2e-filtered e2e-filtered-up e2e-filtered-down e2e-filtered-test e2e-filtered-logs \
+       e2e-filtered-logs-dump
 
 # Build the addon package
 build:
@@ -18,7 +19,10 @@ e2e: e2e-full e2e-filtered
 # Regular container (all tools enabled) -- port 3141
 # ---------------------------------------------------------------------------
 
-# Full cycle: build, start, test, stop
+# Full cycle: build, start, test, stop.
+# On test failure the logs are dumped BEFORE the container is torn down --
+# `docker compose down` destroys them, so a teardown-first ordering leaves CI
+# with no record of what Anki was doing when the suite failed.
 e2e-full: e2e-up
 	@echo "Waiting for MCP server..."
 	@for i in $$(seq 1 60); do \
@@ -29,7 +33,7 @@ e2e-full: e2e-up
 		echo "Attempt $$i/60..."; \
 		sleep 1; \
 	done
-	$(MAKE) e2e-test || ($(MAKE) e2e-down && exit 1)
+	$(MAKE) e2e-test || ($(MAKE) e2e-logs-dump; $(MAKE) e2e-down; exit 1)
 	$(MAKE) e2e-down
 
 # Start headless Anki container
@@ -46,9 +50,15 @@ e2e-down:
 e2e-test:
 	pytest tests/e2e/ -v --ignore=tests/e2e/test_tool_filtering_e2e.py
 
-# Show container logs
+# Show container logs (follows -- interactive use only, never in CI)
 e2e-logs:
 	cd .docker && docker compose logs -f
+
+# Dump container logs once and exit. Separate from e2e-logs because that one
+# follows: a `-f` invocation in CI would hang the job instead of failing it.
+e2e-logs-dump:
+	@echo "===== container logs (regular, port 3141) ====="
+	cd .docker && docker compose logs --no-color --timestamps 2>&1 || true
 
 # Keep container running after tests (for debugging)
 e2e-debug: e2e-up
@@ -59,7 +69,8 @@ e2e-debug: e2e-up
 # Filtered container (disabled_tools config) -- port 3142
 # ---------------------------------------------------------------------------
 
-# Full cycle: build, start, test, stop
+# Full cycle: build, start, test, stop.
+# Same log-before-teardown ordering as e2e-full.
 e2e-filtered: e2e-filtered-up
 	@echo "Waiting for filtered MCP server on port 3142..."
 	@for i in $$(seq 1 60); do \
@@ -70,7 +81,7 @@ e2e-filtered: e2e-filtered-up
 		echo "Attempt $$i/60..."; \
 		sleep 1; \
 	done
-	$(MAKE) e2e-filtered-test || ($(MAKE) e2e-filtered-down && exit 1)
+	$(MAKE) e2e-filtered-test || ($(MAKE) e2e-filtered-logs-dump; $(MAKE) e2e-filtered-down; exit 1)
 	$(MAKE) e2e-filtered-down
 
 # Start filtered container
@@ -87,6 +98,11 @@ e2e-filtered-down:
 e2e-filtered-test:
 	MCP_SERVER_URL=http://localhost:3142 pytest tests/e2e/test_tool_filtering_e2e.py tests/e2e/test_model_fields_remove.py -v
 
-# Show filtered container logs
+# Show filtered container logs (follows -- interactive use only, never in CI)
 e2e-filtered-logs:
 	cd .docker && docker compose -f docker-compose.filtered.yml logs -f
+
+# Dump filtered container logs once and exit (see e2e-logs-dump).
+e2e-filtered-logs-dump:
+	@echo "===== container logs (filtered, port 3142) ====="
+	cd .docker && docker compose -f docker-compose.filtered.yml logs --no-color --timestamps 2>&1 || true
