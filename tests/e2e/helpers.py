@@ -86,10 +86,25 @@ _BOOTSTRAP_NOISE_PATTERNS = (
     re.compile(r"^\(node:\d+\)\s"),
     # The follow-up hint node prints after a warning.
     re.compile(r"^\(Use `node --trace-"),
-    # npx's cold-cache install banner, which is three lines: the header, the
-    # package spec on its own line, and (with -y suppressing the prompt) at most
-    # the "Ok to proceed?" echo. All three are printed before node has loaded
-    # anything, so none of them is evidence of a delivered request.
+    # npx's cold-cache install PROMPT banner, which is three lines: the header,
+    # the package spec on its own line, and the "Ok to proceed?" echo. All three
+    # are printed before node has loaded anything, so none of them is evidence
+    # of a delivered request.
+    #
+    # Belt-and-braces for older npm only -- unreachable on the npm we run.
+    # Verified against npm 10.9.8 (bundled with the node 22 CI uses): `npx -y`
+    # on a cold cache prints NO install banner at all, and without -y it prints
+    # a one-line "npm warn exec The following package was not found and will be
+    # installed: <spec>", which the `^npm (warn|notice)` pattern above already
+    # covers. Since run_inspector always passes -y, these three fire only under
+    # an npm old enough to still prompt.
+    #
+    # Caveat, left as-is deliberately: the spec pattern is built from the
+    # RESOLVED package string, so under INSPECTOR_VERSION=latest (the nightly
+    # canary) an old npm's banner would name the concrete version and not match
+    # -- the retry would then decline, which is the fail-safe direction. Making
+    # the pattern version-agnostic would widen the allowlist for no benefit on
+    # any supported npm.
     re.compile(r"^Need to install the following packages"),
     re.compile(r"^" + re.escape(INSPECTOR_PACKAGE)),
     re.compile(r"^Ok to proceed\?"),

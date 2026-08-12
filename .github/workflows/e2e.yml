@@ -5,7 +5,25 @@ on:
     branches: ['**']
   pull_request:
     branches: [main]
-  workflow_dispatch:  # Manual trigger
+  # Manually dispatchable WITH the same input as workflow_call below, so a red
+  # Inspector canary can be re-tested against one specific Inspector version
+  # from the Actions UI without editing the pin and pushing a commit.
+  #
+  # The two input blocks have to be written out twice (workflow YAML has no
+  # anchors), but they are consumed by ONE expression: the `inputs` context is
+  # populated for a reusable workflow AND for a workflow_dispatch run, so
+  # `inputs.inspector_version` below serves both. On push/pull_request the
+  # context is absent, dereferencing it yields an empty string, and the `|| ''`
+  # keeps that explicit -- those triggers are unaffected.
+  workflow_dispatch:
+    inputs:
+      inspector_version:
+        description: >-
+          npm version/dist-tag of @modelcontextprotocol/inspector to test with.
+          Empty (the default) means the pin in tests/e2e/helpers.py.
+        type: string
+        required: false
+        default: ""
   # Callable so the nightly Inspector canary can run this exact suite against a
   # different Inspector release without duplicating the job.
   workflow_call:
@@ -55,10 +73,10 @@ jobs:
           pip install pytest
 
       - name: Validate and report the Inspector under test
-        # INSPECTOR_VERSION reaches an `npx ...@$VERSION` command line, and a
-        # workflow_dispatch input is caller-supplied, so it is checked against a
-        # strict npm version/dist-tag pattern first (same defence-in-depth as
-        # anki-compat.yml's aqt_version).
+        # INSPECTOR_VERSION reaches an `npx ...@$VERSION` command line, and both
+        # the workflow_dispatch and the workflow_call input are caller-supplied,
+        # so it is checked against a strict npm version/dist-tag pattern first
+        # (same defence-in-depth as anki-compat.yml's aqt_version).
         run: |
           if [ -n "$INSPECTOR_VERSION" ] && \
              ! printf '%s' "$INSPECTOR_VERSION" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$'; then
@@ -88,16 +106,19 @@ jobs:
           path: anki_mcp_server.ankiaddon
           retention-days: 14
 
-      # always(), not failure(): a job that hits `timeout-minutes` is marked
-      # CANCELLED, so failure() is false and this step would be skipped -- and
-      # make's own log-dump branch never runs either, because make was killed
-      # mid-suite. That is exactly the hung-server case where the logs matter
-      # most. Guarded with `|| true` and placed before the teardown step so the
-      # container is still around. Flags mirror the Makefile's log-dump targets:
-      # tailed so a chatty container cannot bury the pytest traceback, and
+      # `failure() || cancelled()`, not failure() alone: a job that hits
+      # `timeout-minutes` ends CANCELLED, so failure() is false and this step
+      # would be skipped -- and make's own log-dump branch never runs either,
+      # because make was killed mid-suite. That is exactly the hung-server case
+      # where the logs matter most, and cancelled() covers it (the runner grades
+      # both functions off the same job status). Not always(): that dumped up to
+      # 4000 lines of container log onto every green run too. Guarded with
+      # `|| true` and placed before the always() teardown step so the container
+      # is still around. Flags mirror the Makefile's log-dump targets: tailed so
+      # a chatty container cannot bury the pytest traceback, and
       # timestamped/uncoloured so the dump is readable in the Actions log.
       - name: Show container logs
-        if: always()
+        if: failure() || cancelled()
         working-directory: .docker
         run: |
           docker compose logs --no-color --timestamps --tail=2000 2>/dev/null || true

@@ -7,12 +7,19 @@ The ``remove`` action is flagged destructive (its Params model sets
 the discriminated union is rebuilt without them -- UNLESS the operator opts in
 via the ``enabled_destructive_tools`` config containing ``"model_fields:remove"``.
 
-The DEFAULT e2e suite (port 3141, ``.docker/config.json``) does NOT set
-``enabled_destructive_tools``, so ``remove`` is absent from the union there and
-these tests are SKIPPED. To exercise them, run against a server whose config
-includes::
+The DEFAULT e2e suite (port 3141, ``.docker/config.json``) opts in only
+``change_note_type``; ``enabled_destructive_tools`` requires an EXACT match per
+tool/action, so ``remove`` is still absent from the union there and these tests
+are SKIPPED.
+
+They actually run in the FILTERED suite (port 3142, ``.docker/config-filtered.json``,
+``make e2e-filtered``), whose config includes::
 
     "enabled_destructive_tools": ["model_fields:remove"]
+
+That is also why the ``e2e-filtered-test`` target runs this file alongside
+``test_tool_filtering_e2e.py``: it needs that container's config, not because it
+tests filtering.
 
 The ``_require_remove_action`` autouse fixture inspects the live model_fields
 schema and skips at runtime when ``remove`` is not exposed (same runtime-skip

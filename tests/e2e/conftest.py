@@ -54,10 +54,16 @@ def wait_for_server():
             pass
 
         # Checked after the probe so at least one probe always runs, however
-        # small the budget.
-        if time.monotonic() + POLL_INTERVAL_SECONDS >= deadline:
+        # small the budget. The sleep is clamped to whatever is left instead of
+        # being skipped when a whole interval no longer fits: skipping gave up a
+        # full interval early (a 5s budget stopped probing at ~4s), while
+        # clamping spends the budget exactly and still terminates -- the next
+        # iteration's probe starts at or after the deadline and the loop breaks
+        # right after it.
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             break
-        time.sleep(POLL_INTERVAL_SECONDS)
+        time.sleep(min(POLL_INTERVAL_SECONDS, remaining))
 
     pytest.fail(
         f"MCP server not ready after {time.monotonic() - started:.1f}s "

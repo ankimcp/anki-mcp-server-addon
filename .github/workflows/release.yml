@@ -13,8 +13,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Fast gate, ahead of everything else: a tag that does not name __version__
+  # cannot produce a release, so there is no point spending ~20 minutes of E2E
+  # discovering that. Checkout + a regex read of __init__.py, no Docker, seconds.
+  #
+  # This job is what makes "neither release job runs unless the pushed tag
+  # equals v{__version__}" true of the PIPELINE rather than merely of the
+  # release job's first step. It does NOT replace the per-job checks in
+  # `release` and `registry`: those re-derive the version independently so that
+  # re-running one job on its own still verifies the tag, without trusting a
+  # sibling job's preserved outputs.
+  version-gate:
+    name: Verify tag matches __version__
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Resolve version and verify tag
+        run: python .github/scripts/resolve_version.py --expect-tag "$GITHUB_REF_NAME"
+
   test:
     runs-on: ubuntu-latest
+    needs: version-gate
     timeout-minutes: 20
 
     steps:
@@ -47,16 +76,19 @@ jobs:
         run: |
           make e2e-filtered
 
-      # always(), not failure(): a job that hits `timeout-minutes` is marked
-      # CANCELLED, so failure() is false and this step would be skipped -- and
-      # make's own log-dump branch never runs either, because make was killed
-      # mid-suite. That is exactly the hung-server case where the logs matter
-      # most. Guarded with `|| true` and placed before the teardown step so the
-      # container is still around. Flags mirror the Makefile's log-dump targets:
-      # tailed so a chatty container cannot bury the pytest traceback, and
+      # `failure() || cancelled()`, not failure() alone: a job that hits
+      # `timeout-minutes` ends CANCELLED, so failure() is false and this step
+      # would be skipped -- and make's own log-dump branch never runs either,
+      # because make was killed mid-suite. That is exactly the hung-server case
+      # where the logs matter most, and cancelled() covers it (the runner grades
+      # both functions off the same job status). Not always(): that dumped up to
+      # 4000 lines of container log onto every green run too. Guarded with
+      # `|| true` and placed before the always() teardown step so the container
+      # is still around. Flags mirror the Makefile's log-dump targets: tailed so
+      # a chatty container cannot bury the pytest traceback, and
       # timestamped/uncoloured so the dump is readable in the Actions log.
       - name: Show container logs
-        if: always()
+        if: failure() || cancelled()
         working-directory: .docker
         run: |
           docker compose logs --no-color --timestamps --tail=2000 2>/dev/null || true
@@ -93,8 +125,11 @@ jobs:
         with:
           python-version: '3.x'
 
-      # __version__ is the single source of truth. Verified BEFORE anything is
-      # published so a mismatched tag stops the job while it is still a no-op.
+      # __version__ is the single source of truth. Already checked by the
+      # version-gate job, and re-checked here rather than assumed: re-running
+      # only this job must not be able to publish a version the tag does not
+      # name. Verified BEFORE anything is published so a mismatched tag stops
+      # the job while it is still a no-op.
       - name: Resolve version and verify tag
         id: version
         run: python .github/scripts/resolve_version.py --expect-tag "$GITHUB_REF_NAME"
