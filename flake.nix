@@ -45,7 +45,9 @@
 
           addon = pkgs.anki-utils.buildAnkiAddon {
             pname = "anki-mcp-server";
-            version = "0.17.0";
+            # Must match __version__ in anki_mcp_server/__init__.py, which is the
+            # single source of truth. Enforced by tests/unit/test_version_consistency.py.
+            version = "0.27.0";
             src = ./anki_mcp_server;
 
             postFixup = ''
