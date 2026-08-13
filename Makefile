@@ -1,4 +1,5 @@
-.PHONY: build unit e2e e2e-full e2e-up e2e-down e2e-test e2e-logs e2e-logs-dump e2e-debug \
+.PHONY: build unit preview-description e2e e2e-full e2e-up e2e-down e2e-test e2e-logs \
+       e2e-logs-dump e2e-debug \
        e2e-filtered e2e-filtered-up e2e-filtered-down e2e-filtered-test e2e-filtered-logs \
        e2e-filtered-logs-dump
 
@@ -76,6 +77,17 @@ build:
 # Run unit tests (no Docker / Anki needed -- aqt is stubbed in tests/unit/conftest.py)
 unit:
 	pytest tests/unit/ -v
+
+# ---------------------------------------------------------------------------
+# Preview the AnkiWeb description
+# ---------------------------------------------------------------------------
+
+# Wraps the bare `ankiweb-description.html` fragment in a page shell and points
+# its images at the local copies, so the listing can be eyeballed in a browser
+# before anything is pushed. The script's docstring explains why the fragment
+# can't just be opened directly.
+preview-description:
+	@python3 tools/preview_description.py
 
 # ---------------------------------------------------------------------------
 # Run ALL E2E tests (regular + filtered)
