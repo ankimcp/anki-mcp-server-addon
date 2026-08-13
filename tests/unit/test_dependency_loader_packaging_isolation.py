@@ -3,7 +3,8 @@
 Anki runs every add-on in ONE shared Python process. The addon vendors a clean
 ``packaging`` 26.2 under ``vendor/shared`` and prepends it to ``sys.path`` at
 startup. But ``sys.path`` order only decides which copy gets imported when a
-module is NOT already in ``sys.modules``. If another add-on (e.g. AnkiConnect)
+module is NOT already in ``sys.modules``. If another add-on (the reported and
+reproduced case is AMBOSS — see PR #61)
 has already imported an OLD ``packaging`` (<= 20.9) into ``sys.modules`` before
 AnkiMCP hits its first-run download path, then ``from packaging.tags import
 sys_tags`` resolves to that cached old copy — the ``sys.modules`` cache wins,

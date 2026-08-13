@@ -58,8 +58,8 @@ class Config:
     enabled_destructive_tools: List[str] = field(default_factory=list)
 
     # Batch operation limits
-    # Maximum notes per add_notes / update_notes / change_note_type call
-    # (default 100)
+    # Maximum notes per add_notes / update_notes / change_note_type /
+    # delete_notes / notes_info call (default 100)
     max_notes_per_batch: int = 100
 
     # Tunnel settings

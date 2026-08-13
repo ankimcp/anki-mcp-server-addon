@@ -99,8 +99,10 @@ def _import_vendored_packaging():
       its ``vendor/shared`` (clean ``packaging`` 26.2) to ``sys.path`` at
       startup — but ``sys.path`` order only decides WHICH copy is imported when
       a module is not already cached. The ``sys.modules`` cache wins outright.
-    * If another add-on (e.g. AnkiConnect) imported an OLD ``packaging``
-      (<= 20.9) first, ``from packaging.tags import sys_tags`` resolves to that
+    * If another add-on imported an OLD ``packaging`` (<= 20.9) first — the
+      reported and reproduced case is **AMBOSS**, whose add-on folder name sorts
+      ahead of numeric add-on IDs so it loads first (issue/PR #61) — then
+      ``from packaging.tags import sys_tags`` resolves to that
       cached copy. Worse, the submodule import of ``packaging.tags`` walks the
       cached package's ``__path__`` — NOT ``sys.path`` — so our vendor-path
       prepend does not help.
