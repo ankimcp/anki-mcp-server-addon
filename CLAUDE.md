@@ -389,9 +389,11 @@ This project has no pyproject.toml, ruff, flake8, or any configured linter. Don'
 - Server stops on `profile_will_close` hook (both HTTP and active tunnel)
 - Fallback cleanup on `app_will_close`
 
-### pydantic_core Runtime Loading
+### pydantic_core / rpds Runtime Loading
 
 `pydantic_core` is lazy-loaded from PyPI at runtime via `dependency_loader.py` because it contains platform-specific binaries that can't be bundled in a single addon file.
+
+`rpds` (from `rpds-py`) is a second native dependency handled by the same loader (`_ensure_rpds_with_callbacks`, wired in `__init__.py`), but it is almost never downloaded: Anki ships `rpds` transitively via its own `jsonschema`, so the common path is a plain `import rpds` with no network access. Both are cached under `_cache/` — see line ~426 for the hardened load/retry/atomic-swap behavior shared by both.
 
 ### DNS Rebinding Protection
 

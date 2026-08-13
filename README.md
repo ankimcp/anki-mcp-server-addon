@@ -18,6 +18,8 @@ Part of the [ankimcp.ai](https://ankimcp.ai) project.
 
 On first run, this addon downloads `pydantic_core` (~2MB) from PyPI. This is required because pydantic_core contains platform-specific binaries (Windows/macOS/Linux) that cannot be bundled in a single addon file.
 
+A second native dependency, `rpds` (from `rpds-py`), is handled the same way — but it is almost never downloaded: Anki already ships `rpds` as a transitive dependency of its own `jsonschema`, so the addon just imports it. The download only kicks in on the rare install where that import fails. Both downloads are cached under the addon's `_cache/` directory, so they happen once, not on every launch.
+
 ## Features
 
 - **Local HTTP server** - Runs on `http://127.0.0.1:3141/` by default
@@ -337,7 +339,17 @@ The local HTTP server accepts requests only from loopback `Host`/`Origin` values
 
 ### Allowed Hosts and Origins (DNS-Rebinding Protection)
 
-The HTTP server enables DNS-rebinding protection with a built-in loopback allowlist (`127.0.0.1`, `localhost`, `[::1]`), so ordinary localhost clients work out of the box. If you expose the HTTP server through a tunnel or reverse proxy (e.g. ngrok, Cloudflare), requests arrive with a non-loopback `Host` (rejected with `421`) — and, for browser clients, a non-loopback `Origin` (rejected with `403`) — unless you extend the allowlist:
+The HTTP server enables DNS-rebinding protection with a built-in loopback allowlist (copied verbatim from the MCP SDK's own default):
+
+- Hosts: `127.0.0.1:*`, `localhost:*`, `[::1]:*`
+- Origins: `http://127.0.0.1:*`, `http://localhost:*`, `http://[::1]:*`
+
+Ordinary localhost clients therefore work out of the box. Two details of these defaults are worth knowing:
+
+- The `:*` patterns match a **host with a port** (`localhost:3141` ✓). A port-less `Host` header — which browsers and clients send only when the server runs on port 80 — does not match, so a non-default `"http_port": 80` needs `"localhost"`/`"127.0.0.1"` added to `http_allowed_hosts` explicitly.
+- The default origins are **`http://`-only**. An `https://localhost` origin is not covered and must be added to `http_allowed_origins`. (Requests with no `Origin` header at all — the normal case for non-browser MCP clients — always pass.)
+
+If you expose the HTTP server through a tunnel or reverse proxy (e.g. ngrok, Cloudflare), requests arrive with a non-loopback `Host` (rejected with `421`) — and, for browser clients, a non-loopback `Origin` (rejected with `403`) — unless you extend the allowlist:
 
 ```json
 {
@@ -450,7 +462,7 @@ Optional hardening via config:
 | `add_notes` | Batch-add up to `max_notes_per_batch` notes (default 100) sharing the same deck and model. Uses Anki's native batch API for atomic undo. Supports partial success — individual failures don't affect others |
 | `card_management` | Manage cards with 9 actions: `reposition` (set learning order), `change_deck` (move between decks), `bury`/`unbury` (hide until tomorrow), `suspend`/`unsuspend` (indefinitely exclude from review), `set_flag` (color flags 0-7), `set_due_date` (reschedule with days DSL), `forget_cards` (reset to new) |
 | `tag_management` | Manage tags with 6 actions: `add_tags`/`remove_tags` (bulk add/remove on notes), `replace_tags` (swap one tag for another), `get_tags` (list all, or scoped to a deck via the optional `deck` param — distinct tags on notes with a card in that deck, subdecks included), `clear_unused_tags` (remove orphans), `batch_tags` (apply multiple add/remove operations in one call, partial success) |
-| `filtered_deck` | Filtered deck lifecycle: `create_or_update` (create or modify filtered decks with search terms), `rebuild` (repopulate), `empty` (return cards to home decks), `delete` |
+| `filtered_deck` | Filtered deck lifecycle with 5 actions: `create_or_update` (create or modify a filtered deck from 1-2 search terms — Anki's hard limit), `rebuild` (repopulate), `empty` (return cards to home decks), `delete` (return cards, then remove the deck), `get_info` (read-only inspection of up to 50 deck IDs per call — returns search terms, limit, order, reschedule flag and card count; non-filtered decks come back with `is_filtered=false`, unknown IDs are skipped and counted in `not_found`) |
 | `update_note_fields` | Update fields of existing notes. Two modes: full replace, or patch via `old_str`/`new_str` (find-and-replace within a field; must match exactly once or nothing is written) |
 | `update_notes` | Batch-update fields of multiple notes in one atomic undo step (single backend call). Validates every entry first; supports partial success up to `max_notes_per_batch` |
 | `delete_notes` | Delete notes from the collection |
@@ -512,7 +524,8 @@ These tools interact with Anki's user interface:
 
 | Prompt | Description |
 |--------|-------------|
-| `review_session` | Guided review session workflow (interactive, quick, or voice mode) |
+| `review_session` | Guided review session workflow. Args: `deck_name` (default `Default`), `card_limit` (default 20), `review_style` — `interactive`, `quick`, or `voice` |
+| `twenty_rules` | Dr. Piotr Woźniak's *Twenty Rules of Formulating Knowledge* (SuperMemo), as card-authoring guidance for the assistant. No arguments |
 
 ## Requirements
 
