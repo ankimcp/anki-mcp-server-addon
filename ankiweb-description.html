@@ -1,234 +1,42 @@
 <div align="center">
-<img src="https://raw.githubusercontent.com/ankimcp/anki-mcp-server-addon/main/docs/images/ankimcp.png" alt="Anki + MCP Integration" width="600" />
-<p><b>Seamlessly integrate Anki with AI assistants through the Model Context Protocol</b></p>
+<img src="https://raw.githubusercontent.com/ankimcp/anki-mcp-server-addon/main/docs/images/hero.gif" alt="Claude creating five Spanish flashcards in Anki through AnkiMCP, then the cards being reviewed" width="700" />
 </div>
 
-<p><b>Note:</b> On first run, this addon downloads <code>pydantic_core</code> (~2MB) from PyPI. This is required because pydantic_core contains platform-specific binaries (Windows/macOS/Linux) that cannot be bundled in a single addon file.</p>
+<p><b>Talk to your Anki collection.</b> Ask Claude — or ChatGPT, or any other AI assistant that supports MCP — to build cards from your notes, quiz you on what's due, and clean up the decks you've been avoiding. It works on your real collection, live, not on a pasted export.</p>
 
-<h2>What is this?</h2>
-<p>AnkiMCP Server runs a local MCP server inside Anki, allowing AI assistants like Claude to interact with your flashcard collection. This enables
-AI-powered study sessions, card creation, and collection management.</p>
-
-<p>The local HTTP server is protected against DNS rebinding by default — it only accepts loopback <code>Host</code>/<code>Origin</code> requests, so ordinary local use needs no setup.</p>
-
-<p>Part of the <a href="https://ankimcp.ai">ankimcp.ai</a> project.</p>
-
-<h2>Features</h2>
+<h2>Things you can ask</h2>
 <ul>
-<li><b>Local HTTP server</b> - Runs on http://127.0.0.1:3141/ by default</li>
-<li><b>Remote tunnel</b> - Optional public HTTPS URL via the AnkiMCP tunnel relay, for reaching your collection from anywhere (requires an ankimcp.ai account)</li>
-<li><b>MCP protocol</b> - Compatible with any MCP client (Claude Desktop, etc.)</li>
-<li><b>Auto-start</b> - Server starts automatically when Anki opens</li>
-<li><b>Tunnel-friendly</b> - Works with Cloudflare Tunnel, ngrok, etc.</li>
-<li><b>DNS-rebinding protection</b> - The HTTP server validates <code>Host</code>/<code>Origin</code> headers against a loopback allowlist by default; extend it via <code>http_allowed_hosts</code> / <code>http_allowed_origins</code> for tunnel/reverse-proxy exposure</li>
-<li><b>Optional API key</b> - Require an <code>Authorization: Bearer</code> token on the HTTP transport via <code>http_api_key</code> (AnkiConnect-style; empty = disabled)</li>
-<li><b>Cross-platform</b> - Works on macOS, Windows, and Linux (x64 and ARM)</li>
-<li><b>Tool filtering</b> - Disable specific tools or actions to reduce token usage</li>
-<li><b>CORS support</b> - Configurable origins for browser-based MCP clients</li>
-<li><b>Toolbar status indicator</b> - A <code>● AnkiMCP</code> item in the top toolbar shows tunnel connection state at a glance (opt out via <code>show_toolbar_indicator</code>)</li>
-<li><b>Diagnostic logging</b> - Opt-in <code>log_to_file</code> writes a rotating, secret-redacted log to <code>user_files/ankimcp.log</code>, and the settings dialog adds "Open log folder" / "Copy diagnostics" buttons to make troubleshooting easy</li>
-<li><b>Field management</b> - Add, rename, and reposition note-type fields from AI clients via the <code>model_fields</code> tool (with an opt-in destructive remove)</li>
-<li><b>Bulk card stats</b> - The read-only <code>cards_stats</code> tool returns compact per-card scheduling metrics (type, queue, interval, tags, <code>dueToday</code>) for a whole deck including subdecks, FSRS-independent — a lean bulk read for analytics</li>
+<li>"Create 5 Spanish flashcards for common greetings in my Spanish deck."</li>
+<li>"Quiz me on today's due cards, one at a time."</li>
+<li>"Turn my lecture notes into cloze cards, tagged <code>bio-exam</code>."</li>
+<li>"Which decks am I falling behind on?"</li>
+<li>"Add audio to the cards I made yesterday."</li>
+<li>"My LaTeX note type is broken — fix it."</li>
 </ul>
 
-<h2>What's New in v0.27.0</h2>
-<ul>
-<li><b>Move notes between note types — <code>change_note_type</code></b> - New tool re-types existing notes, mapping fields by name (<code>{old field: new field or null}</code>). It's destructive, so it stays hidden until you opt in via <code>enabled_destructive_tools</code>, and it uses a two-step flow: <code>dry_run=true</code> returns the resolved plan (field mapping, dropped content, cards that would be deleted), then the same call with <code>confirm=true</code> applies it. It refuses duplicate note IDs, batches mixing several source note types, and default mappings that would silently drop content. Cards whose template has no counterpart in the target type are genuinely deleted — the dry run tells you how many in advance (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/68">#68</a>)</li>
-<li><b>Patch mode for surgical edits</b> - <code>update_model_styling</code>, <code>update_model_templates</code> and <code>update_note_fields</code> accept <code>old_str</code> + <code>new_str</code> for a find-and-replace edit instead of rewriting the whole CSS/template/field. The snippet must match exactly once: on zero or multiple matches nothing is written, and a zero-match error comes back with an excerpt of the current content so the client can correct the snippet and retry without re-reading everything (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/68">#68</a>)</li>
-<li><b>LaTeX preamble is now readable and writable</b> - <code>model_styling(include_latex=true)</code> returns a note type's <code>latex_pre</code>, <code>latex_post</code> and <code>latex_svg</code> settings, and <code>update_model_styling</code> can write them. That makes it possible to fix a broken LaTeX note type from an AI client — e.g. adding <code>\usepackage{tikz}</code> to the preamble so TikZ diagrams render (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/68">#68</a>)</li>
-<li><b>Cheaper collection surveys</b> - <code>notes_info</code> gains <code>excerpt_chars</code>, which caps every returned field value at that many characters and marks each field with <code>truncated</code> and <code>fullLength</code>. <code>find_notes</code> gains <code>include_first_field</code>, which adds a <code>noteLabels</code> array (<code>{noteId, firstField, truncated, fullLength}</code>) so you can search and label in a single call. Both exist to let an AI skim a large deck for a few tokens per note instead of pulling full field content (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/68">#68</a>)</li>
-<li><b>Honest full-sync warnings</b> - Every note-type-mutating tool result now carries <code>will_force_full_sync</code>, read from the collection <i>after</i> the write, so it reports the real pending state (which is sticky until you actually do a full sync) instead of a guess. This also corrects an earlier claim: on <code>model_fields</code>, <code>add</code>/<code>remove</code>/<code>reposition</code> do force a one-way full sync, but a pure <code>rename</code> does not (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/68">#68</a>)</li>
-<li><b>Cloze note types can finally be created</b> - <code>create_model</code> with <code>is_cloze=true</code> previously failed every time (it called an Anki API that doesn't exist). Cloze note types now get created correctly (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/68">#68</a>)</li>
-<li><b>Clearer <code>sync</code> results</b> - <i>Breaking for clients that parse the payload:</i> the success payload's inner <code>result.required</code> is renamed to <code>result.outcome</code>, so it's no longer confused with the top-level <code>required</code> field that reports a full-sync conflict. That top-level field is now cleared once a conflict is resolved or cancelled, and a failure to start the sync job returns a structured error with a hint instead of an opaque failure. <code>create_model</code> also no longer writes the new note type twice (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/67">#67</a>)</li>
-<li><b>Ask about the card on your screen</b> - <code>gui_current_card</code> is now reliable while you review in Anki's own window: it reports the note ID behind the card, and the next-review intervals it returns are taken from the same scheduler states Anki uses to label the answer buttons, so they match what you see on screen even with FSRS or custom scheduling. Tool descriptions now steer AI clients to read along while <i>you</i> press the answer buttons — never to rate cards for you mid-review</li>
-<li><b>Breaking: home deck vs. filtered deck</b> - When a card is being studied from a filtered deck, <code>deckName</code>/<code>deck_name</code> (in <code>gui_current_card</code>, <code>present_card</code>, and <code>get_due_cards</code>) now report the card's <i>home</i> deck instead of the filtered deck. The filtered deck is exposed separately in a new always-present <code>filteredDeckName</code>/<code>filtered_deck_name</code> field (<code>null</code> outside filtered study)</li>
-<li><b>GUI tool fixes</b> - <code>gui_show_answer</code> no longer acts outside review mode; stale hints across several tools referenced tool names that don't exist (e.g. <code>findCards</code>, <code>guiBrowse</code>) and now point to the real ones</li>
-<li><b>Security: stricter SSRF guard for media URLs</b> - URL imports via <code>store_media_file</code> now also block IPv6 transition ranges (NAT64, 6to4, Teredo, AMT) that can smuggle requests to private IPv4 addresses through an IPv6 literal</li>
-<li><b>Docs fix</b> - The <code>query_syntax</code> resource contained a <code>prop:rated</code> example that Anki's search parser rejects; examples are now parser-verified</li>
-</ul>
+<p><b>Your collection stays on your computer.</b> The add-on runs a small server inside Anki that only your own machine can reach. Nothing is uploaded, and using it this way is free, with no account to create. Want to reach your collection from your phone, or from a web AI like ChatGPT? An optional <a href="https://ankimcp.ai/docs/concepts/remote-vs-local/">secure tunnel</a> does that — it has a free tier and needs a sign-in.</p>
 
-<h2>What's New in v0.26.0</h2>
-<ul>
-<li><b>Event-driven request dispatch</b> - The MCP request pipeline no longer polls Anki's main thread 40 times a second waiting for work. Requests are now handed off the instant they arrive, which removes all idle-time wakeups (lower background CPU use when nothing is happening) and trims per-request latency (no up-to-25ms wait for the next poll tick). Purely internal — no configuration or client-visible behavior change (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/65">#65</a>)</li>
-</ul>
-
-<h2>What's New in v0.25.x</h2>
-<ul>
-<li><b>Hideable Tools-menu item</b> - New <code>show_settings_menu_item</code> config flag (default <code>true</code>): set it to <code>false</code> to hide the <i>AnkiMCP Server Settings...</i> entry in Anki's Tools menu, useful for locked-down or kiosk-style setups. The settings dialog stays reachable via the toolbar indicator (takes effect after an Anki restart)</li>
-<li><b>Deck-scoped tag listing</b> - The <code>tag_management</code> tool's <code>get_tags</code> action gains an optional <code>deck</code> parameter: pass a deck name to get just the distinct tags on notes with a card in that deck (subdecks included), instead of every tag in the collection. This lets an AI client discover which tags actually apply to a given deck in one lean call, rather than paging through per-card stats and de-duping by hand. Omit the parameter for the original all-collection behavior (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/63">#63</a>)</li>
-<li><b>Bulk card stats with <code>cards_stats</code></b> - New read-only <code>cards_stats</code> tool returns compact per-card scheduling metrics — type, queue, interval, the note's tags, and a computed <code>dueToday</code> flag — for a whole deck (subdecks included), paginated. It's FSRS-independent (works whether or not FSRS is enabled), so one lean call can replace a <code>find_notes</code> + <code>notes_info</code> + <code>get_card_memory_state</code> sequence when you only need scheduling data (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/62">#62</a>)</li>
-<li><b>Asynchronous <code>sync</code></b> - The <code>sync</code> tool moves to a non-blocking job model: <code>sync()</code> starts a sync and returns a job id, <code>sync(job_id)</code> polls its status, and <code>sync(job_id, resolve=...)</code> resolves a full-sync conflict — so a long sync no longer blocks the MCP call (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/62">#62</a>)</li>
-</ul>
-
-<h2>What's New in v0.24.0</h2>
-<ul>
-<li><b>Preview bulk edits with <code>dry_run</code></b> - <code>update_notes</code> gains a <code>dry_run=true</code> option that runs the full validation pass (field names, note existence, ID validity) and reports which notes <em>would</em> be updated — without writing anything — so you can safely preview a large bulk edit before committing it. Mirrors the existing <code>delete_notes</code> dry run (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/59">#59</a>)</li>
-<li><b><code>delete_notes</code> respects <code>max_notes_per_batch</code></b> - <code>delete_notes</code> no longer caps at a hardcoded 100 notes; it now honors the <code>max_notes_per_batch</code> config like the other batch tools, so raising that limit applies to deletes too (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/59">#59</a>)</li>
-<li><b>Fix: startup crash when another add-on bundles an old <code>packaging</code></b> - On Anki 26.05+ (Python 3.13), if another add-on (for example AMBOSS) had already loaded an older <code>packaging</code> into the shared Python process, AnkiMCP's first-run <code>pydantic_core</code> download failed with <code>No module named 'distutils'</code>. AnkiMCP now forces its own bundled <code>packaging</code> when selecting the download, regardless of what other add-ons have loaded, so the download succeeds; already-affected installs self-heal on the next launch (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/61">#61</a>)</li>
-<li><b>Docs: connecting via Opencode</b> - Added setup instructions for the <a href="https://opencode.ai">Opencode</a> terminal AI agent (<a href="https://github.com/ankimcp/anki-mcp-server-addon/pull/60">#60</a>)</li>
-</ul>
-
-<h2>What's New in v0.23.0</h2>
-<ul>
-<li><b>Manage note-type fields</b> - New <code>model_fields</code> tool adds, renames, and repositions fields on an existing note type, so AI clients can reshape a note type without opening the Fields dialog by hand. A fourth action, <code>remove</code>, permanently deletes a field and all its content, so it's treated as destructive: hidden from MCP clients by default and revealed only when you opt in via <code>enabled_destructive_tools</code>. Every action changes the note-type schema, so each result warns that the next sync will be a one-way full sync (overwriting AnkiWeb and your other devices); renames also flag that <code>{{Field}}</code> references in card templates aren't rewritten automatically (<a href="https://github.com/ankimcp/anki-mcp-server-addon/issues/57">#57</a>)</li>
-</ul>
-
-<p>Older releases (v0.22.x and earlier) are listed on the <a href="https://github.com/ankimcp/anki-mcp-server-addon/releases">GitHub releases page</a>.</p>
-
-<h2>Installation</h2>
-
-<h3>From AnkiWeb (recommended)</h3>
-<ol>
-<li>Go to Tools → Add-ons → Get Add-ons...</li>
-<li>Enter code: <b>124672614</b></li>
-<li>Restart Anki</li>
-</ol>
-
-<h3>From GitHub Releases</h3>
-<ol>
-<li>Download from <a href="https://github.com/ankimcp/anki-mcp-server-addon/releases">Releases</a></li>
-<li>Double-click to install, or use Tools → Add-ons → Install from file</li>
-<li>Restart Anki</li>
-</ol>
-
-<h2>Connect with Claude Desktop</h2>
-<p>Requires <a href="https://nodejs.org/">Node.js</a>. Add to your Claude Desktop config (<code>~/Library/Application Support/Claude/claude_desktop_config.json</code> on macOS):</p>
-<pre>
-{
-  "mcpServers": {
-    "anki": {
-      "command": "npx",
-      "args": ["mcp-remote", "http://127.0.0.1:3141"]
-    }
-  }
-}
-</pre>
-
-<h2>Connect with Claude Code</h2>
+<h2>Setup</h2>
+<p>Install this add-on and restart Anki — on first run it downloads a small dependency (about 2MB) from PyPI. Then point your AI client at it. For Claude Code:</p>
 <pre>claude mcp add anki --transport http http://127.0.0.1:3141/</pre>
+<p>Using Claude Desktop, ChatGPT or something else? The <a href="https://ankimcp.ai/docs/get-started/">setup guide</a> walks through each client step by step.</p>
 
-<h2>Available Tools</h2>
-
-<h3>Essential Tools</h3>
-<ul>
-<li><b>sync</b> - Synchronize collection with AnkiWeb (asynchronous job: start a sync, poll its status, resolve full-sync conflicts)</li>
-<li><b>list_decks</b> - List all decks with review counts</li>
-<li><b>create_deck</b> - Create a new deck</li>
-<li><b>find_notes</b> - Search for notes using Anki's search syntax (optional <code>include_first_field</code> returns first-field labels alongside the IDs)</li>
-<li><b>notes_info</b> - Get detailed information about notes (supports <code>include_fields</code> / <code>exclude_fields</code> for response filtering, and <code>excerpt_chars</code> for truncated field values)</li>
-<li><b>add_note</b> - Add a new note to a deck</li>
-<li><b>add_notes</b> - Batch-add up to <code>max_notes_per_batch</code> notes (default 100) with atomic undo and partial success</li>
-<li><b>update_note_fields</b> - Update fields of existing notes (full replace, or <code>old_str</code>/<code>new_str</code> patch mode)</li>
-<li><b>update_notes</b> - Batch-update fields of multiple notes in one atomic undo step (validates every entry first; partial success)</li>
-<li><b>delete_notes</b> - Delete notes from the collection</li>
-<li><b>get_due_cards</b> - Get cards due for review (supports voice mode)</li>
-<li><b>cards_stats</b> - Bulk per-card scheduling stats for a deck (subdecks included): type, queue, interval, tags, and a computed dueToday flag, paginated. FSRS-independent</li>
-<li><b>present_card</b> - Get card content for review</li>
-<li><b>rate_card</b> - Rate a card after review (Again/Hard/Good/Easy)</li>
-<li><b>model_names</b> - List available note types</li>
-<li><b>model_field_names</b> - Get field names for a note type</li>
-<li><b>model_styling</b> - Get CSS styling for a note type (<code>include_latex=true</code> also returns the LaTeX preamble)</li>
-<li><b>update_model_styling</b> - Update CSS styling for a note type (full replace or <code>old_str</code>/<code>new_str</code> patch mode; can also write the LaTeX preamble)</li>
-<li><b>model_templates</b> - Read the Front/Back HTML templates for each card type</li>
-<li><b>update_model_templates</b> - Update Front/Back template HTML (rejects unrecognized keys; full replace or <code>old_str</code>/<code>new_str</code> patch mode)</li>
-<li><b>create_model</b> - Create a new note type (regular or cloze)</li>
-<li><b>change_note_type</b> - Move existing notes to a different note type with name-based field mapping, via a <code>dry_run</code> then <code>confirm=true</code> flow. Destructive — hidden unless opted in via <code>enabled_destructive_tools</code></li>
-<li><b>store_media_file</b> - Store a media file (image/audio) via base64, file path, or URL. Validates media type and blocks SSRF</li>
-<li><b>get_media_files_names</b> - List media files matching a pattern</li>
-<li><b>delete_media_file</b> - Move a media file to Anki's trash (recoverable via Check Media)</li>
-</ul>
-
-<h3>Multi-Action Tools</h3>
-<ul>
-<li><b>card_management</b> - 9 actions: reposition, change_deck, bury, unbury, suspend, unsuspend, set_flag, set_due_date, forget_cards</li>
-<li><b>tag_management</b> - 6 actions: add_tags, remove_tags, replace_tags, get_tags, clear_unused_tags, batch_tags</li>
-<li><b>filtered_deck</b> - 5 actions: create_or_update, rebuild, empty, delete, get_info</li>
-<li><b>model_fields</b> - Manage note-type fields: add, rename, reposition (plus an opt-in destructive remove). Add, remove and reposition change field ordinals and force a one-way full sync on the next sync; a pure rename does not. Every result reports the collection's actual pending-full-sync state</li>
-</ul>
-
-<h3>FSRS Tools</h3>
-<ul>
-<li><b>get_fsrs_params</b> - Get FSRS scheduler parameters for deck presets</li>
-<li><b>set_fsrs_params</b> - Update FSRS parameters (weights, retention, max interval)</li>
-<li><b>get_card_memory_state</b> - Get FSRS memory state (stability, difficulty, retrievability)</li>
-<li><b>optimize_fsrs_params</b> - Run FSRS parameter optimization</li>
-</ul>
-
-<h3>GUI Tools</h3>
-<ul>
-<li><b>gui_browse</b> - Open the card browser with a search query</li>
-<li><b>gui_add_cards</b> - Open the Add Cards dialog</li>
-<li><b>gui_edit_note</b> - Open the note editor for a specific note</li>
-<li><b>gui_current_card</b> - Get info about the currently displayed card</li>
-<li><b>gui_show_question</b> - Show the question side of current card</li>
-<li><b>gui_show_answer</b> - Show the answer side of current card</li>
-<li><b>gui_select_card</b> - Select a specific card in the reviewer</li>
-<li><b>gui_deck_browser</b> - Navigate to deck browser</li>
-<li><b>gui_undo</b> - Undo the last operation</li>
-</ul>
-
-<h3>Resources</h3>
-<ul>
-<li><b>system_info</b> - Anki version, profile, and scheduler info</li>
-<li><b>query_syntax</b> - Anki search query syntax reference</li>
-<li><b>schema</b> - Data model documentation (entities, fields, relationships)</li>
-<li><b>stats_today</b> - Today's study statistics</li>
-<li><b>stats_forecast</b> - 30-day review forecast</li>
-<li><b>stats_collection</b> - Overall collection statistics</li>
-<li><b>fsrs_config</b> - FSRS configuration and parameters</li>
-</ul>
-
-<h3>Prompts</h3>
-<ul>
-<li><b>review_session</b> - Guided review session (interactive, quick, or voice mode)</li>
-</ul>
-
-<h2>Configuration</h2>
-<p>Edit via Anki's Tools → Add-ons → AnkiMCP Server → Config:</p>
-<pre>
-{
-  "http_enabled": true,
-  "http_port": 3141,
-  "http_host": "127.0.0.1",
-  "http_path": "",
-  "http_allowed_hosts": [],
-  "http_allowed_origins": [],
-  "http_api_key": "",
-  "cors_origins": [],
-  "cors_expose_headers": ["mcp-protocol-version"],
-  "disabled_tools": [],
-  "enabled_destructive_tools": [],
-  "max_notes_per_batch": 100,
-  "tunnel_server_url": "wss://tunnel.ankimcp.ai",
-  "tunnel_client_id": "ankimcp-cli",
-  "media_import_dir": "",
-  "media_allowed_types": [],
-  "media_allowed_hosts": [],
-  "show_toolbar_indicator": true,
-  "log_to_file": false
-}
-</pre>
-
-<p>Use <code>disabled_tools</code> to hide tools or actions from AI clients:</p>
-<ul>
-<li><code>"sync"</code> — disables the entire tool</li>
-<li><code>"card_management:bury"</code> — disables a specific action</li>
-</ul>
-
-<p>Use <code>enabled_destructive_tools</code> to opt in to high-risk tools and actions that are hidden by default, e.g. <code>"change_note_type"</code> to expose the note-type conversion tool, or <code>"model_fields:remove"</code> to expose the destructive field-removal action.</p>
-
-<h2>Requirements</h2>
-<p>Anki 25.07 or later (Python 3.13). Earlier versions ship Python 3.9 which is not supported.</p>
-
-<h2>Architecture</h2>
-<p>The addon runs an MCP server in a background thread with HTTP transport (FastMCP + uvicorn). All Anki operations are bridged to the main Qt thread via a queue system, following the same proven pattern as AnkiConnect.</p>
-
-<h2>License</h2>
-<p>AGPL-3.0-or-later</p>
+<h2>New in v0.27.0</h2>
+<p>Your assistant can now move notes between note types, patch a card template or its styling with a find-and-replace instead of rewriting the whole thing, and read along with the card on your screen while you review. <a href="https://github.com/ankimcp/anki-mcp-server-addon/releases/latest">Full changelog →</a></p>
 
 <h2>Links</h2>
 <ul>
-<li><a href="https://ankimcp.ai">ankimcp.ai</a> - Project homepage</li>
-<li><a href="https://github.com/ankimcp/anki-mcp-server-addon">GitHub</a> - Source code & issues</li>
-<li><a href="https://modelcontextprotocol.io/">MCP Protocol</a> - Model Context Protocol specification</li>
+<li>📖 <a href="https://ankimcp.ai/docs/get-started/">Docs, guides and prompt recipes</a></li>
+<li>☁️ <a href="https://ankimcp.ai/docs/anki-studio/">Anki Studio</a> — optional cloud extras your AI can use: knowledge roadmap, media library, card sandbox</li>
+<li>🛠️ <a href="https://ankimcp.ai/docs/reference/addon/tools/">Tool reference</a> and <a href="https://ankimcp.ai/docs/reference/addon/configuration/">configuration reference</a></li>
+<li>💬 <a href="https://forum.ankimcp.ai/">Community forum</a></li>
+<li>🐙 <a href="https://github.com/ankimcp/anki-mcp-server-addon">GitHub</a></li>
 </ul>
+
+<p><b>Requires Anki 25.07 or later</b>, on macOS, Windows or Linux.</p>
+
+<p>Please don't use reviews for bug reports — I don't get notified about them. The <a href="https://forum.ankimcp.ai/">community forum</a> or the GitHub issue tracker will reach me.</p>
+
+<p>Free and open source, AGPL-3.0-or-later. If AnkiMCP helps your studying, a 👍 helps other people find it.</p>
+
+<p><small>Anki is a registered trademark of Ankitects Pty Ltd. This is an independent community project and is not affiliated with Ankitects.</small></p>
