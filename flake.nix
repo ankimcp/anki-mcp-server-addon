@@ -47,7 +47,7 @@
             pname = "anki-mcp-server";
             # Must match __version__ in anki_mcp_server/__init__.py, which is the
             # single source of truth. Enforced by tests/unit/test_version_consistency.py.
-            version = "0.28.0";
+            version = "0.27.1";
             src = ./anki_mcp_server;
 
             postFixup = ''
