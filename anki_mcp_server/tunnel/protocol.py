@@ -35,6 +35,7 @@ class CloseCodes:
     URL_REGENERATED = 4006
     SERVICE_UNAVAILABLE = 4008
     SHUTDOWN = 4009
+    IDLE_TIMEOUT = 4010
 
 
 # Close codes that mean "don't bother reconnecting"
@@ -43,6 +44,7 @@ _NO_RECONNECT: set[int] = {
     CloseCodes.TOKEN_REVOKED,
     CloseCodes.ACCOUNT_DELETED,
     CloseCodes.SESSION_REPLACED,
+    CloseCodes.IDLE_TIMEOUT,
 }
 
 # Close codes that mean "get a fresh token before reconnecting"
