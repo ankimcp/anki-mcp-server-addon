@@ -33,7 +33,7 @@ ankiweb-description.preview.html
 
 # Claude Code
 .claude/
-.claude-draft/
-.claude-drafts/
 .sandbox/
+
+# Private design docs / drafts (untracked on purpose)
 .docs/
