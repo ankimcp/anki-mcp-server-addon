@@ -466,7 +466,7 @@ Optional hardening via config:
 | `update_note_fields` | Update fields of existing notes. Two modes: full replace, or patch via `old_str`/`new_str` (find-and-replace within a field; must match exactly once or nothing is written) |
 | `update_notes` | Batch-update fields of multiple notes in one atomic undo step (single backend call). Validates every entry first; supports partial success up to `max_notes_per_batch` |
 | `delete_notes` | Delete notes from the collection |
-| `get_due_cards` | Get next due card for review (supports `skip_images`/`skip_audio` for voice mode) |
+| `get_due_cards` | Get next due card for review (supports `skip_images`/`skip_audio` for voice mode). Returns the rendered question only; the answer is omitted unless `include_answer=true` |
 | `cards_stats` | Bulk per-card scheduling stats for a deck (incl. subdecks): type/queue/interval/tags/dueToday, paginated. FSRS-independent, compact payload for analytics |
 | `present_card` | Get card content for review |
 | `rate_card` | Rate a card after review (Again/Hard/Good/Easy) |

@@ -8,8 +8,9 @@ from ....handler_wrappers import HandlerError, get_col
 @Tool(
     "rate_card",
     "Submit a rating for a card to update Anki's spaced repetition scheduling. "
-    "Use this ONLY after the user confirms or modifies your suggested rating. "
-    "Do not rate automatically without user input. "
+    "Precondition: the answer must already have been revealed to the user via present_card(show_answer=true), "
+    "and the user must have confirmed or modified your suggested rating. "
+    "Never submit a rating the user has not confirmed after seeing the answer. "
     "Returns next_review date, new_interval (days for review cards), and card_type.",
     write=True,
 )

@@ -3,6 +3,7 @@ import logging
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
+from ._render_helpers import render_question, render_answer
 
 logger = logging.getLogger(__name__)
 
@@ -19,13 +20,15 @@ def _has_audio(fields: list[str]) -> bool:
 
 @Tool(
     "get_due_cards",
-    "Retrieve the next single card due for review from a specified deck in true scheduler order. IMPORTANT: Use sync tool FIRST before getting cards to ensure latest data. After getting the card, use present_card to show it to the user. Returns one card per call to ensure correct scheduler interleaving. The deck_name parameter is required - you must specify which deck to study. For voice-mode review, use skip_images=True and/or skip_audio=True to filter out cards with media. Cards with media are temporarily buried (removed from queue) and can be unburied later using the card_management tool. Response includes has_images and has_audio flags for each card. deckName is the card's home deck; filteredDeckName is always present and is null unless the card is currently being studied from a filtered deck.",
+    "Retrieve the next single card due for review from a specified deck in true scheduler order. IMPORTANT: Use sync tool FIRST before getting cards to ensure latest data. After getting the card, use present_card to show it to the user. Returns one card per call to ensure correct scheduler interleaving. The deck_name parameter is required - you must specify which deck to study. For voice-mode review, use skip_images=True and/or skip_audio=True to filter out cards with media. Cards with media are temporarily buried (removed from queue) and can be unburied later using the card_management tool. Response includes has_images and has_audio flags for each card. deckName is the card's home deck; filteredDeckName is always present and is null unless the card is currently being studied from a filtered deck. "
+    "The answer is omitted by default (no 'back' key) so a review session does not receive it before the user responds. Pass include_answer=True to also receive 'back' - for content analysis or editing, not for reviewing. front (and back, when requested) are rendered card HTML like present_card's question/answer, not raw note fields; front omits the note type CSS.",
     write=True,
 )
 def get_due_cards(
     deck_name: str,
     skip_images: bool = False,
-    skip_audio: bool = False
+    skip_audio: bool = False,
+    include_answer: bool = False
 ) -> dict[str, Any]:
     from anki.consts import QUEUE_TYPE_NEW, QUEUE_TYPE_LRN, QUEUE_TYPE_REV
 
@@ -100,53 +103,6 @@ def get_due_cards(
                 continue
 
             # Found a card that passes filters
-            # Extract front/back from note fields
-            fields_dict = dict(note.items())
-            front = fields_dict.get("Front", "")
-            back = fields_dict.get("Back", "")
-
-            # Fallback: if no Front/Back fields, use first two fields
-            if not front and not back:
-                field_values = list(fields_dict.values())
-                front = field_values[0] if len(field_values) > 0 else ""
-                back = field_values[1] if len(field_values) > 1 else ""
-
-            # Home deck. name_if_exists() -> None for a dangling deck id.
-            # col.decks.get() defaults to default=True and would silently
-            # return the Default deck instead.
-            deck_name_str = col.decks.name_if_exists(card.current_deck_id()) or "Unknown"
-
-            filtered_deck_name = None
-            if card.odid:
-                filtered_deck_name = col.decks.name_if_exists(card.did) or "Unknown"
-
-            # Get model name
-            model = note.note_type()
-            model_name = model["name"] if model else "Unknown"
-
-            # Get queue type name
-            queue_type = queue_names.get(qc.queue, "unknown")
-
-            # Always include has_images and has_audio flags
-            has_images = _has_images(fields)
-            has_audio = _has_audio(fields)
-
-            found_card = {
-                "cardId": card.id,
-                "front": front,
-                "back": back,
-                "deckName": deck_name_str,
-                "filteredDeckName": filtered_deck_name,
-                "modelName": model_name,
-                "queueType": queue_type,
-                "due": card.due,
-                "interval": card.ivl,
-                "factor": card.factor,
-                "has_images": has_images,
-                "has_audio": has_audio,
-            }
-            break
-
         except Exception as e:
             logger.warning(f"Could not retrieve card {qc.card.id}: {e}")
             try:
@@ -154,6 +110,55 @@ def get_due_cards(
             except Exception:
                 pass  # if even burying fails, safety limit will catch us
             continue
+
+        try:
+            # Rendered question (same as present_card) - never raw note fields,
+            # so Cloze markup and templates don't leak through.
+            front = render_question(card)
+            back = render_answer(card) if include_answer else None
+        except Exception as e:
+            raise HandlerError(
+                f"Failed to render card {card.id}: {e}",
+                hint="A note type template or another add-on's field filter may be failing",
+                card_id=card.id,
+            )
+
+        # Home deck. name_if_exists() -> None for a dangling deck id.
+        # col.decks.get() defaults to default=True and would silently
+        # return the Default deck instead.
+        deck_name_str = col.decks.name_if_exists(card.current_deck_id()) or "Unknown"
+
+        filtered_deck_name = None
+        if card.odid:
+            filtered_deck_name = col.decks.name_if_exists(card.did) or "Unknown"
+
+        # Get model name
+        model = note.note_type()
+        model_name = model["name"] if model else "Unknown"
+
+        # Get queue type name
+        queue_type = queue_names.get(qc.queue, "unknown")
+
+        # Always include has_images and has_audio flags
+        has_images = _has_images(fields)
+        has_audio = _has_audio(fields)
+
+        found_card = {
+            "cardId": card.id,
+            "front": front,
+            "deckName": deck_name_str,
+            "filteredDeckName": filtered_deck_name,
+            "modelName": model_name,
+            "queueType": queue_type,
+            "due": card.due,
+            "interval": card.ivl,
+            "factor": card.factor,
+            "has_images": has_images,
+            "has_audio": has_audio,
+        }
+        if include_answer:
+            found_card["back"] = back
+        break
 
     # If queued is None, we never successfully called get_queued_cards
     if queued is None:

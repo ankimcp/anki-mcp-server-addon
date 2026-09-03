@@ -83,7 +83,7 @@ class TestGetDueCards:
         card = result["cards"][0]
         assert "cardId" in card
         assert "front" in card
-        assert "back" in card
+        assert "back" not in card
         assert "deckName" in card
         assert "modelName" in card
         assert "queueType" in card
@@ -93,7 +93,6 @@ class TestGetDueCards:
 
         # Verify content
         assert f"Test Question {uid}" in card["front"]
-        assert f"Test Answer {uid}" in card["back"]
         assert card["deckName"] == deck_name
         assert card["modelName"] == "Basic"
         # New cards should be in "new" queue
@@ -141,7 +140,8 @@ class TestGetDueCards:
             card = result["cards"][0]
             assert isinstance(card["cardId"], int)
             assert isinstance(card["front"], str)
-            assert isinstance(card["back"], str)
+            assert card["front"]
+            assert "back" not in card
             assert isinstance(card["deckName"], str)
             assert isinstance(card["modelName"], str)
             assert isinstance(card["queueType"], str)

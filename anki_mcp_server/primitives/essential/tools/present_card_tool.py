@@ -2,6 +2,7 @@ from typing import Any
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
+from ._render_helpers import render_question_with_style, render_answer
 
 
 @Tool(
@@ -37,7 +38,7 @@ def present_card(card_id: int, show_answer: bool = False) -> dict[str, Any]:
         "card_id": card.id,
         "deck_name": deck_name,
         "filtered_deck_name": filtered_deck_name,
-        "question": card.question(),
+        "question": render_question_with_style(card),
         "note_type": note_type,
         "due": card.due,
         "interval": card.ivl,
@@ -47,6 +48,6 @@ def present_card(card_id: int, show_answer: bool = False) -> dict[str, Any]:
     }
 
     if show_answer:
-        card_info["answer"] = card.answer()
+        card_info["answer"] = render_answer(card)
 
     return {"card": card_info}

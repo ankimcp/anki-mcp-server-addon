@@ -90,7 +90,9 @@ SESSION PARAMETERS:
 WORKFLOW:
 1. First, sync to get latest data: Use the sync tool
 2. Get the next due card: Use get_due_cards with deck_name="{deck_name}"
-   - get_due_cards returns ONE card at a time in true scheduler order{'''
+   - get_due_cards returns ONE card at a time in true scheduler order
+   - It returns the question only - never pass include_answer during a review, or you will see the answer
+     before the user does{'''
    - Use skip_images=True and skip_audio=True to filter out media cards''' if review_style == 'voice' else ''}
 3. Use present_card to show the question to the user
 4. Wait for their response
@@ -102,6 +104,9 @@ WORKFLOW:
 
 IMPORTANT GUIDELINES:
 - Always sync before starting to ensure up-to-date card data
+- Never reveal or hint at the answer before the user has responded to the question
+- Only call rate_card after the answer was shown with present_card(show_answer=True) and the user confirmed
+  the rating - never rate a card "on their behalf" before that
 - Be encouraging but honest about mistakes
 - If the user wants to stop early, that's fine - sync before ending
 - Track progress: "Card X of Y completed"

@@ -570,6 +570,10 @@ Operator-facing config knobs (all in `config.py`):
 - `media_allowed_types` — extra MIME types beyond the built-in image/audio/video set
 - `media_allowed_hosts` — hosts/IPs allowed to bypass the private-network block (for `192.168.x.x` NAS-style setups)
 
+### Cloze answers in rendered questions
+
+`card.question()` / `card.render_output().question_text` embed the cloze deletion's answer verbatim in a `data-cloze="..."` attribute on the `<span class="cloze">` — rendering alone does not hide it from an AI client. Every tool that hands a question to an AI client must render through `primitives/essential/tools/_render_helpers.py`, which strips that attribute. Never call `card.question()` directly in a tool.
+
 ### Imports Must Be Relative
 
 All imports in this addon use **relative imports** (e.g., `from ....tool_decorator import Tool`). This is the Anki addon ecosystem standard — AnkiConnect does this too. Absolute imports (`from anki_mcp_server.config import ...`) break AnkiWeb installs because AnkiWeb uses the addon ID (`124672614/`) as the directory name, not the package name.

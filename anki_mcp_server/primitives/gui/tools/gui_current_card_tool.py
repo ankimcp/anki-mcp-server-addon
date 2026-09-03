@@ -3,6 +3,7 @@ import logging
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import get_col
+from ...essential.tools._render_helpers import render_answer, render_question_with_style
 
 
 logger = logging.getLogger(__name__)
@@ -80,8 +81,8 @@ def gui_current_card() -> dict[str, Any]:
     model = note.note_type()
     model_name = model["name"] if model else "Unknown"
 
-    question_html = card.question()
-    answer_html = card.answer()
+    question_html = render_question_with_style(card)
+    answer_html = render_answer(card)
 
     buttons, next_reviews = _answer_buttons(col, mw.reviewer, card)
 
