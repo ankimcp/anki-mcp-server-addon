@@ -3,6 +3,10 @@
     "anki-addon": {
       "type": "http",
       "url": "localhost:3141"
+    },
+    "claude-usage": {
+      "command": "npx",
+      "args": ["-y", "@anatoly314/claude-usage-mcp"]
     }
   }
 }
