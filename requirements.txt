@@ -9,3 +9,10 @@ websockets>=12.0
 # Pure-Python (py3-none-any) wheel-tag library — used by dependency_loader to
 # pick the correct native wheel for the running interpreter, exactly as pip does.
 packaging>=23.0
+# Anki imports its own typing_extensions before add-ons load; that copy shadows
+# the vendored one via sys.modules, so every vendored package must run on Anki's
+# copy — 4.14.0 on the oldest supported Anki (25.07), 4.15.0 on current.
+# This ceiling only makes pip reject *declared* floors above it (anyio 4.15.0
+# raised its floor to 4.16.0 and imports `sentinel`); it does not verify that a
+# package actually runs on 4.14.0.
+typing-extensions<4.15
