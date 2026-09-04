@@ -449,6 +449,8 @@ Optional hardening via config:
 
 ## Available Tools
 
+**Upgrading from ≤ 0.27.x:** `get_due_cards` no longer returns `back` unless you pass `include_answer=true`, and `front` is now the rendered question HTML rather than the raw field. Clients that read `back` from this tool need the flag.
+
 ### Essential Tools
 
 | Tool | Description |
