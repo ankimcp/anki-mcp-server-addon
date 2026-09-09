@@ -2,8 +2,7 @@ from typing import Any
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
-
-_RATING_NAMES = {1: "Again", 2: "Hard", 3: "Good", 4: "Easy"}
+from ...essential.tools._ease_names import ease_name
 
 
 @Tool(
@@ -61,16 +60,18 @@ def gui_answer_card(ease: int) -> dict[str, Any]:
         )
 
     answered_card_id = card.id
-    ease_name = _RATING_NAMES[ease]
+    # Computed BEFORE _answerCard() mutates the card -- see _ease_names.py.
+    ease_display_name = ease_name(col, card, ease)
 
     # reviewer._answerCard() reschedules and advances via Anki's own async
     # CollectionOp -- it returns before the op completes. Handlers on the main
     # thread must return fast (see _sync_runner.py), so this does not wait or
-    # pump the Qt event loop for it: doing so would re-enter
-    # RequestProcessor._process_pending (no re-entrancy guard) and could run
-    # other MCP tool handlers nested inside this one, or block in a modal
-    # dialog if a timebox fires. gui_current_card's advancing flag is how a
-    # caller observes completion instead.
+    # pump the Qt event loop for it. A nested run_on_main flush triggered from
+    # inside that op can't run another handler here either way -- the
+    # _draining guard in request_processor.py makes it a no-op -- but a
+    # modal dialog (e.g. a timebox prompt) could still block, so this stays
+    # fire-and-forget. gui_current_card's advancing flag is how a caller
+    # observes completion instead.
     mw.reviewer._answerCard(ease)
 
     # _answerCard has a third early return this tool can't pre-check: the
@@ -89,7 +90,7 @@ def gui_answer_card(ease: int) -> dict[str, Any]:
         "success": True,
         "answeredCardId": answered_card_id,
         "ease": ease,
-        "easeName": ease_name,
+        "easeName": ease_display_name,
         "pending": True,
         "message": "Rating recorded. Anki is advancing the reviewer.",
         "hint": "Call gui_current_card for the next card. If it returns the same cardId "

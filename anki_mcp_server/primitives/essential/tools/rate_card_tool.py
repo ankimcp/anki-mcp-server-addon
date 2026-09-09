@@ -5,6 +5,7 @@ from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
+from ._ease_names import ease_name
 
 
 @Tool(
@@ -44,13 +45,13 @@ def rate_card(
             hint="Verify the card ID is correct using get_due_cards or other card operations",
         )
 
+    # Computed BEFORE answerCard() mutates the card -- see _ease_names.py.
+    rating_name = ease_name(col, card, rating)
+
     scheduler = col.sched
     card.start_timer()
     scheduler.answerCard(card, rating)
     card.load()
-
-    rating_names = {1: "Again", 2: "Hard", 3: "Good", 4: "Easy"}
-    rating_name = rating_names[rating]
 
     card_type_names = ["new", "learning", "review", "relearning"]
     card_type_name = card_type_names[card.type] if card.type < 4 else "unknown"
