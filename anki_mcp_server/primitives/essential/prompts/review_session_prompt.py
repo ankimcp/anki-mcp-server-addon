@@ -12,7 +12,9 @@ from ....prompt_decorator import Prompt
     "review_session",
     "Creates a structured prompt for conducting an Anki review session. "
     "Use this prompt to guide the LLM through presenting cards, collecting answers, "
-    "and rating cards appropriately. Helps maintain consistent review workflow."
+    "and rating cards appropriately. Helps maintain consistent review workflow. "
+    "review_style='gui' drives a hands-free session in Anki's own reviewer window "
+    "instead of fetching cards directly."
 )
 def review_session(
     deck_name: str = "Default",
@@ -28,8 +30,9 @@ def review_session(
         deck_name: Name of the deck to review (default: "Default")
         card_limit: Maximum number of cards to review in this session
         review_style: Review approach - "interactive" for Q&A,
-                     "quick" for rapid-fire mode, or
-                     "voice" for voice-only mode (skips images/audio)
+                     "quick" for rapid-fire mode,
+                     "voice" for voice-only mode (skips images/audio), or
+                     "gui" for a hands-free session in Anki's own reviewer window
 
     Returns:
         A formatted prompt string with review session instructions
@@ -41,6 +44,62 @@ def review_session(
         ...     "review_style": "interactive"
         ... })
     """
+    if review_style == "gui":
+        return f"""You are helping the user conduct a hands-free Anki review session in Anki's own reviewer window.
+
+SESSION PARAMETERS:
+- Deck: "{deck_name}"
+- Cards to review: up to {card_limit}
+- Style: gui
+
+GUI REVIEW MODE:
+- The card stays visible on screen in Anki's reviewer the whole time -- you never fetch
+  or render card content yourself, you only read what the reviewer is showing
+- Never call get_due_cards, present_card, or rate_card in this mode -- they are for
+  AI-driven review sessions outside the GUI reviewer and would desync it
+- Rate cards based on quality of the user's recall:
+  * Again (1): Completely forgot or major errors
+  * Hard (2): Struggled but got it eventually
+  * Good (3): Correct with reasonable effort
+  * Easy (4): Instant, effortless recall
+
+WORKFLOW:
+1. First, sync to get latest data: Use the sync tool
+2. Use gui_deck_review with deck_name="{deck_name}" to open the deck in Anki's reviewer
+   - If it reports inReview=false, there are no cards due -- end the session here
+3. Use gui_current_card (do not pass include_answer) to read the question that is on screen
+4. Wait for the user's answer
+5. Use gui_show_answer to reveal the answer side in the reviewer, then use gui_current_card
+   with include_answer=true to read the answer for evaluation
+6. Evaluate their response and suggest a rating (1-4)
+7. Wait for user confirmation, then use gui_answer_card with that ease to record it
+   - It returns immediately and does not wait for Anki to finish advancing the reviewer
+8. Call gui_current_card for the next card
+   - If it reports advancing=true, Anki hasn't finished yet -- call gui_current_card again
+   - If it reports the same cardId with advancing=false, the rating did not take effect --
+     stop and tell the user rather than re-rating
+   - If it reports inReview=false, there are no more cards due -- end the session here
+   - Otherwise it is the next card -- repeat from step 3
+9. Continue until a gui_current_card call reports inReview=false or {card_limit} cards reviewed
+
+IMPORTANT GUIDELINES:
+- Always sync before starting to ensure up-to-date card data
+- Never reveal or hint at the answer before the user has responded to the question
+- Only call gui_answer_card after gui_show_answer and the user confirmed the rating -
+  never rate a card "on their behalf" before that
+- Be encouraging but honest about mistakes
+- If the user wants to stop early, that's fine - sync before ending
+- Track progress: "Card X of Y completed"
+- At the end, summarize the session (cards reviewed, performance distribution)
+
+RATING GUIDE:
+- Use the rating that best reflects the user's actual recall
+- Don't inflate ratings to make them feel better
+- Struggling learners benefit from honest ratings (it schedules more reviews)
+- If unsure, rate "Hard" rather than "Again" for partial knowledge
+
+Begin by syncing and calling gui_deck_review for the "{deck_name}" deck."""
+
     if review_style == "voice":
         style_instructions = """
 VOICE REVIEW MODE:

@@ -509,6 +509,8 @@ These tools interact with Anki's user interface:
 | `gui_select_card` | Select a specific card in the reviewer |
 | `gui_deck_browser` | Navigate to deck browser |
 | `gui_undo` | Undo the last operation |
+| `gui_deck_review` | Open a deck in Anki's own reviewer window |
+| `gui_answer_card` | Press an answer button on the card shown in the reviewer (hands-free rating) |
 
 ### Resources
 
@@ -526,7 +528,7 @@ These tools interact with Anki's user interface:
 
 | Prompt | Description |
 |--------|-------------|
-| `review_session` | Guided review session workflow. Args: `deck_name` (default `Default`), `card_limit` (default 20), `review_style` — `interactive`, `quick`, or `voice` |
+| `review_session` | Guided review session workflow. Args: `deck_name` (default `Default`), `card_limit` (default 20), `review_style` — `interactive`, `quick`, `voice`, or `gui` |
 | `twenty_rules` | Dr. Piotr Woźniak's *Twenty Rules of Formulating Knowledge* (SuperMemo), as card-authoring guidance for the assistant. No arguments |
 
 ## Requirements

@@ -1,13 +1,15 @@
 """Tests for the GUI reviewer tools outside review mode.
 
-Scope note (important): the E2E suite runs against a headless Anki that never
-enters the GUI reviewer -- no MCP tool starts a review session, so ``mw.state``
-stays ``"deckBrowser"`` and ``mw.reviewer.card`` stays ``None`` for the whole
-run. Only the "not in review" guard of gui_current_card / gui_show_answer /
-gui_show_question is reachable here, and that guard is exactly what these tests
-pin down: these tools must SOFT-fail (success=True, inReview=False) instead of
-raising, so an AI client can tell "the user isn't reviewing" apart from "the
-call blew up".
+Scope note (important): as of test_gui_review_session.py (which sorts before
+this file and enters the reviewer via gui_deck_review, restoring
+``mw.state == "deckBrowser"`` in its own ``finally``), the reviewer IS entered
+elsewhere in the suite. By the time this module's tests run, though, that
+earlier file has already left ``mw.state`` back at ``"deckBrowser"`` and
+``mw.reviewer.card`` at ``None`` -- so these tests still pin down exactly the
+"not in review" guard of gui_current_card / gui_show_answer / gui_show_question:
+these tools must SOFT-fail (success=True, inReview=False) instead of raising,
+so an AI client can tell "the user isn't reviewing" apart from "the call blew
+up".
 
 gui_select_card has the analogous guard for the Card Browser window: it is
 tested here for the same reason (the Browser is never opened in this suite --
