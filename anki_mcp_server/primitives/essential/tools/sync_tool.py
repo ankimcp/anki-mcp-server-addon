@@ -84,7 +84,7 @@ _DESCRIPTION = (
 @Tool(
     "sync",
     _DESCRIPTION,
-    write=False,          # sync manages the collection via its own gate, not the undo system
+    write=False,          # sync manages the collection via its own gate
     require_col=False,    # must bypass the collection gate (polling must work while col is closed)
 )
 def sync(
