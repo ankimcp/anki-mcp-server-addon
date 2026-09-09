@@ -6,13 +6,16 @@ from ....tool_decorator import Tool
 @Tool(
     "gui_show_answer",
     "Flip the card currently on screen in Anki's reviewer to its answer side. "
-    "Returns inReview=false when the reviewer is not active. "
+    "Returns inReview=false when the reviewer is not active. advancing=true means Anki is "
+    "still transitioning to the next card after a rating -- wait and check gui_current_card "
+    "before flipping. "
     "Use this when the user is reviewing in Anki's GUI and asks to reveal or flip the "
     "card in front of them. "
-    "This only changes what is displayed: while the user is reviewing in Anki's own reviewer, "
-    "never answer or rate cards for them, not with GUI tools and not with rate_card, the user "
-    "presses the answer buttons. get_due_cards, present_card and rate_card are for AI-driven "
-    "review sessions outside the GUI reviewer.",
+    "This only changes what is displayed: by default the user presses the answer buttons "
+    "themselves. Only use gui_answer_card, after this call and an explicit user-confirmed "
+    "rating, when the user has asked for hands-free rating -- never use rate_card on a card "
+    "in the reviewer, it bypasses the reviewer and leaves it desynced. get_due_cards, "
+    "present_card and rate_card are for AI-driven review sessions outside the GUI reviewer.",
     write=False,
 )
 def gui_show_answer() -> dict[str, Any]:
@@ -31,6 +34,7 @@ def gui_show_answer() -> dict[str, Any]:
     return {
         "success": True,
         "inReview": True,
+        "advancing": mw.reviewer.state == "transition",
         "message": "Answer side is now displayed",
         "hint": "Use gui_current_card to get full card details including the answer content.",
     }

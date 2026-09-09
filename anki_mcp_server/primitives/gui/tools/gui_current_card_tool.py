@@ -39,20 +39,27 @@ def _answer_buttons(col: Any, reviewer: Any, card: Any) -> tuple[list[int], list
 
 @Tool(
     "gui_current_card",
-    "Get the card currently displayed in Anki's reviewer window: question and answer HTML, "
-    "fields, note ID, card ID, deck name, note type, and the next-review interval behind each "
+    "Get the card currently displayed in Anki's reviewer window: question HTML, "
+    "note ID, card ID, deck name, note type, and the next-review interval behind each "
     "answer button. deckName is the card's home deck; filteredDeckName is always present and is "
     "null unless the card is currently being studied from a filtered deck. "
-    "Returns inReview=false when the reviewer is not active. "
+    "The answer and the note's fields are omitted by default (no 'answer' or 'fields' key in "
+    "cardInfo) -- a note's fields can themselves contain the answer (e.g. a Basic note's Back "
+    "field), so both are gated together. Pass include_answer=True to receive both -- during a "
+    "review, do not request it until the user has answered the question. "
+    "Returns inReview=false when the reviewer is not active. advancing=true means Anki is "
+    "still transitioning to the next card after a rating -- the card shown may be the one "
+    "just answered, so call this again to get the actual next card. "
     "Use this when the user is reviewing in Anki's GUI and asks about the card in front of them "
     "(for example 'explain this card'), or to find the note behind it before editing. "
-    "Read-only: while the user is reviewing in Anki's own reviewer, never answer or rate cards "
-    "for them, not with GUI tools and not with rate_card, the user presses the answer buttons. "
-    "get_due_cards, present_card and rate_card are for AI-driven review sessions outside the "
-    "GUI reviewer.",
+    "Read-only: by default the user presses the answer buttons themselves. Only use "
+    "gui_answer_card, after gui_show_answer and an explicit user-confirmed rating, when the "
+    "user has asked for hands-free rating -- never use rate_card on a card in the reviewer, "
+    "it bypasses the reviewer and leaves it desynced. get_due_cards, present_card and "
+    "rate_card are for AI-driven review sessions outside the GUI reviewer.",
     write=False,
 )
-def gui_current_card() -> dict[str, Any]:
+def gui_current_card(include_answer: bool = False) -> dict[str, Any]:
     from aqt import mw
 
     col = get_col()
@@ -82,26 +89,25 @@ def gui_current_card() -> dict[str, Any]:
     model_name = model["name"] if model else "Unknown"
 
     question_html = render_question_with_style(card)
-    answer_html = render_answer(card)
 
     buttons, next_reviews = _answer_buttons(col, mw.reviewer, card)
-
-    fields_dict = {}
-    for i, (field_name, field_value) in enumerate(note.items()):
-        fields_dict[field_name] = {"value": field_value, "order": i}
 
     card_info = {
         "cardId": card_id,
         "noteId": note.id,
         "question": question_html,
-        "answer": answer_html,
         "deckName": deck_name,
         "filteredDeckName": filtered_deck_name,
         "modelName": model_name,
         "buttons": buttons,
         "nextReviews": next_reviews,
-        "fields": fields_dict,
     }
+    if include_answer:
+        fields_dict = {}
+        for i, (field_name, field_value) in enumerate(note.items()):
+            fields_dict[field_name] = {"value": field_value, "order": i}
+        card_info["fields"] = fields_dict
+        card_info["answer"] = render_answer(card)
 
     message = f'Current card: {card_id} from deck "{deck_name}"'
     if filtered_deck_name:
@@ -111,6 +117,7 @@ def gui_current_card() -> dict[str, Any]:
         "success": True,
         "cardInfo": card_info,
         "inReview": True,
+        "advancing": mw.reviewer.state == "transition",
         "message": message,
         "hint": "Use gui_edit_note with the noteId from this response to edit the note behind this card.",
     }
