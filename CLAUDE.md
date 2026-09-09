@@ -163,7 +163,7 @@ def my_tool(arg: str) -> dict[str, Any]:
 ```
 
 Options:
-- `write=True`: Wraps with Anki's undo system (`requireReset`/`maybeReset`)
+- `write=True`: Calls `mw.reset()` after the handler runs, on success or error, so open deck browser/overview/reviewer screens refresh (`requireReset`/`maybeReset` are obsolete no-ops in current Anki and are not used)
 - `require_col=True` (default): Checks collection is open before running
 - `destructive=True`: Hides the tool from MCP clients unless the operator opts in via `enabled_destructive_tools` config (see "Tool Filtering"). Requires `write=True` — `ValueError` at import time otherwise. For multi-action tools, mark individual actions with `_destructive: ClassVar[bool] = True` on the action's Params model instead.
 

@@ -33,7 +33,8 @@ _registry: dict[str, dict[str, Any]] = {}
 # Parameters:
 #   - name: Unique tool identifier exposed to MCP clients
 #   - description: Shown to AI to understand when/how to use the tool
-#   - write: If True, wraps with _write_lock for Anki's undo system
+#   - write: If True, wraps with _write_lock to refresh Anki's UI after the
+#     handler runs (undo entries come from the backend ops, not this wrapper)
 #   - require_col: If True (default), checks collection is open before running
 #   - destructive: If True, the tool is hidden from MCP clients unless the
 #     operator opts in via the enabled_destructive_tools config allow-list.
@@ -91,7 +92,7 @@ class Tool:
         wrapped = func
 
         if self.write:
-            wrapped = _write_lock(wrapped)  # Handle Anki's undo system
+            wrapped = _write_lock(wrapped)  # Refresh Anki's UI after the write
 
         if self.require_col:
             wrapped = _require_col(wrapped)  # Check collection is open
@@ -118,11 +119,27 @@ class Tool:
 
 
 # ------------------------------------------------------------------------------
-# _write_lock - Handle Anki's undo system for write operations
+# _write_lock - Refresh Anki's UI after a write operation
 # ------------------------------------------------------------------------------
-# Calls mw.requireReset() before and mw.maybeReset() after the operation.
-# This ensures Anki's UI updates and undo stack is properly maintained.
-# Only applied when write=True in @Tool decorator.
+# Calls mw.reset() after the handler runs -- on success AND on error, since a
+# handler that raised may still have written (e.g. change_note_type_tool.py
+# mutates then calls _verify(), which re-reads and can raise after the
+# mutation already happened) -- so open deck browser/overview/reviewer screens
+# pick up the change either way. mw.requireReset()/mw.maybeReset() are NOT
+# used here (see below). Only applied when write=True in @Tool decorator.
+#
+# mw.requireReset()/mw.maybeReset() (aqt/main.py) are obsolete no-ops in
+# current Anki: maybeReset() is `pass`, and requireReset() prints a
+# deprecation notice plus a full stack trace to stdout before calling
+# mw.reset() anyway -- so every write tool was dumping a stack trace per call
+# for no behavioral benefit. mw.reset() itself is still the supported
+# non-CollectionOp way to trigger a UI refresh (no warnings, no printing): it
+# fires gui_hooks.operation_did_execute with an OpChanges that has every field
+# set, which is exactly what the deck browser/overview/reviewer screens check
+# to decide whether to rebuild. CollectionOp is not used instead because it is
+# async (backend call on a worker thread, completion delivered via a Qt
+# signal); our handlers already run synchronously on the main thread via the
+# queue bridge, so there is no async boundary for it to wrap.
 # ------------------------------------------------------------------------------
 def _write_lock(func: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(func)
@@ -134,12 +151,20 @@ def _write_lock(func: Callable[..., Any]) -> Callable[..., Any]:
             raise HandlerError("Main window not available", hint="Make sure Anki is fully loaded")
 
         try:
-            mw.requireReset()  # Mark that we're about to modify collection
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
         finally:
-            # Reset UI state after write, even if exception occurred
-            if mw is not None and mw.col is not None:
-                mw.maybeReset()
+            # A handler that raised may still have written (change_note_type
+            # verifies after the backend call), so refresh either way. Guard
+            # against the closed-for-full-sync case (mw.col non-None with
+            # db=None -- see handler_wrappers.py's _check_col_available), and
+            # never let a refresh failure mask the handler's own exception.
+            if mw.col is not None and getattr(mw.col, "db", None) is not None:
+                try:
+                    mw.reset()
+                except Exception:
+                    logger.exception("mw.reset() after write failed")
+
+        return result
 
     return wrapper
 
