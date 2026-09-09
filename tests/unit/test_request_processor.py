@@ -327,6 +327,105 @@ class TestRestart:
         assert results[1].result == "result:after_restart"
 
 
+class TestReentrancy:
+    """A handler that triggers a nested drain call must not run a second
+    handler inside the first -- see the _draining guard in _process_pending.
+    """
+
+    def test_nested_drain_call_does_not_run_handler_inline(self, monkeypatch):
+        """Simulates mw.taskman.run_in_background's synchronous flush: while
+        "outer" is executing, a second ("inner") request is sent (put
+        precedes wake, per queue_bridge.py), and something calls
+        processor._process_pending() again -- exactly what a nested
+        run_on_main flush would do. The guard must make that nested call a
+        no-op -- "inner" only runs afterwards, when the OUTER loop's
+        `while True` re-checks the queue, and both requests still get real
+        responses delivered through the bridge (not dropped by the guard).
+        """
+        bridge = QueueBridge()
+        processor = RequestProcessor(bridge, schedule_on_main=DeferredScheduler())
+
+        order: list[str] = []
+
+        def _execute(tool_name, arguments):
+            if tool_name == "outer":
+                order.append("outer-start")
+                # Wait for "inner" to actually be enqueued (send_request()
+                # puts before it wakes), then simulate the nested flush.
+                for _ in range(1000):
+                    if not bridge.request_queue.empty():
+                        break
+                    time.sleep(0.005)
+                processor._process_pending()  # simulated nested flush
+                order.append("outer-end")
+            else:
+                order.append(tool_name)
+            return f"result:{tool_name}"
+
+        monkeypatch.setattr("anki_mcp_server.request_processor.execute", _execute)
+        processor.start()
+
+        results: dict[str, ToolResponse] = {}
+        lock = threading.Lock()
+
+        def sender(rid: str, tool: str):
+            resp = bridge.send_request(_make_request(rid, tool))
+            with lock:
+                results[rid] = resp
+
+        outer_thread = threading.Thread(target=sender, args=("outer-req", "outer"))
+        inner_thread = threading.Thread(target=sender, args=("inner-req", "inner"))
+
+        outer_thread.start()
+        for _ in range(1000):
+            if not bridge.request_queue.empty():
+                break
+            time.sleep(0.005)
+        assert not bridge.request_queue.empty()
+
+        inner_thread.start()
+
+        # Drives the drain on THIS thread: get_pending_request() picks up
+        # "outer" first (FIFO), whose handler then busy-waits for "inner"
+        # and performs the nested call itself -- all on this same thread,
+        # matching real usage (the nested flush happens synchronously on the
+        # Qt main thread, not from another thread).
+        processor._process_pending()
+
+        outer_thread.join(timeout=10)
+        inner_thread.join(timeout=10)
+        assert not outer_thread.is_alive()
+        assert not inner_thread.is_alive()
+
+        # "inner" ran strictly after "outer" finished, not nested inside it.
+        assert order == ["outer-start", "outer-end", "inner"]
+        assert processor._draining is False
+
+        # Both responses were actually delivered (not dropped by the guard).
+        assert results["outer-req"].success is True
+        assert results["outer-req"].result == "result:outer"
+        assert results["inner-req"].success is True
+        assert results["inner-req"].result == "result:inner"
+
+    def test_draining_flag_cleared_even_if_execute_tool_raises(self, monkeypatch):
+        """_execute_tool normally swallows all exceptions, but the guard must
+        not rely on that: if it raised anyway, _draining must still clear."""
+        bridge = QueueBridge()
+        processor = RequestProcessor(bridge, schedule_on_main=DeferredScheduler())
+        processor.start()
+
+        def _boom(request):
+            raise RuntimeError("execute_tool blew up")
+
+        monkeypatch.setattr(processor, "_execute_tool", _boom)
+        bridge.request_queue.put(_make_request("r1", "tool"))
+
+        with pytest.raises(RuntimeError, match="execute_tool blew up"):
+            processor._process_pending()
+
+        assert processor._draining is False
+
+
 class TestDefaultLazyScheduler:
     """Default scheduler path: lazily resolved ``mw.taskman.run_on_main``."""
 
