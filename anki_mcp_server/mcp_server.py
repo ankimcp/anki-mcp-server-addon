@@ -27,8 +27,10 @@ from typing import Any, Callable, Optional
 
 import uvicorn
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import Icon
 
+from . import __version__
 from .config import Config
 from .http_auth import ApiKeyAuthMiddleware
 from .transport_security_config import build_transport_security
@@ -36,6 +38,32 @@ from .queue_bridge import BridgeError, QueueBridge, ToolRequest
 from .primitives import register_all_tools, register_all_resources, register_all_prompts
 
 logger = logging.getLogger(__name__)
+
+
+def build_fastmcp(streamable_path: str, transport_security: TransportSecuritySettings) -> FastMCP:
+    """Construct the shared FastMCP instance used by both HTTP and tunnel transports.
+
+    FastMCP exposes no `version` kwarg, so the lowlevel Server defaults to
+    version=None. Without an explicit value, create_initialization_options()
+    falls back to importlib.metadata.version("mcp"), which returns None when
+    a stale/empty mcp-*.dist-info is found first on sys.path -- pydantic then
+    rejects server_version=None and crashes every initialize handshake.
+    Setting the addon's own version short-circuits that fallback.
+    """
+    mcp = FastMCP(
+        "anki-mcp",
+        website_url="https://ankimcp.ai",
+        icons=[Icon(
+            src="https://ankimcp.ai/favicon.svg",
+            mimeType="image/svg+xml",
+            sizes=["any"],
+        )],
+        streamable_http_path=streamable_path,
+        stateless_http=True,
+        transport_security=transport_security,
+    )
+    mcp._mcp_server.version = __version__
+    return mcp
 
 
 class McpServer:
@@ -488,18 +516,7 @@ class McpServer:
         security_settings = build_transport_security(self._config)
         # Use http_path if configured, otherwise default to root "/"
         streamable_path = f"/{self._config.http_path.strip('/')}/" if self._config.http_path else "/"
-        mcp = FastMCP(
-            "anki-mcp",
-            website_url="https://ankimcp.ai",
-            icons=[Icon(
-                src="https://ankimcp.ai/favicon.svg",
-                mimeType="image/svg+xml",
-                sizes=["any"],
-            )],
-            streamable_http_path=streamable_path,
-            stateless_http=True,
-            transport_security=security_settings,
-        )
+        mcp = build_fastmcp(streamable_path, security_settings)
 
         # Store the FastMCP instance so the tunnel can access the lowlevel
         # Server via mcp._mcp_server for in-memory transport.
