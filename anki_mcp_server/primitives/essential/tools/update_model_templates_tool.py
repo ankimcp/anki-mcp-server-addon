@@ -1,4 +1,6 @@
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -43,12 +45,12 @@ _SIDE_KEYS = {"Front": "qfmt", "Back": "afmt"}
     write=True,
 )
 def update_model_templates(
-    model_name: str,
-    templates: dict[str, dict[str, str]] | None = None,
-    template_name: str | None = None,
-    side: str | None = None,
-    old_str: str | None = None,
-    new_str: str | None = None,
+    model_name: Annotated[str, Field(description="Note type to update")],
+    templates: Annotated[dict[str, dict[str, str]] | None, Field(description="New Front/Back HTML by card template name (full-content mode; mutually exclusive with template_name/side/old_str/new_str)")] = None,
+    template_name: Annotated[str | None, Field(description="Card template to patch (patch mode)")] = None,
+    side: Annotated[str | None, Field(description="Which side to patch, 'Front' or 'Back' (patch mode)")] = None,
+    old_str: Annotated[str | None, Field(description="Exact existing HTML text to replace (patch mode; must match exactly once)")] = None,
+    new_str: Annotated[str | None, Field(description="Replacement HTML text (patch mode; paired with old_str)")] = None,
 ) -> dict[str, Any]:
     col = get_col()
 

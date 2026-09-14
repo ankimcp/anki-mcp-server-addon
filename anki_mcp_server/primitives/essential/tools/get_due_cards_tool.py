@@ -1,5 +1,7 @@
-from typing import Any
+from typing import Annotated, Any
 import logging
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -25,10 +27,10 @@ def _has_audio(fields: list[str]) -> bool:
     write=True,
 )
 def get_due_cards(
-    deck_name: str,
-    skip_images: bool = False,
-    skip_audio: bool = False,
-    include_answer: bool = False
+    deck_name: Annotated[str, Field(description="Deck to pull the next due card from")],
+    skip_images: Annotated[bool, Field(description="Bury and skip cards containing images")] = False,
+    skip_audio: Annotated[bool, Field(description="Bury and skip cards containing audio")] = False,
+    include_answer: Annotated[bool, Field(description="Also return the rendered answer ('back'), not just the question")] = False
 ) -> dict[str, Any]:
     from anki.consts import QUEUE_TYPE_NEW, QUEUE_TYPE_LRN, QUEUE_TYPE_REV
 

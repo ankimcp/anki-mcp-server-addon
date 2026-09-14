@@ -1,5 +1,7 @@
 """Get FSRS params tool - read FSRS parameters for all presets or a specific deck."""
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -18,7 +20,9 @@ from ._fsrs_helpers import (
     "If deck_name is empty, returns parameters for all presets with their associated decks. "
     "If deck_name is provided, returns parameters for the preset used by that deck.",
 )
-def get_fsrs_params(deck_name: str = "") -> dict[str, Any]:
+def get_fsrs_params(
+    deck_name: Annotated[str, Field(description="Deck to look up the preset for; empty returns all presets")] = "",
+) -> dict[str, Any]:
     col = get_col()
 
     fsrs_enabled = col.get_config("fsrs", False)

@@ -113,7 +113,7 @@ TagManagementParams = Annotated[
         AddTagsParams, RemoveTagsParams, ReplaceTagsParams,
         GetTagsParams, ClearUnusedTagsParams, BatchTagsParams,
     ],
-    Field(discriminator="action")
+    Field(discriminator="action", description="The tag operation to perform and its arguments")
 ]
 
 

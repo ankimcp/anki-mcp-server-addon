@@ -1,4 +1,6 @@
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -10,7 +12,7 @@ from ....handler_wrappers import HandlerError, get_col
     "Use this to know what fields are required when creating notes of this type. "
     "Returns both field_names (list of strings) and fields (list of objects with name and description).",
 )
-def model_field_names(model_name: str) -> dict[str, Any]:
+def model_field_names(model_name: Annotated[str, Field(description="Note type to inspect")]) -> dict[str, Any]:
     col = get_col()
 
     model = col.models.by_name(model_name)

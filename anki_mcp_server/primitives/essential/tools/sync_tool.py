@@ -10,7 +10,9 @@ The handler only STARTS, READS or RESOLVES work and returns immediately -- it
 never waits for the transfer, keeping it well under the queue-bridge 30s
 timeout. All ``aqt``/``anki`` logic lives in ``_sync_runner.py``.
 """
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 
@@ -86,8 +88,8 @@ _DESCRIPTION = (
     require_col=False,    # must bypass the collection gate (polling must work while col is closed)
 )
 def sync(
-    job_id: Optional[str] = None,
-    resolve: Optional[Literal["upload", "download", "cancel"]] = None,
+    job_id: Annotated[Optional[str], Field(description="Job to poll or resolve; omit to start a new sync")] = None,
+    resolve: Annotated[Optional[Literal["upload", "download", "cancel"]], Field(description="Direction to resolve a full-sync conflict; requires job_id")] = None,
 ) -> dict[str, Any]:
     # Import inside the handler (runs on the main thread) to keep aqt out of
     # module import time and avoid import cycles during auto-discovery.

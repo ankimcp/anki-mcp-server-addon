@@ -1,6 +1,8 @@
 """Notes info tool - get detailed information about specific notes."""
-from typing import Any
+from typing import Annotated, Any
 import logging
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -44,10 +46,18 @@ def _apply_excerpt(fields_dict: dict[str, dict[str, Any]], excerpt_chars: int) -
     "excerpt_chars first, otherwise you will write back a cut-off value.",
 )
 def notes_info(
-    notes: list[int],
-    include_fields: list[str] | None = None,
-    exclude_fields: list[str] | None = None,
-    excerpt_chars: int | None = None,
+    notes: Annotated[list[int], Field(description="Note IDs to fetch")],
+    include_fields: Annotated[
+        list[str] | None,
+        Field(description="Return only these fields (takes priority over exclude_fields)"),
+    ] = None,
+    exclude_fields: Annotated[
+        list[str] | None, Field(description="Omit these fields from the response")
+    ] = None,
+    excerpt_chars: Annotated[
+        int | None,
+        Field(description="Truncate each field value to this many characters"),
+    ] = None,
 ) -> dict[str, Any]:
     from anki.errors import NotFoundError
 

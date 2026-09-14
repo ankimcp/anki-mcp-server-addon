@@ -129,7 +129,7 @@ class ForgetCardsParams(BaseModel):
 
 CardManagementParams = Annotated[
     Union[RepositionParams, ChangeDeckParams, BuryParams, UnburyParams, SuspendParams, UnsuspendParams, SetFlagParams, SetDueDateParams, ForgetCardsParams],
-    Field(discriminator="action")
+    Field(discriminator="action", description="The card operation to perform and its arguments")
 ]
 
 

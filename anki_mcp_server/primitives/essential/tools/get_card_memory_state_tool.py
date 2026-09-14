@@ -1,6 +1,8 @@
 """Get card memory state tool - read FSRS memory state for individual cards."""
-from typing import Any
+from typing import Annotated, Any
 import logging
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -32,7 +34,10 @@ _TYPE_NAMES = {
     "Requires FSRS to be enabled. Returns per-card memory state along with scheduling info. "
     "Use recompute=True to recalculate from the review log (slower but ensures accuracy).",
 )
-def get_card_memory_state(card_ids: list[int], recompute: bool = False) -> dict[str, Any]:
+def get_card_memory_state(
+    card_ids: Annotated[list[int], Field(description="Card IDs to look up")],
+    recompute: Annotated[bool, Field(description="Recalculate from the review log instead of using the cached state")] = False,
+) -> dict[str, Any]:
     col = get_col()
 
     if not card_ids:

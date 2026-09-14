@@ -1,7 +1,9 @@
 """Optimize FSRS params tool - run FSRS parameter optimization via Anki backend."""
-from typing import Any
+from typing import Annotated, Any
 from datetime import datetime, timezone
 import math
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -58,7 +60,10 @@ def _fsrs_params_equal(params1: list[float], params2: list[float]) -> bool:
     "Returns current_params vs optimized_params comparison, already_optimal flag, and applied flag.",
     write=True,
 )
-def optimize_fsrs_params(preset_name: str, apply_results: bool = False) -> dict[str, Any]:
+def optimize_fsrs_params(
+    preset_name: Annotated[str, Field(description="Deck config preset to optimize")],
+    apply_results: Annotated[bool, Field(description="Save the optimized params instead of a dry run")] = False,
+) -> dict[str, Any]:
     col = get_col()
 
     config = find_preset_by_name(col, preset_name)

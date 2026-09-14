@@ -1,5 +1,7 @@
-from typing import Any
+from typing import Annotated, Any
 import logging
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -34,11 +36,11 @@ logger = logging.getLogger(__name__)
     write=True,
 )
 def update_note_fields(
-    id: int,
-    fields: dict[str, str] | None = None,
-    field_name: str | None = None,
-    old_str: str | None = None,
-    new_str: str | None = None,
+    id: Annotated[int, Field(description="Note ID to update")],
+    fields: Annotated[dict[str, str] | None, Field(description="New full value by field name (full-content mode; mutually exclusive with field_name/old_str/new_str)")] = None,
+    field_name: Annotated[str | None, Field(description="Field to patch (patch mode)")] = None,
+    old_str: Annotated[str | None, Field(description="Exact existing field text to replace (patch mode; must match exactly once)")] = None,
+    new_str: Annotated[str | None, Field(description="Replacement field text (patch mode; paired with old_str)")] = None,
 ) -> dict[str, Any]:
     from anki.errors import NotFoundError
 

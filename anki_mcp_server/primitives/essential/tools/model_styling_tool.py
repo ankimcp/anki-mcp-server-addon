@@ -1,4 +1,6 @@
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -13,7 +15,10 @@ from ._model_helpers import LATEX_POST_KEY, LATEX_PRE_KEY, LATEX_SVG_KEY
     "[latex] and [$]...[/$] blocks when rendering them. Only ask for it when "
     "diagnosing or fixing LaTeX/TikZ rendering; it is omitted by default.",
 )
-def model_styling(model_name: str, include_latex: bool = False) -> dict[str, Any]:
+def model_styling(
+    model_name: Annotated[str, Field(description="Note type to inspect")],
+    include_latex: Annotated[bool, Field(description="Also return latex_pre/latex_post/latex_svg")] = False,
+) -> dict[str, Any]:
     col = get_col()
 
     model = col.models.by_name(model_name)

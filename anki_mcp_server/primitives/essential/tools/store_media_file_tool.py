@@ -1,8 +1,10 @@
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 import base64
 import urllib.request
 import urllib.error
 from pathlib import Path
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -115,10 +117,10 @@ def _get_file_bytes(
     write=True,
 )
 def store_media_file(
-    filename: str,
-    data: Optional[str] = None,
-    path: Optional[str] = None,
-    url: Optional[str] = None,
+    filename: Annotated[str, Field(description="Filename to store the media under")],
+    data: Annotated[Optional[str], Field(description="Base64-encoded file content; mutually exclusive with path/url")] = None,
+    path: Annotated[Optional[str], Field(description="Local file path to read from; mutually exclusive with data/url")] = None,
+    url: Annotated[Optional[str], Field(description="URL to download the file from; mutually exclusive with data/path")] = None,
 ) -> dict[str, Any]:
     col = get_col()
 

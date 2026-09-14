@@ -1,5 +1,7 @@
 """Create deck tool - create a new Anki deck."""
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -16,7 +18,11 @@ from ....handler_wrappers import HandlerError, get_col
     'Returns deckId and created flag (false if deck already existed).',
     write=True,
 )
-def create_deck(deck_name: str) -> dict[str, Any]:
+def create_deck(
+    deck_name: Annotated[
+        str, Field(description='Deck name, optionally "Parent::Child" (max 2 levels)')
+    ],
+) -> dict[str, Any]:
     col = get_col()
 
     parts = deck_name.split("::")

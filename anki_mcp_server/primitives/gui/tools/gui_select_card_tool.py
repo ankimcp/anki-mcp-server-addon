@@ -1,5 +1,7 @@
-from typing import Any
+from typing import Annotated, Any
 import logging
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError
@@ -17,7 +19,9 @@ logger = logging.getLogger(__name__)
     "The Card Browser must already be open (use gui_browse first).",
     write=False,
 )
-def gui_select_card(card_id: int) -> dict[str, Any]:
+def gui_select_card(
+    card_id: Annotated[int, Field(description="Card to select in the open browser")],
+) -> dict[str, Any]:
     from aqt import mw, dialogs
 
     if mw is None or mw.col is None:

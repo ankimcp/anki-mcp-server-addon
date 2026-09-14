@@ -1,6 +1,8 @@
 """List decks tool - list all Anki decks with optional statistics."""
-from typing import Any
+from typing import Annotated, Any
 import logging
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import get_col
@@ -13,7 +15,9 @@ logger = logging.getLogger(__name__)
     "List all available Anki decks, optionally with statistics. Remember to sync first at the start of a review session for latest data. "
     "Returns deck objects with deck_id, name, and is_filtered. With include_stats=true, adds per-deck card counts (new, learn, review, total).",
 )
-def list_decks(include_stats: bool = False) -> dict[str, Any]:
+def list_decks(
+    include_stats: Annotated[bool, Field(description="Add per-deck card counts (new, learn, review, total)")] = False,
+) -> dict[str, Any]:
     col = get_col()
 
     deck_name_id_pairs = col.decks.all_names_and_ids()

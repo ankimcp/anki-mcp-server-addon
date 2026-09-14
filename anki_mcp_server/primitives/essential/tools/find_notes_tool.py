@@ -1,6 +1,8 @@
 """Find notes tool - search for notes using Anki query syntax."""
-from typing import Any
+from typing import Annotated, Any
 import logging
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -73,10 +75,16 @@ def _build_first_field_labels(col: Any, note_ids: list[int]) -> list[dict[str, A
     "Pass 'noteIds' (not 'noteLabels') to any tool that wants note IDs.",
 )
 def find_notes(
-    query: str,
-    limit: int = 100,
-    offset: int = 0,
-    include_first_field: bool = False,
+    query: Annotated[
+        str, Field(description='Anki search query, e.g. "deck:Spanish" or "is:due"')
+    ],
+    limit: Annotated[
+        int, Field(description="Maximum note IDs to return (max 500)")
+    ] = 100,
+    offset: Annotated[int, Field(description="Results to skip, for pagination")] = 0,
+    include_first_field: Annotated[
+        bool, Field(description="Also return each note's excerpted first field")
+    ] = False,
 ) -> dict[str, Any]:
     """Search for notes using Anki query syntax.
 

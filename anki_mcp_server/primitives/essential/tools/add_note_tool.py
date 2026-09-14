@@ -1,6 +1,8 @@
 """Add note tool - add a new note to Anki."""
-from typing import Any
+from typing import Annotated, Any
 import logging
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -16,11 +18,18 @@ logger = logging.getLogger(__name__)
     write=True,
 )
 def add_note(
-    deck_name: str,
-    model_name: str,
-    fields: dict[str, str],
-    tags: list[str] | None = None,
-    allow_duplicate: bool = False,
+    deck_name: Annotated[str, Field(description="Deck to add the note to")],
+    model_name: Annotated[str, Field(description="Note type to use")],
+    fields: Annotated[
+        dict[str, str],
+        Field(description='Field values by name, e.g. {"Front": "question", "Back": "answer"}'),
+    ],
+    tags: Annotated[
+        list[str] | None, Field(description="Tags to apply to the note (JSON array)")
+    ] = None,
+    allow_duplicate: Annotated[
+        bool, Field(description="Skip the duplicate check against the sort field")
+    ] = False,
 ) -> dict[str, Any]:
     from anki.notes import Note
 

@@ -1,5 +1,7 @@
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 import re
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -16,11 +18,11 @@ from ....schema_state import FULL_SYNC_FLAG_DOC, attach_full_sync_flag
     write=True,
 )
 def create_model(
-    model_name: str,
-    in_order_fields: list[str],
-    card_templates: list[dict[str, str]],
-    css: Optional[str] = None,
-    is_cloze: bool = False,
+    model_name: Annotated[str, Field(description="Name for the new note type; must not already exist")],
+    in_order_fields: Annotated[list[str], Field(description="Field names in order")],
+    card_templates: Annotated[list[dict[str, str]], Field(description="Card templates, each a dict with 'Name', 'Front', and 'Back' keys")],
+    css: Annotated[Optional[str], Field(description="Stylesheet applied to cards of this model")] = None,
+    is_cloze: Annotated[bool, Field(description="Whether this is a cloze-deletion note type")] = False,
 ) -> dict[str, Any]:
     col = get_col()
 

@@ -1,5 +1,7 @@
-from typing import Any
+from typing import Annotated, Any
 import os
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -13,7 +15,9 @@ from ....media_validators import sanitize_media_filename
     "the deletion to other devices. Confirm with the user before deleting.",
     write=True,
 )
-def delete_media_file(filename: str) -> dict[str, Any]:
+def delete_media_file(
+    filename: Annotated[str, Field(description="Media filename to move to trash")],
+) -> dict[str, Any]:
     col = get_col()
 
     if not filename or not filename.strip():
