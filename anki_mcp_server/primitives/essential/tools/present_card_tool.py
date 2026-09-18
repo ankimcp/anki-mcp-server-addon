@@ -1,4 +1,6 @@
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -11,7 +13,10 @@ from ._render_helpers import render_question_with_style, render_answer
     "Returns a card object with card_id, question (rendered HTML, always returned), answer (rendered HTML, only when show_answer=true), deck_name, filtered_deck_name, note_type, and scheduling fields (interval, ease_factor, due, reviews, lapses). "
     "deck_name is the card's home deck; filtered_deck_name is always present and is null unless the card is currently being studied from a filtered deck.",
 )
-def present_card(card_id: int, show_answer: bool = False) -> dict[str, Any]:
+def present_card(
+    card_id: Annotated[int, Field(description="Card to present")],
+    show_answer: Annotated[bool, Field(description="Include the rendered answer")] = False,
+) -> dict[str, Any]:
     col = get_col()
 
     try:

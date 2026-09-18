@@ -1,6 +1,6 @@
 """Update notes tool - batch-update fields of multiple notes."""
 
-from typing import Any
+from typing import Annotated, Any
 import logging
 
 from pydantic import BaseModel, Field
@@ -35,7 +35,14 @@ class NoteUpdateEntry(BaseModel):
     "retry hints for recoverable failures.",
     write=True,
 )
-def update_notes(notes: list[NoteUpdateEntry], dry_run: bool = False) -> dict[str, Any]:
+def update_notes(
+    notes: Annotated[
+        list[NoteUpdateEntry], Field(description="Notes to update; each {id, fields}")
+    ],
+    dry_run: Annotated[
+        bool, Field(description="Validate and preview without writing any changes")
+    ] = False,
+) -> dict[str, Any]:
     from anki.errors import NotFoundError
 
     col = get_col()

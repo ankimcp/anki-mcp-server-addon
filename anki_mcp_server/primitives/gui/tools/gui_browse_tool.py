@@ -1,4 +1,6 @@
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import get_col
@@ -12,7 +14,9 @@ from ....handler_wrappers import get_col
     "NOT for review sessions. Use this to find and select cards/notes that need editing.",
     write=False,
 )
-def gui_browse(query: str) -> dict[str, Any]:
+def gui_browse(
+    query: Annotated[str, Field(description="Anki search query to run in the browser")],
+) -> dict[str, Any]:
     from aqt import mw, dialogs
 
     col = get_col()

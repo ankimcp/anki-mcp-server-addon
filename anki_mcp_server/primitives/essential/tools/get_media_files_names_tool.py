@@ -1,6 +1,8 @@
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 import os
 import fnmatch
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -11,7 +13,9 @@ from ....handler_wrappers import HandlerError, get_col
     "List all media files in Anki's media folder with optional pattern filtering. "
     "Use patterns like '*.mp3' for audio files, '*.jpg' for images, etc.",
 )
-def get_media_files_names(pattern: Optional[str] = None) -> dict[str, Any]:
+def get_media_files_names(
+    pattern: Annotated[Optional[str], Field(description="Glob pattern to filter filenames, e.g. '*.mp3'")] = None,
+) -> dict[str, Any]:
     col = get_col()
     media_dir = col.media.dir()
 

@@ -1,5 +1,7 @@
 """Set FSRS params tool - update FSRS parameters on a deck config preset."""
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -24,10 +26,10 @@ _EXPECTED_PARAM_COUNTS = {
     write=True,
 )
 def set_fsrs_params(
-    preset_name: str,
-    fsrs_params: list[float] | None = None,
-    desired_retention: float = -1.0,
-    max_interval: int = -1,
+    preset_name: Annotated[str, Field(description="Deck config preset to update")],
+    fsrs_params: Annotated[list[float] | None, Field(description="FSRS weights array, must match the count expected by the enabled FSRS version")] = None,
+    desired_retention: Annotated[float, Field(description="Desired retention, 0.70-0.99; omit by leaving at -1.0")] = -1.0,
+    max_interval: Annotated[int, Field(description="Max interval in days; omit by leaving at -1")] = -1,
 ) -> dict[str, Any]:
     col = get_col()
 

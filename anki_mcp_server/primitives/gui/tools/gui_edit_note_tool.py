@@ -1,5 +1,7 @@
-from typing import Any
+from typing import Annotated, Any
 import logging
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -18,7 +20,9 @@ logger = logging.getLogger(__name__)
     "the Anki interface. For programmatic editing, use update_note_fields instead.",
     write=False,
 )
-def gui_edit_note(note_id: int) -> dict[str, Any]:
+def gui_edit_note(
+    note_id: Annotated[int, Field(description="Note to open in the editor")],
+) -> dict[str, Any]:
     from aqt import mw, dialogs
 
     col = get_col()

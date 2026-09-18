@@ -69,8 +69,10 @@ the selected notes turns a real run into an error demanding an explicit
 ``field_mapping`` -- so the divergence can never lose content, it can only ask.
 """
 
-from typing import Any
+from typing import Annotated, Any
 import logging
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -141,11 +143,11 @@ _DROP = -1
     destructive=True,
 )
 def change_note_type(
-    note_ids: list[int],
-    new_model_name: str,
-    field_mapping: dict[str, str | None] | None = None,
-    dry_run: bool = False,
-    confirm: bool = False,
+    note_ids: Annotated[list[int], Field(description="Notes to move, all sharing the same current note type, no duplicates")],
+    new_model_name: Annotated[str, Field(description="Target note type")],
+    field_mapping: Annotated[dict[str, str | None] | None, Field(description="{old field name: new field name or null-to-drop}; omit for exact name match")] = None,
+    dry_run: Annotated[bool, Field(description="Compute and return the plan without writing anything")] = False,
+    confirm: Annotated[bool, Field(description="Required alongside dry_run=false to actually apply the change")] = False,
 ) -> dict[str, Any]:
     col = get_col()
 

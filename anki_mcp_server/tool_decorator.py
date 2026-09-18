@@ -4,6 +4,7 @@ import inspect
 import logging
 
 from pydantic import Field
+from pydantic.fields import FieldInfo
 
 from .handler_registry import register_handler
 from .handler_wrappers import (
@@ -210,6 +211,12 @@ def _filter_union_type(
     args = get_args(original_annotation)  # (Union[A, B, C], FieldInfo(...))
     union_type = args[0]
     union_members = get_args(union_type)
+    original_field_info = next(
+        (m for m in args[1:] if isinstance(m, FieldInfo)), None
+    )
+    original_description = (
+        original_field_info.description if original_field_info else None
+    )
 
     enabled = [
         m for m in union_members
@@ -227,10 +234,16 @@ def _filter_union_type(
         # Single member: Union[tuple([X])] collapses to X in Python's type
         # system, so Annotated[X, Field(discriminator="action")] would apply a
         # discriminator to a non-union type and break Pydantic schema generation.
-        return Annotated[enabled[0], Field()], enabled
+        return Annotated[enabled[0], Field(description=original_description)], enabled
 
     new_union = Union[tuple(enabled)]
-    return Annotated[new_union, Field(discriminator="action")], enabled
+    return (
+        Annotated[
+            new_union,
+            Field(discriminator="action", description=original_description),
+        ],
+        enabled,
+    )
 
 
 def _build_dynamic_description(
@@ -268,6 +281,9 @@ def _is_annotated_union(annotation: Any) -> bool:
     """Check if an annotation is Annotated[Union[...], Field(discriminator=...)].
 
     Used to detect multi-action tool parameters that support per-action filtering.
+    Requires an actual discriminated union (a FieldInfo with a non-None
+    discriminator) -- a plain Annotated[str | None, Field(description=...)]
+    optional param has a Union inner type too, but is not a multi-action param.
     """
     if get_origin(annotation) is not Annotated:
         return False
@@ -275,7 +291,12 @@ def _is_annotated_union(annotation: Any) -> bool:
     if not args:
         return False
     inner = args[0]
-    return get_origin(inner) is Union
+    if get_origin(inner) is not Union:
+        return False
+    return any(
+        isinstance(metadata, FieldInfo) and metadata.discriminator is not None
+        for metadata in args[1:]
+    )
 
 
 def _get_base_description(original: Any) -> str | None:

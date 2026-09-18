@@ -1,4 +1,6 @@
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -9,7 +11,7 @@ from ....handler_wrappers import HandlerError, get_col
     "Get the card template HTML (Front and Back) for each card type in a note type (model). "
     "Returns the raw HTML templates used to render cards during review and editing.",
 )
-def model_templates(model_name: str) -> dict[str, Any]:
+def model_templates(model_name: Annotated[str, Field(description="Note type to inspect")]) -> dict[str, Any]:
     col = get_col()
 
     model = col.models.by_name(model_name)

@@ -1,5 +1,7 @@
-from typing import Any
+from typing import Annotated, Any
 import logging
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -18,9 +20,13 @@ logger = logging.getLogger(__name__)
     write=True,
 )
 def delete_notes(
-    notes: list[int],
-    confirmDeletion: bool,
-    dry_run: bool = False,
+    notes: Annotated[list[int], Field(description="Note IDs to delete")],
+    confirmDeletion: Annotated[
+        bool, Field(description="Required safeguard; must be true to actually delete")
+    ],
+    dry_run: Annotated[
+        bool, Field(description="Preview the deletion without removing anything")
+    ] = False,
 ) -> dict[str, Any]:
     from anki.errors import NotFoundError
 

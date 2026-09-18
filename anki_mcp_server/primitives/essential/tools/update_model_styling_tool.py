@@ -1,4 +1,6 @@
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import get_col
@@ -45,13 +47,13 @@ from ._patch_helpers import (
     write=True,
 )
 def update_model_styling(
-    model_name: str,
-    css: str | None = None,
-    old_str: str | None = None,
-    new_str: str | None = None,
-    latex_pre: str | None = None,
-    latex_post: str | None = None,
-    latex_svg: bool | None = None,
+    model_name: Annotated[str, Field(description="Note type to update")],
+    css: Annotated[str | None, Field(description="New full CSS content (full-content mode; mutually exclusive with old_str/new_str)")] = None,
+    old_str: Annotated[str | None, Field(description="Exact existing CSS text to replace (patch mode; must match exactly once)")] = None,
+    new_str: Annotated[str | None, Field(description="Replacement CSS text (patch mode; paired with old_str)")] = None,
+    latex_pre: Annotated[str | None, Field(description="New LaTeX preamble header (independent of CSS mode)")] = None,
+    latex_post: Annotated[str | None, Field(description="New LaTeX preamble footer (independent of CSS mode)")] = None,
+    latex_svg: Annotated[bool | None, Field(description="Whether to render LaTeX as SVG (independent of CSS mode)")] = None,
 ) -> dict[str, Any]:
     col = get_col()
 

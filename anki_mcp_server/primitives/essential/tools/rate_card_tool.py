@@ -1,5 +1,7 @@
-from typing import Any
+from typing import Annotated, Any
 from datetime import datetime
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -14,7 +16,10 @@ from ....handler_wrappers import HandlerError, get_col
     "Returns next_review date, new_interval (days for review cards), and card_type.",
     write=True,
 )
-def rate_card(card_id: int, rating: int) -> dict[str, Any]:
+def rate_card(
+    card_id: Annotated[int, Field(description="Card to rate")],
+    rating: Annotated[int, Field(description="Rating 1-4 (1=Again, 2=Hard, 3=Good, 4=Easy)")],
+) -> dict[str, Any]:
     from anki.consts import CARD_TYPE_REV
 
     col = get_col()

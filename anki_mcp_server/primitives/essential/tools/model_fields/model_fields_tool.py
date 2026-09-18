@@ -87,7 +87,7 @@ class RepositionParams(BaseModel):
 
 ModelFieldsParams = Annotated[
     Union[AddParams, RemoveParams, RenameParams, RepositionParams],
-    Field(discriminator="action"),
+    Field(discriminator="action", description="The model field operation to perform and its arguments"),
 ]
 
 

@@ -97,7 +97,7 @@ class GetInfoParams(BaseModel):
 
 FilteredDeckParams = Annotated[
     Union[CreateOrUpdateParams, RebuildParams, EmptyParams, DeleteParams, GetInfoParams],
-    Field(discriminator="action"),
+    Field(discriminator="action", description="The filtered deck operation to perform and its arguments"),
 ]
 
 

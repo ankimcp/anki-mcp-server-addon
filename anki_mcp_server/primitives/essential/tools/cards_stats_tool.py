@@ -14,7 +14,9 @@ climbs to ~400-500 bytes/card. At limit=1000 that is <= ~500 KB per copy -- comf
 safe even for tag-heavy notes. limit=2000 would risk breaching the cap for pathological
 tag-heavy decks, so _MAX_LIMIT is capped at 1000 (see below).
 """
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -79,7 +81,11 @@ def _is_due_today(queue: int, due: int, sched_today: int, day_cutoff: int) -> bo
     "Prefer this over find_notes + notes_info + get_card_memory_state when you only need "
     "scheduling metrics: it is one compact read and does not require FSRS.",
 )
-def cards_stats(deck: str, limit: int = 1000, offset: int = 0) -> dict[str, Any]:
+def cards_stats(
+    deck: Annotated[str, Field(description="Deck name, including subdecks")],
+    limit: Annotated[int, Field(description="Max cards to return, default 1000, max 1000")] = 1000,
+    offset: Annotated[int, Field(description="Cards to skip for pagination")] = 0,
+) -> dict[str, Any]:
     """Return compact per-card scheduling stats for a deck (subdecks included).
 
     Args:

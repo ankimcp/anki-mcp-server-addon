@@ -1,6 +1,6 @@
 """Add notes tool - batch-add multiple notes to Anki."""
 
-from typing import Any
+from typing import Annotated, Any
 import logging
 
 from pydantic import BaseModel, Field
@@ -31,15 +31,25 @@ class NoteEntry(BaseModel):
     "Uses Anki's native batch API for atomic undo support. Supports partial success - "
     "individual failures don't affect others. "
     "IMPORTANT: Only create notes that were explicitly requested by the user. "
-    "Returns summary counts (created, skipped, failed) and a per-note results array with status and note_id.",
+    "Returns summary counts (created, skipped, failed) and a per-note results array with status and note_id. "
+    'Each note is {"fields": {...}, "tags": [...]}; tags is a JSON array.',
     write=True,
 )
 def add_notes(
-    deck_name: str,
-    model_name: str,
-    notes: list[NoteEntry],
-    tags: list[str] | None = None,
-    allow_duplicate: bool = False,
+    deck_name: Annotated[str, Field(description="Deck to add all notes to")],
+    model_name: Annotated[
+        str, Field(description="Note type shared by all notes in this batch")
+    ],
+    notes: Annotated[
+        list[NoteEntry],
+        Field(description='Notes to add; each {"fields": {...}, "tags": [...]}'),
+    ],
+    tags: Annotated[
+        list[str] | None, Field(description="Tags for every note (JSON array)")
+    ] = None,
+    allow_duplicate: Annotated[
+        bool, Field(description="Skip the duplicate check against the sort field")
+    ] = False,
 ) -> dict[str, Any]:
     from anki.notes import Note
     from anki.collection import AddNoteRequest
