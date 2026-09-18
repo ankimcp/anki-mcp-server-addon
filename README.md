@@ -449,6 +449,8 @@ Optional hardening via config:
 
 ## Available Tools
 
+Every tool parameter carries a short `description` in the MCP input schema (since 0.29.0), so clients that show or feed the schema to the model get argument shapes without trial and error. Nested action parameters of multi-action tools are described on their Pydantic models and appear under `$defs`.
+
 **Upgrading from ≤ 0.27.x:** `get_due_cards` no longer returns `back` unless you pass `include_answer=true`, and `front` is now the rendered question HTML rather than the raw field. Clients that read `back` from this tool need the flag.
 
 ### Essential Tools
