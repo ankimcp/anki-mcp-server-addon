@@ -30,11 +30,14 @@ on source/Nix installs that don't provide it — same rationale as the other
 download-only native deps.
 """
 
+import http.client
 import os
+import ssl
 import sys
 import json
 import logging
 import time
+import urllib.error
 import urllib.request
 import zipfile
 import shutil
@@ -62,6 +65,46 @@ _WINERROR_ACCESS_DENIED = 5
 # Capped well under ~1s total across ~4 attempts.
 _LOCK_RETRY_DELAYS = (0.05, 0.10, 0.20, 0.40)
 
+# Network requests (PyPI metadata + wheel fetch) each get their own bounded
+# retry: a short blip shouldn't force the user through the whole download UX
+# again, but a genuinely dead connection must not hang Anki's startup forever
+# (issue #73). Retries ONLY network-class failures -- timeouts, connection
+# reset/aborted, HTTP 5xx, ssl.SSLError, and http.client.IncompleteRead --
+# never a user cancel, an HTTP 4xx, the overall download budget being
+# exceeded, or a non-network exception (e.g. a version mismatch or
+# wheel-selection failure). See `_is_retryable_network_error`.
+_NETWORK_TIMEOUT_SECONDS = 30
+_DOWNLOAD_MAX_ATTEMPTS = 3
+_DOWNLOAD_RETRY_BACKOFF_SECONDS = (1.0, 2.0)
+
+# Chunk size for the wheel-fetch chunked copy. Replaces urlretrieve (which has
+# no timeout) with a manual urlopen + chunked read/write, so the same timeout
+# that guards the metadata request also guards the actual wheel bytes.
+_DOWNLOAD_CHUNK_SIZE = 64 * 1024
+
+# The per-socket-operation `_NETWORK_TIMEOUT_SECONDS` timeout bounds a single
+# read/connect call, but a server that trickles one byte every 29s never trips
+# it -- each individual call still "succeeds" in time. This is an overall
+# wall-clock budget for the WHOLE network phase (metadata fetch + all retries
+# + wheel fetch + all retries), so a slow-drip connection can't hang Anki's
+# main thread forever. Exceeding it is TERMINAL (see `_DownloadBudgetExceeded`)
+# -- never retried, unlike a plain `TimeoutError`. The budget is checked after
+# every `read1()` call. For a NON-CHUNKED response, `read1()` performs at most
+# one underlying socket read, itself bounded by `_NETWORK_TIMEOUT_SECONDS` --
+# so worst case there is exactly the budget plus one in-flight `read1()`, not
+# per-64KB-block as a naive reading of the chunk size might suggest. A
+# CHUNKED response is looser: CPython's `_read1_chunked` can do a small,
+# constant number of additional socket reads per `read1()` call (the trailing
+# CRLF, the next chunk-size line, then the data), each independently bounded
+# by the same `_NETWORK_TIMEOUT_SECONDS` -- so the true worst case there is
+# the budget plus a handful of such reads, not exactly one.
+_DOWNLOAD_TOTAL_BUDGET_SECONDS = 180
+
+# Poll interval for the UI-pumping, cancellable backoff wait in
+# `_wait_with_ui_pump`. Small enough that a Cancel click lands promptly once
+# `yield_ui()` delivers it, without spinning the CPU.
+_BACKOFF_POLL_INTERVAL_SECONDS = 0.05
+
 # Pinned fallback version for the rpds download path.
 #
 # Why 0.30.0 specifically:
@@ -75,6 +118,38 @@ _LOCK_RETRY_DELAYS = (0.05, 0.10, 0.20, 0.40)
 # This download only runs if `import rpds` fails (Anki normally provides it), so
 # in practice this version is rarely materialized.
 _RPDS_VERSION = "0.30.0"
+
+
+class _DownloadBudgetExceeded(Exception):
+    """Raised when the overall network-phase wall-clock budget
+    (``_DOWNLOAD_TOTAL_BUDGET_SECONDS``) is exceeded.
+
+    Deliberately NOT a ``TimeoutError`` -- ``TimeoutError`` IS retried by
+    ``_is_retryable_network_error``, and this must never be: exceeding the
+    total budget means retrying can only make the hang longer, not shorter.
+    """
+
+
+def _now() -> float:
+    """Monotonic clock, indirected through a function so tests can monkeypatch
+    it without mutating the process-global ``time`` module."""
+    return time.monotonic()
+
+
+def _sleep(seconds: float) -> None:
+    """Sleep, indirected through a function so tests can monkeypatch it
+    without mutating the process-global ``time`` module."""
+    time.sleep(seconds)
+
+
+def _check_budget(deadline: Optional[float]) -> None:
+    """Raise ``_DownloadBudgetExceeded`` if ``deadline`` (a ``_now()``-scale
+    timestamp) has passed. A ``None`` deadline means "no budget in effect" --
+    used by callers/tests that don't go through the timed download path."""
+    if deadline is not None and _now() > deadline:
+        raise _DownloadBudgetExceeded(
+            f"Download exceeded the overall {_DOWNLOAD_TOTAL_BUDGET_SECONDS}s budget"
+        )
 
 
 def _addon_folder_name() -> str:
@@ -542,7 +617,7 @@ def _import_with_lock_retry(
 
     Returns True if the import eventually succeeded, False otherwise.
     """
-    for attempt, delay in enumerate((0.0, *_LOCK_RETRY_DELAYS)):
+    for attempt in range(len(_LOCK_RETRY_DELAYS) + 1):
         classification = _preflight_native_extension(
             cache_dir, package_subdir, display_name
         )
@@ -557,7 +632,7 @@ def _import_with_lock_retry(
                     attempt + 1,
                     int(backoff * 1000),
                 )
-                time.sleep(backoff)
+                _sleep(backoff)
                 continue
             # Exhausted retries while still locked — give up on the cache.
             logger.warning(
@@ -642,6 +717,289 @@ def _sweep_stale_siblings(cache_dir: Path) -> None:
         pass
 
 
+def _is_retryable_network_error(exc: BaseException) -> bool:
+    """True for a transient network-class failure worth retrying.
+
+    Covers timeouts (``TimeoutError`` -- ``socket.timeout`` has been an alias
+    of it since Python 3.10, which this addon already requires), connection
+    reset/aborted (``ConnectionError``), HTTP 5xx, and two more common
+    mid-body transients: ``ssl.SSLError`` (raised from ``read()``, a plain
+    ``OSError`` subclass -- not a ``ConnectionError``/``URLError``) and
+    ``http.client.IncompleteRead`` (the server closed the connection before
+    delivering the promised bytes). Both are safe to retry because the
+    partial file is already discarded on any failure.
+
+    Everything else is NOT retried: a user cancel, an HTTP 4xx, a version
+    mismatch, a wheel-selection failure, a corrupt zip, the overall download
+    budget being exceeded (``_DownloadBudgetExceeded``), and -- deliberately
+    -- generic ``OSError`` (e.g. a full disk during the write must fail fast,
+    not retry).
+    """
+    if isinstance(exc, _DownloadBudgetExceeded):
+        return False
+    if isinstance(exc, urllib.error.HTTPError):
+        return 500 <= exc.code < 600
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        return True
+    if isinstance(exc, ssl.SSLError):
+        return True
+    if isinstance(exc, http.client.IncompleteRead):
+        return True
+    return False
+
+
+def _wait_with_ui_pump(
+    duration: float,
+    *,
+    yield_ui: Callable[[], None],
+    is_cancelled: Callable[[], bool],
+    deadline: Optional[float],
+) -> None:
+    """Wait ``duration`` seconds in small slices, pumping the UI and checking
+    for cancellation/budget-exhaustion between each slice.
+
+    A single ``time.sleep(duration)`` freezes Qt for the whole wait -- no
+    events are processed, so ``QProgressDialog.wasCanceled()`` can never
+    observe a click made during backoff (it only flips once the click is
+    DELIVERED, i.e. after an event-loop pump). Slicing the wait and calling
+    ``yield_ui()`` every slice makes a cancel during backoff actually
+    observable, and lets it interrupt the wait immediately rather than only
+    being checked once backoff finishes.
+    """
+    end = _now() + duration
+    while _now() < end:
+        yield_ui()
+        if is_cancelled():
+            raise InterruptedError("Download cancelled")
+        _check_budget(deadline)
+        _sleep(_BACKOFF_POLL_INTERVAL_SECONDS)
+
+
+def _retry_network_call(
+    fn: Callable[[], object],
+    *,
+    description: str,
+    on_status: Callable[[str], None],
+    is_cancelled: Callable[[], bool],
+    yield_ui: Callable[[], None],
+    deadline: Optional[float],
+):
+    """Call ``fn()`` with a small bounded retry on network-class failures only.
+
+    Checks ``is_cancelled()`` and the overall download budget (``deadline``)
+    before every attempt (including the first). Backoff between attempts is a
+    UI-pumping, cancellable, budget-aware sliced wait (``_wait_with_ui_pump``)
+    rather than a single blocking ``time.sleep`` -- a plain sleep freezes Qt,
+    so a cancel click made during backoff would never be delivered, let alone
+    observed, until the sleep finished. A cancel, a budget overrun
+    (``_DownloadBudgetExceeded``), or any non-network-class exception
+    propagates unretried.
+    """
+    last_exc: Optional[BaseException] = None
+    for attempt in range(1, _DOWNLOAD_MAX_ATTEMPTS + 1):
+        _check_budget(deadline)
+        if is_cancelled():
+            raise InterruptedError("Download cancelled")
+        try:
+            return fn()
+        except InterruptedError:
+            raise
+        except _DownloadBudgetExceeded:
+            raise
+        except Exception as exc:
+            if not _is_retryable_network_error(exc):
+                raise
+            last_exc = exc
+            if attempt < _DOWNLOAD_MAX_ATTEMPTS:
+                backoff = _DOWNLOAD_RETRY_BACKOFF_SECONDS[
+                    min(attempt - 1, len(_DOWNLOAD_RETRY_BACKOFF_SECONDS) - 1)
+                ]
+                logger.warning(
+                    "%s failed (attempt %d/%d): %r; retrying in %.1fs...",
+                    description, attempt, _DOWNLOAD_MAX_ATTEMPTS, exc, backoff,
+                )
+                on_status(f"{description} failed, retrying...")
+                _wait_with_ui_pump(
+                    backoff, yield_ui=yield_ui, is_cancelled=is_cancelled, deadline=deadline
+                )
+    raise last_exc
+
+
+def _fetch_metadata_json(pypi_url: str, *, deadline: Optional[float]) -> dict:
+    """Fetch and parse the PyPI metadata JSON for ``pypi_url``.
+
+    Reads the response body in chunks via ``read1()`` (rather than a single
+    ``response.read()``) so the overall download budget (``deadline``) can be
+    checked between individual socket reads -- even a small JSON payload can
+    stall indefinitely on a slow/stalled connection otherwise, and the
+    per-socket ``_NETWORK_TIMEOUT_SECONDS`` timeout alone doesn't bound that.
+    For a non-chunked response, ``read1()`` performs at most one underlying
+    socket read and returns early with whatever is available (``read(n)``
+    instead loops on the socket until it has `n` bytes or EOF, which would
+    let a slow-trickle server block a single call for the whole download
+    regardless of how often we check the budget between calls). A chunked
+    response can cost a small constant number of additional socket reads per
+    ``read1()`` call (trailing CRLF, next chunk-size line, data), each still
+    independently bounded by ``_NETWORK_TIMEOUT_SECONDS`` -- see
+    ``_DOWNLOAD_TOTAL_BUDGET_SECONDS`` for the exact worst-case accounting.
+
+    When a ``Content-Length`` header is present and the received byte count
+    doesn't match it (short OR long), raises ``urllib.error.
+    ContentTooShortError`` -- a ``URLError`` subclass, so the existing
+    network-class retry classifier (``_is_retryable_network_error``) retries
+    it automatically instead of surfacing a confusing ``JSONDecodeError`` for
+    a truncated body. No length check runs when the header is absent, nor
+    when the response is chunked (see below). The over-length direction of
+    the mismatch is unreachable against a conforming ``http.client``
+    response -- its ``read1`` never hands back more than the declared
+    length -- but the ``!=`` comparison is kept anyway as a cheap invariant
+    rather than narrowed to ``<``.
+
+    ``http.client`` deliberately ignores ``Content-Length`` when the response
+    uses ``Transfer-Encoding: chunked`` (``response.length`` is set to
+    ``None`` and the framing comes from the chunk sizes instead), but a
+    non-conformant server can still send both headers. Trusting
+    ``Content-Length`` there would reject a perfectly good chunked body, so
+    the check is skipped whenever ``response.chunked`` is true.
+    """
+    with urllib.request.urlopen(pypi_url, timeout=_NETWORK_TIMEOUT_SECONDS) as response:
+        chunked = getattr(response, "chunked", False)
+        try:
+            expected_length = int(response.headers.get("Content-Length", 0) or 0)
+        except (TypeError, ValueError):
+            expected_length = 0
+
+        chunks: list[bytes] = []
+        received = 0
+        while True:
+            _check_budget(deadline)
+            chunk = response.read1(_DOWNLOAD_CHUNK_SIZE)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            received += len(chunk)
+
+        # Mirror the wheel-fetch truncation check below: a server that
+        # advertises a Content-Length and then closes early hands us a body
+        # that decodes to nothing useful -- surface it as the same retryable
+        # ContentTooShortError rather than letting it fail non-network-class
+        # as a confusing JSONDecodeError.
+        if not chunked and expected_length > 0 and received != expected_length:
+            raise urllib.error.ContentTooShortError(
+                f"length mismatch: got {received} bytes, expected {expected_length}",
+                None,
+            )
+
+        return json.loads(b"".join(chunks).decode())
+
+
+def _fetch_wheel_bytes(
+    wheel_url: str,
+    wheel_path: Path,
+    *,
+    on_status: Callable[[str], None],
+    on_progress: Callable[[int], None],
+    is_cancelled: Callable[[], bool],
+    yield_ui: Callable[[], None],
+    deadline: Optional[float],
+) -> None:
+    """Download ``wheel_url`` into ``wheel_path`` via a chunked ``urlopen``
+    read, preserving the percentage semantics ``urlretrieve``'s ``reporthook``
+    gave (10-80%, no-op when Content-Length is absent) and yielding to the UI
+    on every chunk regardless of whether Content-Length is known -- a server
+    that never sends the header must not silently pump zero UI events, or
+    Cancel becomes unresponsive for the whole download. Checked for
+    cancellation and the overall download budget (``deadline``) between
+    reads. Each read is a ``read1()`` call rather than ``read(n)``, which
+    loops on the socket until it has `n` bytes or EOF and would let a single
+    call block for the whole download against a slow-trickle server,
+    defeating the budget check between calls. For a non-chunked response,
+    ``read1()`` performs at most one underlying socket read; a chunked
+    response can cost a small constant number of additional socket reads per
+    call, each still bounded by ``_NETWORK_TIMEOUT_SECONDS`` -- see
+    ``_DOWNLOAD_TOTAL_BUDGET_SECONDS`` for the exact worst-case accounting. A
+    partial file from an interrupted attempt is discarded here -- never
+    reused on retry.
+
+    When a ``Content-Length`` header is present and the downloaded byte count
+    doesn't match it (short OR long), raises ``urllib.error.
+    ContentTooShortError`` -- restoring the truncated-body detection
+    ``urllib.request.urlretrieve`` used to provide before this chunked read
+    replaced it. It is a ``URLError`` subclass, so ``_is_retryable_network_
+    error`` retries it like any other network-class failure, instead of
+    letting the truncated file fail later as a non-network-class ``zipfile.
+    BadZipFile`` that is never retried. No length check runs when the header
+    is absent, nor when the response is chunked (see below). The over-length
+    direction of the mismatch is unreachable against a conforming
+    ``http.client`` response -- its ``read1`` never hands back more than the
+    declared length -- but the ``!=`` comparison is kept anyway as a cheap
+    invariant rather than narrowed to ``<``.
+
+    ``http.client`` deliberately ignores ``Content-Length`` when the response
+    uses ``Transfer-Encoding: chunked`` (``response.length`` is set to
+    ``None`` and the framing comes from the chunk sizes instead), but a
+    non-conformant server can still send both headers. Trusting
+    ``Content-Length`` there would reject a perfectly good chunked body, so
+    the mismatch check below is skipped whenever ``response.chunked`` is
+    true -- the header is still used for the progress percentage, since a
+    wrong percentage is harmless where a wrongly rejected download is not.
+    """
+    with urllib.request.urlopen(wheel_url, timeout=_NETWORK_TIMEOUT_SECONDS) as response:
+        chunked = getattr(response, "chunked", False)
+        try:
+            total_size = int(response.headers.get("Content-Length", 0) or 0)
+        except (TypeError, ValueError):
+            total_size = 0
+
+        downloaded = 0
+        try:
+            with open(wheel_path, "wb") as fh:
+                while True:
+                    if is_cancelled():
+                        raise InterruptedError("Download cancelled")
+                    _check_budget(deadline)
+                    chunk = response.read1(_DOWNLOAD_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0:
+                        percent = min(10 + int(downloaded * 70 / total_size), 80)
+                        mb_done = downloaded / (1024 * 1024)
+                        mb_total = total_size / (1024 * 1024)
+                        on_status(f"Downloading... {mb_done:.1f}/{mb_total:.1f} MB")
+                        on_progress(percent)
+                    yield_ui()
+
+                if not chunked and total_size > 0 and downloaded != total_size:
+                    # Mirrors urlretrieve's own truncated-body detection
+                    # (`if size >= 0 and read < size: raise
+                    # ContentTooShortError`), lost when it was replaced by
+                    # this chunked read. A server that closes mid-body yields
+                    # b"" here with no exception, so without this check the
+                    # loop above treats it as a clean EOF and only zipfile
+                    # catches the truncation later, as a non-network-class
+                    # BadZipFile that is never retried. Treating a body
+                    # LONGER than Content-Length as incomplete/invalid too
+                    # (not just short) is deliberate: either way the server's
+                    # framing doesn't match what it sent, so the bytes can't
+                    # be trusted.
+                    raise urllib.error.ContentTooShortError(
+                        f"length mismatch: got {downloaded} bytes, expected {total_size}",
+                        None,
+                    )
+        except BaseException:
+            # Discard a partial file from a failed/cancelled attempt -- never
+            # reused on retry.
+            try:
+                wheel_path.unlink()
+            except OSError:
+                pass
+            raise
+
+
 def _download_and_extract_wheel(
     *,
     display_name: str,
@@ -687,17 +1045,30 @@ def _download_and_extract_wheel(
     def _cleanup_temp() -> None:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
+    # One overall wall-clock budget for the ENTIRE network phase below (metadata
+    # fetch + its retries + wheel fetch + its retries). Captured once, up front,
+    # so a slow-drip connection that never trips the per-socket-operation
+    # timeout still can't hang Anki's main thread indefinitely.
+    deadline = _now() + _DOWNLOAD_TOTAL_BUDGET_SECONDS
+
     try:
         on_status(f"Downloading {display_name} {expected_version} (first run only)...")
         on_progress(0)
         yield_ui()
 
-        # Fetch PyPI metadata for the exact required version
+        # Fetch PyPI metadata for the exact required version. Bounded retry
+        # covers a transient blip; a 4xx/non-network failure still fails fast.
         on_status("Fetching package info...")
         yield_ui()
 
-        with urllib.request.urlopen(pypi_url, timeout=30) as response:
-            pypi_data = json.loads(response.read().decode())
+        pypi_data = _retry_network_call(
+            lambda: _fetch_metadata_json(pypi_url, deadline=deadline),
+            description="Fetching package info",
+            on_status=on_status,
+            is_cancelled=is_cancelled,
+            yield_ui=yield_ui,
+            deadline=deadline,
+        )
 
         served_version = pypi_data["info"]["version"]
         if served_version != expected_version:
@@ -720,19 +1091,22 @@ def _download_and_extract_wheel(
         temp_dir.mkdir(parents=True, exist_ok=True)
         wheel_path = temp_dir / wheel_name
 
-        def download_progress(block_num, block_size, total_size):
-            if is_cancelled():
-                raise InterruptedError("Download cancelled")
-            if total_size > 0:
-                downloaded = block_num * block_size
-                percent = min(10 + int(downloaded * 70 / total_size), 80)
-                mb_done = downloaded / (1024 * 1024)
-                mb_total = total_size / (1024 * 1024)
-                on_status(f"Downloading... {mb_done:.1f}/{mb_total:.1f} MB")
-                on_progress(percent)
-                yield_ui()
-
-        urllib.request.urlretrieve(wheel_url, wheel_path, reporthook=download_progress)
+        _retry_network_call(
+            lambda: _fetch_wheel_bytes(
+                wheel_url,
+                wheel_path,
+                on_status=on_status,
+                on_progress=on_progress,
+                is_cancelled=is_cancelled,
+                yield_ui=yield_ui,
+                deadline=deadline,
+            ),
+            description=f"Downloading {wheel_name}",
+            on_status=on_status,
+            is_cancelled=is_cancelled,
+            yield_ui=yield_ui,
+            deadline=deadline,
+        )
 
         if is_cancelled():
             _cleanup_temp()
@@ -788,6 +1162,20 @@ def _download_and_extract_wheel(
         # User cancelled — only the temp dir is touched; the existing cache (if
         # any) is left intact.
         _cleanup_temp()
+        return False
+
+    except _DownloadBudgetExceeded as e:
+        # Overall network-phase budget exceeded — terminal, never retried (see
+        # _is_retryable_network_error). Same cleanup as any other failure, but
+        # with a message that tells the user what actually happened instead of
+        # a raw exception repr.
+        _cleanup_temp()
+        logger.error("Failed to download %s: %r", display_name, e)
+        on_error(
+            f"Failed to download {display_name}: download timed out after "
+            f"{_DOWNLOAD_TOTAL_BUDGET_SECONDS} seconds — check your connection "
+            "and restart Anki."
+        )
         return False
 
     except Exception as e:

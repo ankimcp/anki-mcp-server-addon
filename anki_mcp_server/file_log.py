@@ -214,6 +214,19 @@ def init_file_logging(enabled: bool, user_files_dir) -> None:
     if not enabled:
         existing = _existing_handler(logger)
         if existing is not None:
+            # Make the handler inert BEFORE removing/closing it. This runs on
+            # a background thread (native_cache_cleanup's will-install hook)
+            # while other threads may still be logging: Logger.callHandlers
+            # can already be holding a reference to `existing` between our
+            # removeHandler() and close() calls, and FileHandler.emit()
+            # RE-OPENS the file (mode is 'a', not 'w') whenever self.stream is
+            # None -- which is exactly the state close() leaves it in. A
+            # racing emit() would silently recreate the file handle we're
+            # trying to release, defeating the whole point of this call.
+            # Raising the level above CRITICAL makes callHandlers' level
+            # check (`record.levelno >= hdlr.level`) reject the record before
+            # handle()/emit() ever runs, closing that race.
+            existing.setLevel(logging.CRITICAL + 1)
             logger.removeHandler(existing)
             try:
                 existing.close()
@@ -263,6 +276,31 @@ def init_file_logging(enabled: bool, user_files_dir) -> None:
 def is_enabled() -> bool:
     """Whether file logging is currently active (handler attached)."""
     return _existing_handler(get_logger()) is not None
+
+
+def release_log_handle(reason: str) -> None:
+    """Log ``reason`` then close and detach the file-log handler, if attached.
+
+    Shared by two call sites that both need the ``ankimcp.log`` handle
+    released before it can block a filesystem operation: aborting add-on
+    import after a dependency gate fails, and releasing the handle right
+    before Anki's own install/update path backs up ``user_files`` (an
+    ``os.rename`` that a held-open log file blocks on Windows -- see
+    CLAUDE.md's "Native Dependency Cache Location" and "Diagnostic File
+    Logging" sections).
+
+    Logs first so the reason reaches the file before the handler closes, then
+    tears down via ``init_file_logging(enabled=False, ...)`` -- that path
+    never raises and is idempotent, so calling this twice, or calling it when
+    logging was never enabled, is a safe no-op. Never raises: a caller in the
+    middle of handling its own failure (an ``ImportError`` it's about to
+    raise) must never have that failure masked by teardown going wrong.
+    """
+    try:
+        get_logger().error(reason)
+    except Exception:  # pragma: no cover - defensive
+        pass
+    init_file_logging(enabled=False, user_files_dir=None)
 
 
 # ---------------------------------------------------------------------------
