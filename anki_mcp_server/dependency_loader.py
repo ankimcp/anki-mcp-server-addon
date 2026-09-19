@@ -43,6 +43,13 @@ from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
+# Legacy/fallback cache location: inside the addon's own folder. Anki updates
+# and uninstalls an add-on by deleting this whole folder, and on Windows a
+# loaded native extension (.pyd) can't be deleted mid-delete (it CAN be
+# renamed/moved) — the delete then dies halfway and guts the add-on. The
+# preferred cache root (``_resolve_cache_root``) lives outside this folder for
+# that reason; this constant survives as the fallback for when that isn't
+# reachable, and .gitignore/package.sh/flake.nix still reference it by name.
 CACHE_DIR = Path(__file__).parent / "_cache"
 
 # Windows native-extension file lock (sharing violation). Established Windows
@@ -68,6 +75,184 @@ _LOCK_RETRY_DELAYS = (0.05, 0.10, 0.20, 0.40)
 # This download only runs if `import rpds` fails (Anki normally provides it), so
 # in practice this version is rarely materialized.
 _RPDS_VERSION = "0.30.0"
+
+
+def _addon_folder_name() -> str:
+    """The add-on's installed folder name (e.g. ``124672614`` on AnkiWeb,
+    ``anki_mcp_server`` on a file/source install). Used to key the out-of-folder
+    cache so each installed copy gets its own cache, matching the isolation the
+    in-folder cache gave for free."""
+    return Path(__file__).parent.name
+
+
+def _get_mw():
+    """Fetch Anki's ``mw`` singleton, or ``None`` if unavailable.
+
+    Looks it up via ``sys.modules`` instead of ``from aqt import mw``: this
+    module is also loaded standalone (``spec_from_file_location``, no package
+    context) by headless tooling — e.g. the ``anki-compat.yml`` CI smoke
+    script, which runs in a venv where ``aqt`` (and PyQt6) IS importable but
+    was never otherwise touched. An actual import here would drag Qt into a
+    path that has nothing to do with it. Inside real Anki, ``aqt`` is always
+    already imported before add-ons load, so behaviour there is identical.
+    """
+    try:
+        mod = sys.modules.get("aqt")
+        return getattr(mod, "mw", None) if mod is not None else None
+    except Exception:
+        return None
+
+
+def out_of_folder_data_dir() -> Optional[Path]:
+    """Return ``<mw.pm.base>/ankimcp/<addon_folder_name>`` if resolvable.
+
+    ``mw.pm.base`` (Anki's per-user data folder) is available at add-on import
+    time, unlike profile-scoped APIs. Returns ``None`` if ``mw``, ``mw.pm`` or
+    ``mw.pm.base`` isn't available — callers must treat that as "no out-of-folder
+    location known yet", not as an error.
+    """
+    try:
+        mw = _get_mw()
+        if mw is None:
+            return None
+        pm = getattr(mw, "pm", None)
+        if pm is None:
+            return None
+        base = getattr(pm, "base", None)
+        if not base:
+            return None
+        return Path(base) / "ankimcp" / _addon_folder_name()
+    except Exception:
+        return None
+
+
+def _is_writable_dir(dir_path: Path) -> bool:
+    """Create ``dir_path`` if needed and verify a file can be written and
+    removed inside it. Never raises — any failure just means "not writable"."""
+    try:
+        dir_path.mkdir(parents=True, exist_ok=True)
+        probe = dir_path / f".write_test_{os.getpid()}"
+        probe.write_text("")
+        probe.unlink()
+        return True
+    except Exception:
+        return False
+
+
+def _legacy_cache_in_use() -> bool:
+    """True if the legacy ``CACHE_DIR`` — or any path nested under it — is
+    present on ``sys.path`` in this process, meaning a native extension may
+    already be loaded from it (the fallback-mode ensure path prepends its
+    package subdir, e.g. ``CACHE_DIR/pydantic_core_pkg``, onto ``sys.path``).
+    Deleting around a locked ``.pyd``/``.so`` in that case would recreate the
+    exact Windows gutting bug this whole cache relocation exists to avoid, so
+    cleanup must be skipped.
+
+    Tolerant of non-``str`` ``sys.path`` entries and normalises case/separators
+    before comparing. Fails safe: an unexpected error is treated as "in use"
+    rather than risk deleting a cache that is actually loaded.
+    """
+    try:
+        legacy = os.path.normcase(os.path.normpath(str(CACHE_DIR)))
+    except Exception:
+        return True
+
+    for entry in sys.path:
+        if not isinstance(entry, str) or not entry:
+            continue
+        try:
+            normalized = os.path.normcase(os.path.normpath(entry))
+        except Exception:
+            continue
+        if normalized == legacy or normalized.startswith(legacy + os.sep):
+            return True
+    return False
+
+
+def _cleanup_legacy_cache_dir() -> None:
+    """Best-effort removal of the in-folder legacy cache. Called only after a
+    SUCCESSFUL ensure-call has proven the preferred out-of-folder root usable
+    — see ``_cleanup_legacy_cache_dir_if_out_of_folder``, the only caller.
+    Never reused/copied — a stale legacy cache is just deleted, not migrated.
+    Never touches the legacy dir while it's on ``sys.path`` in this process
+    (see ``_legacy_cache_in_use``). Must never raise or block startup."""
+    try:
+        if not CACHE_DIR.exists():
+            return
+        if _legacy_cache_in_use():
+            return
+        shutil.rmtree(CACHE_DIR, ignore_errors=True)
+    except Exception:
+        pass
+
+
+def _cleanup_legacy_cache_dir_if_out_of_folder(cache_root: Path) -> None:
+    """Run legacy-cache cleanup only when ``cache_root`` is the preferred
+    out-of-folder location, not the legacy ``CACHE_DIR`` itself.
+
+    This is the seam both ``_ensure_pydantic_core_with_callbacks`` and
+    ``_ensure_rpds_with_callbacks`` call on a SUCCESSFUL outcome only — never
+    from ``_resolve_cache_root``, which only decides a root and must have no
+    destructive side effects. If the ensure-call is running in fallback mode
+    (``cache_root == CACHE_DIR``), there is nothing to clean up: the legacy
+    dir IS the cache currently in use.
+    """
+    if cache_root != CACHE_DIR:
+        _cleanup_legacy_cache_dir()
+
+
+def _resolve_cache_root() -> Path:
+    """Resolve the native-dependency cache root for this ensure-call.
+
+    Preferred: ``<mw.pm.base>/ankimcp/<addon_folder_name>/cache`` — outside the
+    add-on's own folder, so an Anki update/uninstall (which deletes the whole
+    add-on folder) never has to delete a locked native extension file. See
+    CLAUDE.md's "Native Dependency Cache Location" section for the verified
+    Windows facts behind this.
+
+    Falls back to the legacy in-folder ``CACHE_DIR`` when ``mw``/``pm.base``
+    isn't available, or the preferred directory can't be created/written to.
+    Resolved fresh on every call (not cached at import time) so it reflects
+    ``mw``'s availability at the moment it's needed. Never raises.
+
+    This function only DECIDES a root — it has no destructive side effects.
+    Legacy-cache cleanup is the caller's responsibility, and only once a
+    download/import has actually succeeded from the preferred root (see
+    ``_cleanup_legacy_cache_dir_if_out_of_folder``): deleting the legacy cache
+    here, before anything has been proven to work at the new location, would
+    leave a user with no working cache at all if the following download fails
+    (e.g. offline).
+    """
+    try:
+        data_dir = out_of_folder_data_dir()
+        if data_dir is None:
+            logger.info(
+                "mw.pm.base not available yet; using in-folder native "
+                "dependency cache: %s",
+                CACHE_DIR,
+            )
+            return CACHE_DIR
+
+        preferred = data_dir / "cache"
+        if _is_writable_dir(preferred):
+            logger.info("Using out-of-folder native dependency cache: %s", preferred)
+            return preferred
+
+        logger.warning(
+            "Out-of-folder cache dir %s is not writable; falling back to "
+            "in-folder native dependency cache: %s",
+            preferred,
+            CACHE_DIR,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to resolve out-of-folder native dependency cache (%r); "
+            "falling back to in-folder cache: %s",
+            exc,
+            CACHE_DIR,
+        )
+
+    return CACHE_DIR
 
 
 def _get_required_pydantic_core_version() -> str:
@@ -473,10 +658,10 @@ def _download_and_extract_wheel(
     """Download a wheel from PyPI, extract it into ``cache_dir`` and put it on
     ``sys.path``. Shared by the pydantic_core and rpds download paths.
 
-    ``cache_dir`` is the package's dedicated cache subdir (e.g.
-    ``_cache/pydantic_core_pkg``). ``package_subdir`` is the importable package
-    directory inside the wheel (e.g. ``"pydantic_core"`` or ``"rpds"``), used for
-    the Windows .pyd fixup.
+    ``cache_dir`` is the package's dedicated cache subdir under the resolved
+    cache root (e.g. ``pydantic_core_pkg``). ``package_subdir`` is the
+    importable package directory inside the wheel (e.g. ``"pydantic_core"`` or
+    ``"rpds"``), used for the Windows .pyd fixup.
 
     Atomic temp-swap: the wheel is downloaded and extracted into a FRESH sibling
     TEMP directory (``<cache_dir>.tmp-*``), the Windows .pyd fixup runs there, and
@@ -631,18 +816,57 @@ def _ensure_pydantic_core_with_callbacks(
     QMessageBox. Default no-op callbacks make this directly callable from
     headless contexts (tests, CI).
 
+    Resolves the cache root ONCE up front and hands it to
+    ``_ensure_pydantic_core_impl``, which contains the actual logic. On a
+    SUCCESSFUL outcome only, runs the legacy-cache cleanup via
+    ``_cleanup_legacy_cache_dir_if_out_of_folder`` — never on failure, so a
+    failed download can't destroy the only working (legacy) cache. See
+    CLAUDE.md's "Native Dependency Cache Location".
+
     Returns True if pydantic_core is ready, False otherwise.
+    """
+    cache_root = _resolve_cache_root()
+    result = _ensure_pydantic_core_impl(
+        cache_root,
+        on_status=on_status,
+        on_progress=on_progress,
+        is_cancelled=is_cancelled,
+        on_error=on_error,
+        yield_ui=yield_ui,
+    )
+    if result:
+        _cleanup_legacy_cache_dir_if_out_of_folder(cache_root)
+    return result
+
+
+def _ensure_pydantic_core_impl(
+    cache_root: Path,
+    *,
+    on_status: Callable[[str], None],
+    on_progress: Callable[[int], None],
+    is_cancelled: Callable[[], bool],
+    on_error: Callable[[str], None],
+    yield_ui: Callable[[], None],
+) -> bool:
+    """The actual pydantic_core ensure logic, over an already-resolved
+    ``cache_root``. Split out of ``_ensure_pydantic_core_with_callbacks`` so
+    every success path — the fast lock-retry-import AND a fresh download —
+    funnels through one wrapper that decides whether to run legacy-cache
+    cleanup.
     """
     try:
         required_version = _get_required_pydantic_core_version()
     except Exception as e:
         on_error(
-            f"Failed to determine required pydantic_core version:\n\n{e}\n\n"
+            f"AnkiMCP Server's add-on files appear to be incomplete ({e}).\n\n"
+            "This usually happens when an add-on update or removal was "
+            "interrupted (most common on Windows). Try Tools -> Add-ons -> "
+            "Check for Updates, or reinstall the add-on (code 124672614).\n\n"
             "If you installed from source, install pydantic_core with pip."
         )
         return False
 
-    cache_dir = CACHE_DIR / "pydantic_core_pkg"
+    cache_dir = cache_root / "pydantic_core_pkg"
     marker_file = cache_dir / ".complete"
     version_file = cache_dir / ".version"
 
@@ -713,8 +937,8 @@ def _ensure_pydantic_core_with_callbacks(
         # Probe loaded a wrong-version module and cached it in sys.modules.
         # If it was already there before our probe, leave it (another addon's
         # state — popping it would break them). Otherwise pop to undo our own
-        # probe, so the next import (after we prepend _cache/ post-download)
-        # re-resolves against the correct location.
+        # probe, so the next import (after we prepend the resolved cache dir
+        # post-download) re-resolves against the correct location.
         for name in list(sys.modules):
             if (
                 (name == "pydantic_core" or name.startswith("pydantic_core."))
@@ -767,6 +991,27 @@ def _ensure_rpds_with_callbacks(
     for the current platform. Pure-logic core (no Qt); ``ensure_rpds`` is the Qt
     wrapper.
 
+    Legacy-cache cleanup: only the cache/download branch
+    (``_ensure_rpds_from_cache_or_download``) can trigger
+    ``_cleanup_legacy_cache_dir_if_out_of_folder``, and only on success. The
+    common fast path below (Anki already provides ``rpds``) deliberately does
+    NOT resolve a cache root or run cleanup — doing so would mean creating the
+    preferred out-of-folder directory (``_resolve_cache_root`` calls
+    ``_is_writable_dir``, which ``mkdir``s it) on every single startup, just to
+    decide whether an unrelated legacy dir needs deleting, even though this
+    path never touches any cache. That's safe to skip because
+    ``ensure_pydantic_core()`` always runs immediately before ``ensure_rpds()``
+    in ``__init__.py`` and ALWAYS resolves a cache root (pydantic_core is never
+    provided by Anki) — except on a source/Nix install, where
+    ``ensure_pydantic_core``'s ``_USING_SYSTEM_PACKAGES`` short-circuit skips
+    the core entirely; such installs never populate a legacy cache either, so
+    there is nothing to clean up there. Otherwise, by the time this fast path
+    is reached in the real add-on, the legacy cache has already been cleaned
+    up if the preferred root is in use. A caller that invokes this function
+    standalone, without first calling the pydantic_core ensure, just keeps the
+    legacy cache around one run longer — never a correctness problem, since
+    ``_resolve_cache_root`` is resolved fresh on every call.
+
     Returns True if rpds is ready, False otherwise.
     """
     # Fast path: Anki (or the system env) already provides rpds — no download.
@@ -779,7 +1024,35 @@ def _ensure_rpds_with_callbacks(
     except ImportError:
         pass
 
-    cache_dir = CACHE_DIR / "rpds_pkg"
+    cache_root = _resolve_cache_root()
+    result = _ensure_rpds_from_cache_or_download(
+        cache_root,
+        on_status=on_status,
+        on_progress=on_progress,
+        is_cancelled=is_cancelled,
+        on_error=on_error,
+        yield_ui=yield_ui,
+    )
+    if result:
+        _cleanup_legacy_cache_dir_if_out_of_folder(cache_root)
+    return result
+
+
+def _ensure_rpds_from_cache_or_download(
+    cache_root: Path,
+    *,
+    on_status: Callable[[str], None],
+    on_progress: Callable[[int], None],
+    is_cancelled: Callable[[], bool],
+    on_error: Callable[[str], None],
+    yield_ui: Callable[[], None],
+) -> bool:
+    """Warm-cache reuse + fresh-download logic for rpds, over an
+    already-resolved ``cache_root``. Split out of
+    ``_ensure_rpds_with_callbacks`` so its success path (``return True``) is
+    the single point ``_cleanup_legacy_cache_dir_if_out_of_folder`` is layered
+    over."""
+    cache_dir = cache_root / "rpds_pkg"
     marker_file = cache_dir / ".complete"
     version_file = cache_dir / ".version"
 

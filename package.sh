@@ -108,12 +108,15 @@ cd "$ADDON_DIR"
 # written during CredentialsManager.save()). The README.txt is kept so the
 # user_files/ directory still ships. Paths are relative to this cwd.
 #
-# Also exclude _cache/: the runtime download location for pydantic_core/rpds
-# (see dependency_loader.py). On a dev machine that ran the add-on from source
-# it holds large, PLATFORM-SPECIFIC native binaries (e.g. a darwin .so) that
-# must never ship — pydantic_core is downloaded per-platform at runtime by
-# design. It's .gitignored, but this zip packages the working tree (not git),
-# so .gitignore alone won't keep it out of the bundle. CI builds from a clean
+# Also exclude _cache/: the LEGACY/fallback runtime download location for
+# pydantic_core/rpds (see dependency_loader.py's _resolve_cache_root — the
+# preferred cache now lives outside the addon folder entirely, but this
+# fallback dir can still get populated on a dev machine, e.g. Anki not
+# available when the addon last ran from source). It holds large,
+# PLATFORM-SPECIFIC native binaries (e.g. a darwin .so) that must never ship —
+# pydantic_core is downloaded per-platform at runtime by design. It's
+# .gitignored, but this zip packages the working tree (not git), so
+# .gitignore alone won't keep it out of the bundle. CI builds from a clean
 # checkout so this only bites local builds, but excluding it here makes the
 # build robust regardless of working-tree state.
 zip -r -q "../$OUTPUT" . -x "*.pyc" -x "__pycache__/*" -x ".DS_Store" -x "*.git*" \

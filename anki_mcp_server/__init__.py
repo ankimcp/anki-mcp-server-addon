@@ -195,6 +195,20 @@ def _setup_vendor_path() -> None:
 # Setup shared vendor path first
 _setup_vendor_path()
 
+# Register the cleanup-only native-dependency-cache hook BEFORE the
+# dependency gates below. If a gutted add-on (native extension deleted/moved
+# mid-update on Windows) aborts import at one of those gates, this hook must
+# still exist so the user's next uninstall/reinstall from the Add-ons dialog
+# cleans up the orphaned out-of-folder cache instead of leaving it behind.
+# native_cache_cleanup.py imports only stdlib + dependency_loader (itself
+# stdlib-only) — no vendored deps — so it's safe to import this early, and
+# `aqt.gui_hooks` is Anki's own module, already usable at this point.
+# See native_cache_cleanup.py and dependency_loader._resolve_cache_root.
+from aqt import gui_hooks
+from .native_cache_cleanup import on_addons_dialog_will_delete_addons
+
+gui_hooks.addons_dialog_will_delete_addons.append(on_addons_dialog_will_delete_addons)
+
 # Now lazy-load pydantic_core binary before any imports that use pydantic
 from .dependency_loader import ensure_pydantic_core, ensure_rpds
 
@@ -233,7 +247,7 @@ This addon exposes Anki's collection to AI assistants via MCP.
 
 from typing import Optional
 
-from aqt import gui_hooks, mw
+from aqt import mw
 from aqt.qt import (
     QAction,
     QApplication,
@@ -530,6 +544,15 @@ def _show_settings() -> None:
 # Register lifecycle hooks
 gui_hooks.profile_did_open.append(_on_profile_opened)
 gui_hooks.profile_will_close.append(_on_profile_will_close)
+
+# Note: the native-dependency-cache cleanup hook
+# (addons_dialog_will_delete_addons -> on_addons_dialog_will_delete_addons)
+# is registered above, before the dependency gates — see that block for why.
+# That hook fires ONLY for deletion from the Add-ons dialog (uninstall).
+# Anki's own update path (download_addons -> install -> _install ->
+# deleteAddon) never fires addons_dialog_will_delete_addons, so an install
+# running in fallback (in-folder cache) mode is still exposed to the original
+# Windows update failure this cache relocation fixes.
 
 # App shutdown hook - ensures cleanup even if profile close doesn't fire
 # (e.g., if user force quits or Anki crashes)

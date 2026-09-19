@@ -358,7 +358,18 @@ def test_ensure_rpds_uses_warm_cache_no_network(
     (cache_dir / ".version").write_text(_RPDS_VERSION)
     (cache_dir / ".complete").touch()
 
-    monkeypatch.setattr(_dep_loader, "CACHE_DIR", cache_root)
+    # Patch the resolver itself (not CACHE_DIR): the loader now calls
+    # _resolve_cache_root() fresh per ensure-call, which may or may not fall
+    # back to CACHE_DIR depending on mw availability. Patching the resolver
+    # directly keeps this test exercising the warm-cache reuse path itself,
+    # independent of that fallback logic (covered separately in
+    # test_native_cache_resolver.py).
+    monkeypatch.setattr(_dep_loader, "_resolve_cache_root", lambda: cache_root)
+    # The success path below also runs _cleanup_legacy_cache_dir_if_out_of_folder,
+    # which deletes whatever CACHE_DIR points at once cache_root != CACHE_DIR.
+    # Left unpatched, CACHE_DIR is still the real anki_mcp_server/_cache/ dir,
+    # so a successful ensure-call here would rmtree the developer's real cache.
+    monkeypatch.setattr(_dep_loader, "CACHE_DIR", tmp_path / "legacy_cache")
 
     def _boom(*args, **kwargs):
         raise AssertionError("ensure_rpds attempted a download/network call")
@@ -414,3 +425,161 @@ def test_ensure_rpds_uses_warm_cache_no_network(
             if name == "rpds" or name.startswith("rpds."):
                 del sys.modules[name]
         sys.modules.update(original_rpds_modules)
+
+
+# ---------------------------------------------------------------------------
+# Fix 1 regression: the legacy in-folder cache must survive a FAILED
+# ensure-call, and only be removed once the preferred out-of-folder root has
+# actually proven usable (a successful ensure-call from it). Driven through
+# `_ensure_rpds_with_callbacks` -- the simpler of the two ensure functions,
+# since it needs no `_get_required_pydantic_core_version()`/version-file
+# setup -- but both functions share the exact same
+# `_cleanup_legacy_cache_dir_if_out_of_folder` seam, so this coverage applies
+# equally to `_ensure_pydantic_core_with_callbacks`.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Fix 1 regression, pydantic_core side: `_ensure_pydantic_core_with_callbacks`
+# is independent code from the rpds wrapper above, so the rpds-only coverage
+# would not catch an inverted/missing `if result:` in THIS wrapper. Drives the
+# gate directly by stubbing `_ensure_pydantic_core_impl`, keeping the test
+# small.
+# ---------------------------------------------------------------------------
+
+def test_ensure_pydantic_core_cleanup_gate_skipped_on_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    preferred_root = tmp_path / "preferred"
+    monkeypatch.setattr(_dep_loader, "_resolve_cache_root", lambda: preferred_root)
+    monkeypatch.setattr(_dep_loader, "_ensure_pydantic_core_impl", lambda *a, **k: False)
+
+    called = []
+    monkeypatch.setattr(
+        _dep_loader, "_cleanup_legacy_cache_dir_if_out_of_folder", called.append
+    )
+
+    assert _dep_loader._ensure_pydantic_core_with_callbacks() is False
+    assert called == []
+
+
+def test_ensure_pydantic_core_cleanup_gate_runs_on_success(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    preferred_root = tmp_path / "preferred"
+    monkeypatch.setattr(_dep_loader, "_resolve_cache_root", lambda: preferred_root)
+    monkeypatch.setattr(_dep_loader, "_ensure_pydantic_core_impl", lambda *a, **k: True)
+
+    called = []
+    monkeypatch.setattr(
+        _dep_loader, "_cleanup_legacy_cache_dir_if_out_of_folder", called.append
+    )
+
+    assert _dep_loader._ensure_pydantic_core_with_callbacks() is True
+    assert called == [preferred_root]
+
+
+def test_ensure_pydantic_core_cleanup_gate_not_called_for_legacy_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    legacy_cache_dir = tmp_path / "legacy_cache"
+    monkeypatch.setattr(_dep_loader, "CACHE_DIR", legacy_cache_dir)
+    monkeypatch.setattr(_dep_loader, "_resolve_cache_root", lambda: legacy_cache_dir)
+    monkeypatch.setattr(_dep_loader, "_ensure_pydantic_core_impl", lambda *a, **k: True)
+
+    called = []
+    monkeypatch.setattr(
+        _dep_loader, "_cleanup_legacy_cache_dir", lambda: called.append(True)
+    )
+
+    assert _dep_loader._ensure_pydantic_core_with_callbacks() is True
+    assert called == []
+
+
+def _clear_rpds_from_process() -> tuple[list, dict]:
+    """Snapshot + clear rpds from sys.path/sys.modules so the loader's fast
+    `import rpds` path genuinely misses. Returns the snapshots to restore."""
+    original_sys_path = list(sys.path)
+    original_rpds_modules = {
+        k: v for k, v in sys.modules.items() if k == "rpds" or k.startswith("rpds.")
+    }
+    for name in list(sys.modules):
+        if name == "rpds" or name.startswith("rpds."):
+            del sys.modules[name]
+    sys.path[:] = [p for p in sys.path if not _exposes_rpds(p)]
+    return original_sys_path, original_rpds_modules
+
+
+def _restore_rpds_state(original_sys_path: list, original_rpds_modules: dict) -> None:
+    sys.path[:] = original_sys_path
+    for name in list(sys.modules):
+        if name == "rpds" or name.startswith("rpds."):
+            del sys.modules[name]
+    sys.modules.update(original_rpds_modules)
+
+
+def test_ensure_rpds_legacy_cache_survives_failed_download(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Warm legacy cache present + preferred root resolvable + download
+    stubbed to FAIL -> the legacy cache must still exist afterwards and the
+    ensure-call must return False. Before fix 1, `_resolve_cache_root()`
+    deleted the legacy cache as soon as the preferred root was resolved --
+    BEFORE the download that populates it was even attempted -- so an
+    offline failure here used to leave the user with no working cache at
+    all."""
+    legacy_cache_dir = tmp_path / "legacy_cache"
+    legacy_marker = legacy_cache_dir / "rpds_pkg" / "marker.txt"
+    legacy_marker.parent.mkdir(parents=True)
+    legacy_marker.write_text("warm legacy cache")
+    monkeypatch.setattr(_dep_loader, "CACHE_DIR", legacy_cache_dir)
+
+    preferred_root = tmp_path / "preferred"
+    monkeypatch.setattr(_dep_loader, "_resolve_cache_root", lambda: preferred_root)
+    monkeypatch.setattr(_dep_loader, "_download_and_extract_wheel", lambda **kwargs: False)
+
+    snapshot = _clear_rpds_from_process()
+    try:
+        result = _dep_loader._ensure_rpds_with_callbacks()
+
+        assert result is False
+        assert legacy_marker.exists()
+    finally:
+        _restore_rpds_state(*snapshot)
+
+
+def test_ensure_rpds_legacy_cache_removed_after_successful_download(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Same warm-legacy-cache setup, but the dependency succeeds from the
+    preferred root -> the legacy cache must be removed afterwards."""
+    legacy_cache_dir = tmp_path / "legacy_cache"
+    legacy_marker = legacy_cache_dir / "rpds_pkg" / "marker.txt"
+    legacy_marker.parent.mkdir(parents=True)
+    legacy_marker.write_text("warm legacy cache")
+    monkeypatch.setattr(_dep_loader, "CACHE_DIR", legacy_cache_dir)
+
+    preferred_root = tmp_path / "preferred"
+    monkeypatch.setattr(_dep_loader, "_resolve_cache_root", lambda: preferred_root)
+
+    def _fake_download(**kwargs):
+        # Simulate a successful download: drop a real importable `rpds`
+        # package into the target cache dir, exactly like a real wheel
+        # extraction would, and put it on sys.path -- mirroring what
+        # `_download_and_extract_wheel` itself does on success.
+        cache_dir = kwargs["cache_dir"]
+        pkg = cache_dir / "rpds"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("class HashTrieMap: ...\n")
+        sys.path.insert(0, str(cache_dir))
+        return True
+
+    monkeypatch.setattr(_dep_loader, "_download_and_extract_wheel", _fake_download)
+
+    snapshot = _clear_rpds_from_process()
+    try:
+        result = _dep_loader._ensure_rpds_with_callbacks()
+
+        assert result is True
+        assert not legacy_cache_dir.exists()
+    finally:
+        _restore_rpds_state(*snapshot)
