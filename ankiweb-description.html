@@ -34,9 +34,16 @@
 <h2>New in v0.29.0</h2>
 <p>Every tool parameter now carries a short description in the schema your assistant reads, so it gets the argument shapes right on the first try instead of retrying against validation errors — a real saving for smaller, cheaper models and for your context window. <a href="https://github.com/ankimcp/anki-mcp-server-addon/releases/latest">Full changelog →</a></p>
 
-<h2>Known issue on Windows</h2>
-<p>Updating the add-on from inside Anki currently fails on Windows with an <b>"Access is denied"</b> error, and the add-on won't load afterwards. First-time installs are not affected, and neither are macOS and Linux. We know about it and a fix is in progress.</p>
-<p>Until the fix is out, update like this: <b>Tools → Add-ons</b>, select AnkiMCP Server, click <b>Toggle Enabled</b> to disable it, restart Anki, run <b>Check for Updates</b> and install, then click <b>Toggle Enabled</b> again and restart Anki. If a failed update has already left the add-on showing <b>Setup Failed</b>, run through the same steps.</p>
+<p>────────────────────────</p>
+<h2>⚠️ Windows — one extra step for this update</h2>
+<p><b>Fixed in v0.29.1:</b> on Windows, updating or deleting the add-on from inside Anki used to fail with an <b>"Access is denied"</b> error and leave the add-on unable to load. From v0.29.1 onwards it just works. The update <b>to</b> v0.29.1 is the last one that needs care, because the old version is still the one running while Anki replaces it.</p>
+<p>First: open <b>Tools → Add-ons</b>, select AnkiMCP Server, click <b>Toggle Enabled</b> so it shows as disabled, and <b>restart Anki</b>. <b>Never update or delete the add-on while it is still enabled.</b> Then pick one of these:</p>
+<ul>
+<li><b>Update it — recommended.</b> Click <b>Check for Updates</b> and install. Anki keeps the add-on disabled afterwards, so select it again, click <b>Toggle Enabled</b> to turn it back on, and restart Anki. Your settings and your tunnel sign-in are kept.</li>
+<li><b>Or delete and reinstall.</b> Select the add-on and click <b>Delete</b>, then click <b>Get Add-ons…</b> and paste the code <code>124672614</code>. Restart Anki. A freshly installed add-on is already enabled, so do <b>not</b> click <b>Toggle Enabled</b> this time. Deleting also erases the add-on's settings and your tunnel sign-in, so you will have to sign in to the tunnel again.</li>
+</ul>
+<p>After this, Windows updates behave like everywhere else. macOS and Linux are unaffected and can update as usual.</p>
+<p>────────────────────────</p>
 
 <h2>Links</h2>
 <ul>
