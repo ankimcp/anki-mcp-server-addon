@@ -34,6 +34,10 @@
 <h2>New in v0.29.0</h2>
 <p>Every tool parameter now carries a short description in the schema your assistant reads, so it gets the argument shapes right on the first try instead of retrying against validation errors — a real saving for smaller, cheaper models and for your context window. <a href="https://github.com/ankimcp/anki-mcp-server-addon/releases/latest">Full changelog →</a></p>
 
+<h2>Known issue on Windows</h2>
+<p>Updating the add-on from inside Anki currently fails on Windows with an <b>"Access is denied"</b> error, and the add-on won't load afterwards. First-time installs are not affected, and neither are macOS and Linux. We know about it and a fix is in progress.</p>
+<p>Until the fix is out, update like this: <b>Tools → Add-ons</b>, select AnkiMCP Server, click <b>Toggle Enabled</b> to disable it, restart Anki, run <b>Check for Updates</b> and install, then click <b>Toggle Enabled</b> again and restart Anki. If a failed update has already left the add-on showing <b>Setup Failed</b>, run through the same steps.</p>
+
 <h2>Links</h2>
 <ul>
 <li>📖 <a href="https://ankimcp.ai/docs/get-started/">Docs, guides and prompt recipes</a></li>
