@@ -23,6 +23,9 @@ Architecture:
       no-ops on an empty queue
     - stop() clears the waker and flips the _active flag so late callbacks
       (already queued in Qt's event loop) return without touching the queue
+    - A handler that reaches mw.taskman.run_in_background can trigger a
+      nested drain call mid-handler; see _process_pending()'s "Re-entrancy"
+      section below for the full mechanics and the _draining guard.
 
 Performance:
     - Zero idle churn (no wakeups while no client is talking)
@@ -69,6 +72,11 @@ class RequestProcessor:
         _active: True between start() and stop(). Late drain callbacks
             (delivered by Qt after stop()) check this flag and return
             immediately, closing the shutdown race.
+        _draining: True while a drain loop is actually running requests.
+            Guards against re-entrant drains triggered by a handler that
+            reaches ``mw.taskman.run_in_background`` mid-drain -- see
+            ``_process_pending()``'s "Re-entrancy" section below for the
+            full mechanics.
 
     Note:
         With the default scheduler this class requires a running Anki
@@ -98,6 +106,7 @@ class RequestProcessor:
         self._bridge = bridge
         self._schedule_on_main = schedule_on_main
         self._active = False
+        self._draining = False
 
     def start(self) -> None:
         """Start processing requests.
@@ -173,10 +182,12 @@ class RequestProcessor:
         Runs on the Qt main thread, scheduled by the waker (or by start()'s
         initial drain). This method:
         1. Returns immediately if the processor has been stopped
-        2. Checks for pending requests (non-blocking)
-        3. If found, executes the tool via handler registry
-        4. Sends response back via bridge
-        5. Repeats until queue is empty
+        2. Returns immediately if a drain is already running (re-entrancy
+           guard, see below)
+        3. Checks for pending requests (non-blocking)
+        4. If found, executes the tool via handler registry
+        5. Sends response back via bridge
+        6. Repeats until queue is empty
 
         The drain-until-empty loop is what makes concurrent wakes coalesce:
         if N requests are enqueued before the first drain runs, that drain
@@ -187,6 +198,26 @@ class RequestProcessor:
             - Runs on Qt main thread (guaranteed by run_on_main)
             - Safe to access mw.col here
             - Non-blocking queue operations keep UI responsive
+
+        Re-entrancy:
+            ``mw.taskman.run_in_background``, when called from the main
+            thread, synchronously flushes every queued ``run_on_main``
+            closure before returning. A handler reached from inside this
+            loop can hit that path (sync via ``_sync_runner.py``, ``gui_undo``
+            via ``mw.undo()`` -> CollectionOp, ``gui_answer_card`` via
+            ``reviewer._answerCard()``), and if a second request is already
+            queued at that point (queue_bridge.py puts before it wakes, so
+            this is possible), taskman's ``_on_closures_pending()`` calls the
+            queued drain closure synchronously, right there in the middle of
+            ``run_in_background`` -- no event-loop turn involved -- nesting a
+            second ``_process_pending`` call inside the first and running
+            another tool handler mid-operation. The ``_draining`` flag makes
+            that nested call a safe no-op: it returns immediately without
+            touching the queue,
+            and the OUTER loop's ``while True`` re-checks the queue right
+            after the handler that triggered the flush returns, so the
+            request is still drained -- just sequentially, by the outer
+            call, instead of nested inside it.
 
         Shutdown Race:
             Qt may deliver an already-queued callback after stop() — the
@@ -199,24 +230,33 @@ class RequestProcessor:
             - Processing continues even if one request fails
             - Never crashes the Qt event loop or Anki
         """
-        if not self._active:
-            # Late callback delivered after stop() — teardown may already be
-            # underway, so don't touch the queue or execute anything.
+        if not self._active or self._draining:
+            # Late callback delivered after stop() (teardown may already be
+            # underway), or a nested flush from inside a handler mid-drain
+            # (see "Re-entrancy" above) — either way, don't touch the queue.
             return
 
-        while True:
-            # Non-blocking check for pending request
-            # Returns None immediately if queue is empty
-            request = self._bridge.get_pending_request()
-            if request is None:
-                break  # Queue empty, exit until the next wake
+        self._draining = True
+        try:
+            while True:
+                # Non-blocking check for pending request
+                # Returns None immediately if queue is empty
+                request = self._bridge.get_pending_request()
+                if request is None:
+                    break  # Queue empty, exit until the next wake
 
-            # Execute the tool and get response (success or error)
-            response = self._execute_tool(request)
+                # Execute the tool and get response (success or error)
+                response = self._execute_tool(request)
 
-            # Send response back to background thread
-            # This unblocks the MCP server's send_request() call
-            self._bridge.send_response(response)
+                # Send response back to background thread
+                # This unblocks the MCP server's send_request() call
+                self._bridge.send_response(response)
+        finally:
+            # Nothing may be inserted between the loop's final empty
+            # get_pending_request() (above) and clearing the flag here: that
+            # window is what guarantees a late-arriving request's wake is
+            # never refused.
+            self._draining = False
 
     def _execute_tool(self, request: ToolRequest) -> ToolResponse:
         """Execute a single tool request and return response.

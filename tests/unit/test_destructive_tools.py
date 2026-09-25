@@ -15,12 +15,13 @@ just pydantic and the standard library. They mirror the fixture style of
     so we can assert on which tools/actions reached ``tools/list``.
 
 IMPORTANT fixture note: the real ``_registry`` meta dicts (and the ones built
-by ``register_tools``/``validate_enabled_destructive_tools``) carry a
-``"destructive"`` key. The existing ``test_tool_filtering.py`` fakes predate
-that key and omit it. Any fake meta dict that flows through ``register_tools``
-or ``validate_enabled_destructive_tools`` here MUST include ``"destructive"``
-(and, when relevant, action models marked ``_destructive``), because those
-code paths read ``meta["destructive"]`` directly.
+by ``register_tools``/``validate_enabled_destructive_tools``) carry
+``"destructive"`` and ``"opt_in"`` keys. The existing ``test_tool_filtering.py``
+fakes predate those keys and omit them. Any fake meta dict that flows through
+``register_tools`` or ``validate_enabled_destructive_tools`` here MUST include
+both ``"destructive"`` and ``"opt_in"`` (and, when relevant, action models
+marked ``_destructive``), because those code paths read ``meta["destructive"]``
+and ``meta["opt_in"]`` directly.
 """
 from __future__ import annotations
 
@@ -211,6 +212,7 @@ def _single_meta(name: str, *, destructive: bool) -> dict:
         "original": handler,
         "write": True,
         "destructive": destructive,
+        "opt_in": False,
     }
 
 
@@ -236,6 +238,7 @@ def _multi_meta(name: str, union, *, destructive: bool = False) -> dict:
         "original": handler,
         "write": True,
         "destructive": destructive,
+        "opt_in": False,
     }
 
 

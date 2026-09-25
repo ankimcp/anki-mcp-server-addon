@@ -13,6 +13,7 @@ def register_all_tools(
     call_main_thread: Callable[[str, dict], Coroutine[Any, Any, Any]],
     disabled_tools: list[str] | None = None,
     enabled_destructive_tools: list[str] | None = None,
+    enabled_opt_in_tools: list[str] | None = None,
 ) -> None:
     """Register all MCP tools with the server.
 
@@ -23,10 +24,14 @@ def register_all_tools(
         enabled_destructive_tools: Allow-list of destructive tool names or
             "tool:action" entries to expose (destructive tools/actions are
             hidden unless listed here)
+        enabled_opt_in_tools: Allow-list of opt-in tool names or "tool:action"
+            entries to expose (opt-in tools/actions are hidden unless listed
+            here)
     """
     register_tools(
         mcp,
         call_main_thread,
         disabled_tools=disabled_tools,
         enabled_destructive_tools=enabled_destructive_tools,
+        enabled_opt_in_tools=enabled_opt_in_tools,
     )

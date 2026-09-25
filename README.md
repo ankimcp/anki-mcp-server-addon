@@ -33,6 +33,7 @@ A second native dependency, `rpds` (from `rpds-py`), is handled the same way —
 - **Diagnostic logging** - Opt-in [`log_to_file`](#diagnostic-file-logging) writes a rotating, secret-redacted log to `user_files/ankimcp.log`, with **Open log folder** / **Copy diagnostics** buttons in settings
 - **Field management** - Add, rename, and reposition note-type fields via the `model_fields` tool (with an opt-in [destructive](#destructive-tools-opt-in) remove)
 - **Bulk card stats** - The read-only `cards_stats` tool returns compact per-card scheduling metrics (type/queue/interval/tags/`dueToday`) for a whole deck including subdecks, FSRS-independent — a lean bulk read for analytics
+- **GUI review sessions** - Hands-free review in Anki's own reviewer window: `gui_deck_review` opens a deck, `gui_answer_card` presses the answer button for you. [Opt-in](#opt-in-tools), hidden until named in `enabled_opt_in_tools`
 - **Cross-platform** - Works on macOS, Windows, and Linux (x64 and ARM)
 
 ## Installation
@@ -209,6 +210,7 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "cors_expose_headers": ["mcp-protocol-version"],
   "disabled_tools": [],
   "enabled_destructive_tools": [],
+  "enabled_opt_in_tools": [],
   "max_notes_per_batch": 100,
   "tunnel_server_url": "wss://tunnel.ankimcp.ai",
   "tunnel_client_id": "ankimcp-cli",
@@ -316,6 +318,26 @@ Tools or actions classified as destructive (high-risk operations) are **hidden f
 - Entries that don't match anything, or match a non-destructive tool/action, produce console warnings
 
 This is server-side enforcement: until opted in, destructive tools are absent from the MCP schema, so even a misbehaving client cannot call them. Currently shipped destructive entries: `change_note_type` (whole tool — rewrites every selected note's field layout) and `model_fields:remove` (action — permanently deletes a field and its content on every note of the type).
+
+### Opt-In Tools
+
+Some tools ship **hidden from AI clients by default** for reasons other than "destructive" (e.g. new/experimental surface area). Expose them via the `enabled_opt_in_tools` allow-list, same syntax as `enabled_destructive_tools`:
+
+```json
+{
+  "enabled_opt_in_tools": [
+    "gui_answer_card",
+    "gui_deck_review"
+  ]
+}
+```
+
+- `"tool_name"` — opts in an entire opt-in tool
+- `"tool_name:action"` — opts in an opt-in action within a multi-action tool (a whole-tool entry does not implicitly opt in its opt-in actions)
+- `disabled_tools` still applies on top — an opted-in tool can still be disabled
+- Entries that don't match anything, or match a non-opt-in tool/action, produce console warnings
+
+Currently shipped opt-in entries: `gui_deck_review` and `gui_answer_card` — the GUI hands-free review-session tools.
 
 ### Custom Path
 
@@ -511,6 +533,10 @@ These tools interact with Anki's user interface:
 | `gui_select_card` | Select a specific card in the reviewer |
 | `gui_deck_browser` | Navigate to deck browser |
 | `gui_undo` | Undo the last operation |
+| `gui_deck_review` | Open a deck in Anki's own reviewer window. [Opt-in](#opt-in-tools) — hidden unless opted in via `enabled_opt_in_tools` |
+| `gui_answer_card` | Press an answer button on the card shown in the reviewer, hands-free rating. [Opt-in](#opt-in-tools) — hidden unless opted in via `enabled_opt_in_tools` |
+
+`gui_current_card` no longer returns the note's `answer`/`fields` by default -- pass `include_answer=true` to get them.
 
 ### Resources
 
@@ -528,7 +554,7 @@ These tools interact with Anki's user interface:
 
 | Prompt | Description |
 |--------|-------------|
-| `review_session` | Guided review session workflow. Args: `deck_name` (default `Default`), `card_limit` (default 20), `review_style` — `interactive`, `quick`, or `voice` |
+| `review_session` | Guided review session workflow. Args: `deck_name` (default `Default`), `card_limit` (default 20), `review_style` — `interactive`, `quick`, `voice`, or `gui` |
 | `twenty_rules` | Dr. Piotr Woźniak's *Twenty Rules of Formulating Knowledge* (SuperMemo), as card-authoring guidance for the assistant. No arguments |
 
 ## Requirements

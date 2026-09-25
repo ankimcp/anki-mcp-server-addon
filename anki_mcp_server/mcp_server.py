@@ -527,6 +527,7 @@ class McpServer:
             mcp, self._call_main_thread,
             disabled_tools=self._config.disabled_tools,
             enabled_destructive_tools=self._config.enabled_destructive_tools,
+            enabled_opt_in_tools=self._config.enabled_opt_in_tools,
         )
         register_all_resources(mcp, self._call_main_thread)
         register_all_prompts(mcp)

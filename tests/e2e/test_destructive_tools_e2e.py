@@ -1,4 +1,5 @@
-"""E2E coverage for the destructive-tools opt-in mechanism (issue #46).
+"""E2E coverage for the destructive-tools opt-in mechanism (issue #46), plus
+the analogous opt-in-tools mechanism (issue #74) at the bottom of this file.
 
 SCOPE
 -----
@@ -128,4 +129,51 @@ class TestDestructiveActionHiddenByDefault:
             assert action in actions, (
                 f"Expected non-destructive action '{action}' to remain. "
                 f"Found: {sorted(actions)}"
+            )
+
+
+# ===========================================================================
+# Opt-in tools opt-in mechanism (issue #74)
+#
+# gui_deck_review and gui_answer_card are declared @Tool(..., opt_in=True) --
+# hidden from tools/list unless named in enabled_opt_in_tools. The default
+# server (port 3141, .docker/config.json) does not set enabled_opt_in_tools,
+# so both must be absent here. The REVEAL half -- and the actual behavioral
+# coverage of these two tools -- runs against the filtered server (port 3142,
+# .docker/config-filtered.json, which does opt them in) in
+# test_gui_review_session.py; see Makefile's e2e-filtered-test and CLAUDE.md's
+# "Two test suites".
+# ===========================================================================
+
+
+class TestOptInToolsHiddenByDefault:
+    """HIDE half: gui_deck_review / gui_answer_card are opt-in and hidden by
+    default on the unfiltered server."""
+
+    def test_opt_in_gui_tools_absent(self):
+        tool_names = {t["name"] for t in list_tools()}
+        for name in ("gui_deck_review", "gui_answer_card"):
+            assert name not in tool_names, (
+                f"'{name}' is opt-in and must stay hidden unless "
+                f"enabled_opt_in_tools lists it. Found: {sorted(tool_names)}"
+            )
+
+    def test_pre_existing_gui_tools_unaffected(self):
+        """The opt-in gate must not have swept up pre-existing GUI tools --
+        only the two brand-new ones added alongside it are opt_in=True."""
+        tool_names = {t["name"] for t in list_tools()}
+        for name in (
+            "gui_current_card",
+            "gui_show_answer",
+            "gui_show_question",
+            "gui_select_card",
+            "gui_browse",
+            "gui_add_cards",
+            "gui_edit_note",
+            "gui_deck_browser",
+            "gui_undo",
+        ):
+            assert name in tool_names, (
+                f"'{name}' should not be affected by the opt-in gate. "
+                f"Found: {sorted(tool_names)}"
             )

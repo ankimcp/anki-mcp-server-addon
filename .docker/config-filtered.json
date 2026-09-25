@@ -9,5 +9,9 @@
   ],
   "enabled_destructive_tools": [
     "model_fields:remove"
+  ],
+  "enabled_opt_in_tools": [
+    "gui_deck_review",
+    "gui_answer_card"
   ]
 }

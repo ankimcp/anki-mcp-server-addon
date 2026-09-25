@@ -34,7 +34,15 @@ _registry: dict[str, dict[str, Any]] = {}
 # Parameters:
 #   - name: Unique tool identifier exposed to MCP clients
 #   - description: Shown to AI to understand when/how to use the tool
-#   - write: If True, wraps with _write_lock for Anki's undo system
+#   - write: If True, marks the tool as mutating the collection (the
+#     destructive precondition below; reserved for a future readOnlyHint).
+#     Also gates whether _write_lock refreshes Anki's UI after the handler
+#     runs -- see refresh_ui.
+#   - refresh_ui: Only meaningful when write=True. If True (default), calls
+#     mw.reset() after the handler to refresh open deck browser/overview/
+#     reviewer screens. Set False for a tool that already refreshes the UI
+#     itself (e.g. gui_answer_card, whose reviewer op is its own async
+#     CollectionOp) -- an extra mw.reset() there would race it.
 #   - require_col: If True (default), checks collection is open before running
 #   - destructive: If True, the tool is hidden from MCP clients unless the
 #     operator opts in via the enabled_destructive_tools config allow-list.
@@ -42,9 +50,16 @@ _registry: dict[str, dict[str, Any]] = {}
 #     collection is a definition error). For multi-action tools, mark
 #     individual actions instead with `_destructive: ClassVar[bool] = True`
 #     on the action's Params model in the dispatcher module.
+#   - opt_in: If True, the tool is hidden from MCP clients unless the
+#     operator opts in via the enabled_opt_in_tools config allow-list. Unlike
+#     destructive, this does not require write=True -- it's for tools that
+#     are opt-in for reasons other than being dangerous (e.g. new/experimental
+#     surface area). Same "tool" / "tool:action" allow-list syntax as
+#     enabled_destructive_tools.
 #
 # What happens at import time:
-#   1. Wraps with _write_lock if write=True (Anki undo handling)
+#   1. Wraps with _write_lock if write=True (Anki UI refresh, unless
+#      refresh_ui=False)
 #   2. Wraps with _require_col if require_col=True (collection check)
 #   3. Wraps with _error_handler (catches exceptions, returns JSON)
 #   4. Registers handler for main-thread dispatch
@@ -58,8 +73,10 @@ class Tool:
         handler: Optional[Callable[..., Any]] = None,
         *,
         write: bool = False,
+        refresh_ui: bool = True,
         require_col: bool = True,
         destructive: bool = False,
+        opt_in: bool = False,
     ):
         if destructive and not write:
             raise ValueError(
@@ -70,8 +87,10 @@ class Tool:
         self.name = name
         self.description = description
         self.write = write
+        self.refresh_ui = refresh_ui
         self.require_col = require_col
         self.destructive = destructive
+        self.opt_in = opt_in
 
         # Support both @Tool(...) decorator and Tool(..., handler=fn) direct call
         if handler is not None:
@@ -92,7 +111,7 @@ class Tool:
         wrapped = func
 
         if self.write:
-            wrapped = _write_lock(wrapped)  # Handle Anki's undo system
+            wrapped = _write_lock(wrapped, refresh_ui=self.refresh_ui)
 
         if self.require_col:
             wrapped = _require_col(wrapped)  # Check collection is open
@@ -115,17 +134,34 @@ class Tool:
             "original": func,
             "write": self.write,
             "destructive": self.destructive,
+            "opt_in": self.opt_in,
         }
 
 
 # ------------------------------------------------------------------------------
-# _write_lock - Handle Anki's undo system for write operations
+# _write_lock - Refresh Anki's UI after a write operation
 # ------------------------------------------------------------------------------
-# Calls mw.requireReset() before and mw.maybeReset() after the operation.
-# This ensures Anki's UI updates and undo stack is properly maintained.
-# Only applied when write=True in @Tool decorator.
+# Calls mw.reset() after the handler runs -- on success AND on error, since a
+# handler that raised may still have written (e.g. change_note_type_tool.py
+# mutates then calls _verify(), which re-reads and can raise after the
+# mutation already happened) -- so open deck browser/overview/reviewer screens
+# pick up the change either way. mw.requireReset()/mw.maybeReset() are NOT
+# used here (see below). Only applied when write=True in @Tool decorator.
+#
+# mw.requireReset()/mw.maybeReset() (aqt/main.py) are obsolete no-ops in
+# current Anki: maybeReset() is `pass`, and requireReset() prints a
+# deprecation notice plus a full stack trace to stdout before calling
+# mw.reset() anyway -- so every write tool was dumping a stack trace per call
+# for no behavioral benefit. mw.reset() itself is still the supported
+# non-CollectionOp way to trigger a UI refresh (no warnings, no printing): it
+# fires gui_hooks.operation_did_execute with an OpChanges that has every field
+# set, which is exactly what the deck browser/overview/reviewer screens check
+# to decide whether to rebuild. CollectionOp is not used instead because it is
+# async (backend call on a worker thread, completion delivered via a Qt
+# signal); our handlers already run synchronously on the main thread via the
+# queue bridge, so there is no async boundary for it to wrap.
 # ------------------------------------------------------------------------------
-def _write_lock(func: Callable[..., Any]) -> Callable[..., Any]:
+def _write_lock(func: Callable[..., Any], refresh_ui: bool = True) -> Callable[..., Any]:
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         mw = _get_mw()
@@ -135,12 +171,22 @@ def _write_lock(func: Callable[..., Any]) -> Callable[..., Any]:
             raise HandlerError("Main window not available", hint="Make sure Anki is fully loaded")
 
         try:
-            mw.requireReset()  # Mark that we're about to modify collection
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
         finally:
-            # Reset UI state after write, even if exception occurred
-            if mw is not None and mw.col is not None:
-                mw.maybeReset()
+            # A handler that raised may still have written (change_note_type
+            # verifies after the backend call), so refresh either way. Guard
+            # against the closed-for-full-sync case (mw.col non-None with
+            # db=None -- see handler_wrappers.py's _check_col_available), and
+            # never let a refresh failure mask the handler's own exception.
+            # refresh_ui=False skips this entirely -- for a tool whose write
+            # already refreshes the UI itself (see the Tool docstring above).
+            if refresh_ui and mw.col is not None and getattr(mw.col, "db", None) is not None:
+                try:
+                    mw.reset()
+                except Exception:
+                    logger.exception("mw.reset() after write failed")
+
+        return result
 
     return wrapper
 
@@ -307,6 +353,38 @@ def _get_base_description(original: Any) -> str | None:
     return None
 
 
+def _get_marked_actions(original: Any, attr: str) -> set[str]:
+    """Collect action names whose Params model sets ``attr`` truthy.
+
+    Shared machinery behind ``_get_destructive_actions`` (``attr =
+    "_destructive"``) and ``_get_opt_in_actions`` (``attr = "_opt_in"``):
+    both gates mark individual actions of a multi-action tool the same way,
+    via a ``ClassVar[bool] = True`` on the action's Params model (in the
+    dispatcher module, alongside ``_tool_description``).
+
+    Args:
+        original: The unwrapped tool function from the registry.
+        attr: The ClassVar name to check on each union member model.
+
+    Returns:
+        Set of action literal values whose Params model has ``attr`` set
+        truthy. Empty set for single-action tools or when no action is
+        marked.
+    """
+    annotations = getattr(original, "__annotations__", {})
+    for ann in annotations.values():
+        if _is_annotated_union(ann):
+            args = get_args(ann)
+            union_members = get_args(args[0])
+            return {
+                action
+                for m in union_members
+                if getattr(m, attr, False)
+                and (action := _get_action_literal(m)) is not None
+            }
+    return set()
+
+
 def _get_destructive_actions(original: Any) -> set[str]:
     """Collect action names marked destructive in a multi-action tool.
 
@@ -322,18 +400,25 @@ def _get_destructive_actions(original: Any) -> set[str]:
         destructive. Empty set for single-action tools or when no
         action is marked.
     """
-    annotations = getattr(original, "__annotations__", {})
-    for ann in annotations.values():
-        if _is_annotated_union(ann):
-            args = get_args(ann)
-            union_members = get_args(args[0])
-            return {
-                action
-                for m in union_members
-                if getattr(m, "_destructive", False)
-                and (action := _get_action_literal(m)) is not None
-            }
-    return set()
+    return _get_marked_actions(original, "_destructive")
+
+
+def _get_opt_in_actions(original: Any) -> set[str]:
+    """Collect action names marked opt-in in a multi-action tool.
+
+    Actions opt in to the opt-in gate by declaring
+    ``_opt_in: ClassVar[bool] = True`` on their Params model (in the
+    dispatcher module, alongside ``_tool_description``). Mirrors
+    ``_get_destructive_actions`` -- see ``_get_marked_actions``.
+
+    Args:
+        original: The unwrapped tool function from the registry.
+
+    Returns:
+        Set of action literal values whose Params model is marked opt-in.
+        Empty set for single-action tools or when no action is marked.
+    """
+    return _get_marked_actions(original, "_opt_in")
 
 
 def _validate_disabled_entries(
@@ -436,6 +521,75 @@ def validate_disabled_tools(disabled_list: list[str]) -> list[str]:
     return _validate_disabled_entries(disabled_whole, disabled_actions)
 
 
+def _validate_enabled_gate_tools(
+    enabled_list: list[str],
+    *,
+    config_key: str,
+    meta_key: str,
+    article_label: str,
+    get_marked_actions: Callable[[Any], set[str]],
+) -> list[str]:
+    """Shared logic behind validate_enabled_destructive_tools and
+    validate_enabled_opt_in_tools -- both allow-lists have the identical
+    two-problem-class shape (typo, and no-op opt-in of something not gated).
+
+    Args:
+        enabled_list: Raw config entries (e.g. ``["delete_decks", "tool:action"]``).
+        config_key: Config field name used as the warning prefix.
+        meta_key: Registry meta key for the WHOLE-TOOL gate flag
+            (``"destructive"`` or ``"opt_in"``).
+        article_label: Human-readable adjective for the warning text, WITH its
+            article (``"a destructive"`` or ``"an opt-in"``) -- kept separate
+            from meta_key so the message reads naturally (and grammatically)
+            regardless of the registry key's exact spelling.
+        get_marked_actions: Function returning the set of gated action
+            literals for a tool's unwrapped original function.
+
+    Returns:
+        List of warning messages. Empty list if everything is valid.
+    """
+    if not enabled_list:
+        return []
+    opted_whole, opted_actions = _parse_disabled(enabled_list)
+
+    # Class 1: unknown tool/action names (typos)
+    warnings = _validate_disabled_entries(
+        opted_whole, opted_actions, config_key=config_key
+    )
+
+    # Class 2: real tools/actions that aren't marked for this gate (no-ops)
+    for name in sorted(opted_whole):
+        meta = _registry.get(name)
+        if meta is not None and not meta[meta_key]:
+            warnings.append(
+                f"{config_key}: no-op: '{name}' is not {article_label} tool"
+            )
+
+    for tool_name in sorted(opted_actions):
+        meta = _registry.get(tool_name)
+        if meta is None:
+            continue  # Already warned as unknown above
+        marked_actions = get_marked_actions(meta["original"])
+        annotations = getattr(meta["original"], "__annotations__", {})
+        union_ann = next(
+            (ann for ann in annotations.values() if _is_annotated_union(ann)),
+            None,
+        )
+        if union_ann is None:
+            continue  # Already warned as "not a multi-action tool" above
+        known_actions = {
+            _get_action_literal(m) for m in get_args(get_args(union_ann)[0])
+        }
+        for action in sorted(opted_actions[tool_name]):
+            if action in known_actions and action not in marked_actions:
+                warnings.append(
+                    f"{config_key}: no-op: '{tool_name}:{action}' "
+                    f"is not {article_label} action"
+                )
+
+    return warnings
+
+
 def validate_enabled_destructive_tools(enabled_list: list[str]) -> list[str]:
     """Validate enabled_destructive_tools config entries against registered tools.
 
@@ -454,47 +608,36 @@ def validate_enabled_destructive_tools(enabled_list: list[str]) -> list[str]:
     Returns:
         List of warning messages. Empty list if everything is valid.
     """
-    if not enabled_list:
-        return []
-    opted_whole, opted_actions = _parse_disabled(enabled_list)
-
-    # Class 1: unknown tool/action names (typos)
-    warnings = _validate_disabled_entries(
-        opted_whole, opted_actions, config_key="enabled_destructive_tools"
+    return _validate_enabled_gate_tools(
+        enabled_list,
+        config_key="enabled_destructive_tools",
+        meta_key="destructive",
+        article_label="a destructive",
+        get_marked_actions=_get_destructive_actions,
     )
 
-    # Class 2: real tools/actions that aren't marked destructive (no-ops)
-    for name in sorted(opted_whole):
-        meta = _registry.get(name)
-        if meta is not None and not meta["destructive"]:
-            warnings.append(
-                f"enabled_destructive_tools: no-op: '{name}' "
-                f"is not a destructive tool"
-            )
 
-    for tool_name in sorted(opted_actions):
-        meta = _registry.get(tool_name)
-        if meta is None:
-            continue  # Already warned as unknown above
-        destructive_actions = _get_destructive_actions(meta["original"])
-        annotations = getattr(meta["original"], "__annotations__", {})
-        union_ann = next(
-            (ann for ann in annotations.values() if _is_annotated_union(ann)),
-            None,
-        )
-        if union_ann is None:
-            continue  # Already warned as "not a multi-action tool" above
-        known_actions = {
-            _get_action_literal(m) for m in get_args(get_args(union_ann)[0])
-        }
-        for action in sorted(opted_actions[tool_name]):
-            if action in known_actions and action not in destructive_actions:
-                warnings.append(
-                    f"enabled_destructive_tools: no-op: '{tool_name}:{action}' "
-                    f"is not a destructive action"
-                )
+def validate_enabled_opt_in_tools(enabled_list: list[str]) -> list[str]:
+    """Validate enabled_opt_in_tools config entries against registered tools.
 
-    return warnings
+    Mirrors validate_enabled_destructive_tools -- same two problem classes
+    (typo, no-op opt-in of a tool/action that isn't gated by opt_in=True /
+    ``_opt_in: ClassVar[bool] = True``).
+
+    Args:
+        enabled_list: Raw ``enabled_opt_in_tools`` config entries
+            (e.g., ``["gui_answer_card"]``).
+
+    Returns:
+        List of warning messages. Empty list if everything is valid.
+    """
+    return _validate_enabled_gate_tools(
+        enabled_list,
+        config_key="enabled_opt_in_tools",
+        meta_key="opt_in",
+        article_label="an opt-in",
+        get_marked_actions=_get_opt_in_actions,
+    )
 
 
 # ------------------------------------------------------------------------------
@@ -506,16 +649,19 @@ def validate_enabled_destructive_tools(enabled_list: list[str]) -> list[str]:
 # Applies the enabled_destructive_tools allow-list: destructive tools/actions
 # are hidden unless explicitly opted in (exact match, same "tool" /
 # "tool:action" syntax as disabled_tools; a whole-tool entry does NOT
-# implicitly opt in destructive sub-actions).
+# implicitly opt in destructive sub-actions). Applies the enabled_opt_in_tools
+# allow-list the same way, independently of the destructive gate.
 # ------------------------------------------------------------------------------
 def register_tools(
     mcp: Any,
     call_main_thread: Callable[..., Any],
     disabled_tools: list[str] | None = None,
     enabled_destructive_tools: list[str] | None = None,
+    enabled_opt_in_tools: list[str] | None = None,
 ) -> None:
     disabled_whole, disabled_actions = _parse_disabled(disabled_tools or [])
     opted_whole, opted_actions = _parse_disabled(enabled_destructive_tools or [])
+    opted_in_whole, opted_in_actions = _parse_disabled(enabled_opt_in_tools or [])
 
     for name, meta in _registry.items():
         if name in disabled_whole:
@@ -528,14 +674,27 @@ def register_tools(
                 "enabled_destructive_tools): %s", name,
             )
             continue
-        # Per-action destructive gate: destructive actions not opted in are
-        # hidden; disabled_tools actions union on top (precedence: destructive
+        # Whole-tool opt-in gate: hidden unless opted in by the operator
+        if meta["opt_in"] and name not in opted_in_whole:
+            logger.info(
+                "Tool hidden (opt-in, not opted in via "
+                "enabled_opt_in_tools): %s", name,
+            )
+            continue
+        # Per-action destructive/opt-in gates: gated actions not opted in are
+        # hidden; disabled_tools actions union on top (precedence: gated
         # -not-opted-in always hidden, disabled always wins over opted-in).
         hidden_destructive = (
             _get_destructive_actions(meta["original"])
             - opted_actions.get(name, set())
         )
-        effective_disabled = disabled_actions.get(name, set()) | hidden_destructive
+        hidden_opt_in = (
+            _get_opt_in_actions(meta["original"])
+            - opted_in_actions.get(name, set())
+        )
+        effective_disabled = (
+            disabled_actions.get(name, set()) | hidden_destructive | hidden_opt_in
+        )
         _make_mcp_tool(mcp, call_main_thread, name, meta, effective_disabled)
 
     # Warn about typos / unknown names after registration

@@ -82,19 +82,32 @@ async def _call_main_thread(*args, **kwargs) -> dict:
     return {}
 
 
+def _all_whole_tool_gated(meta_key: str) -> list[str]:
+    """Every registered tool whose WHOLE-TOOL gate flag (``meta_key``, one of
+    ``"destructive"``/``"opt_in"``) is set -- derived from ``_registry`` so
+    this test can't silently stop covering a tool's schema just because a new
+    gated primitive was added and nobody remembered to hand-list it here.
+
+    Per-action gated entries (e.g. model_fields:remove) are deliberately NOT
+    included: opting in a single action of a multi-action tool wouldn't
+    change anything this test observes, since the tool still exposes one
+    top-level "params" property regardless of which actions are enabled.
+    """
+    return [name for name, meta in _registry.items() if meta[meta_key]]
+
+
 def _build_real_mcp() -> FastMCP:
     mcp = FastMCP("test-server")
     _primitives_tools.register_all_tools(
         mcp,
         _call_main_thread,
         disabled_tools=None,
-        # Opt in the known whole-tool-destructive primitive (see CLAUDE.md
-        # "Tool Filtering") so its schema is covered by this test too.
-        # model_fields:remove is intentionally NOT opted in here: model_fields
-        # exposes a single top-level "params" property regardless of which
-        # actions are enabled, so opting it in wouldn't change anything this
-        # test observes.
-        enabled_destructive_tools=["change_note_type"],
+        # Opt in every whole-tool-destructive / whole-tool-opt-in primitive
+        # (see CLAUDE.md "Tool Filtering") so their schemas are covered by
+        # this test too -- see _all_whole_tool_gated's docstring for why
+        # per-action entries are excluded.
+        enabled_destructive_tools=_all_whole_tool_gated("destructive"),
+        enabled_opt_in_tools=_all_whole_tool_gated("opt_in"),
     )
     return mcp
 

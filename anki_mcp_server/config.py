@@ -57,6 +57,13 @@ class Config:
     # a destructive action. disabled_tools still applies on top.
     enabled_destructive_tools: List[str] = field(default_factory=list)
 
+    # Opt-in allow-list for opt-in tools/actions (hidden by default, same
+    # exact-match "tool" / "tool:action" syntax as enabled_destructive_tools).
+    # Unlike destructive, opt-in tools aren't necessarily dangerous -- this is
+    # for new/experimental surface area the operator must explicitly enable.
+    # Example: ["gui_answer_card", "gui_deck_review"]
+    enabled_opt_in_tools: List[str] = field(default_factory=list)
+
     # Batch operation limits
     # Maximum notes per add_notes / update_notes / change_note_type /
     # delete_notes / notes_info call (default 100)
