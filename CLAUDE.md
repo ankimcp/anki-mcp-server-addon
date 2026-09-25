@@ -9,18 +9,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 make e2e                        # Full E2E cycle: regular (port 3141) + filtered (port 3142)
 make e2e-full                   # Regular tests only: build → Docker → test → teardown
 make e2e-up                     # Build addon + start headless Anki container (port 3141)
-make e2e-test                   # Run E2E tests (excludes test_tool_filtering_e2e.py)
+make e2e-test                   # Run E2E tests (excludes test_tool_filtering_e2e.py and test_gui_review_session.py)
 make e2e-down                   # Stop container
 make e2e-debug                  # Start container and keep it running (VNC at localhost:5900)
 make e2e-logs                   # Follow container logs (-f, interactive only — never in CI)
 make e2e-logs-dump              # Dump last 2000 lines of container logs and exit (CI-safe)
 make e2e-filtered               # Filtered tests only: build → Docker (port 3142) → test → teardown
 make e2e-filtered-up            # Start filtered container (docker-compose.filtered.yml)
-make e2e-filtered-test          # Run test_tool_filtering_e2e.py + test_model_fields_remove.py against port 3142
+make e2e-filtered-test          # Run test_tool_filtering_e2e.py + test_model_fields_remove.py + test_gui_review_session.py against port 3142
 make e2e-filtered-down          # Stop filtered container
 make e2e-filtered-logs-dump     # Dump last 2000 lines of filtered container logs and exit (CI-safe)
 make e2e INSPECTOR_VERSION=latest       # Same cycle against the newest MCP Inspector (nightly canary does this)
-pytest tests/e2e/ -v --ignore=tests/e2e/test_tool_filtering_e2e.py  # Run tests directly
+pytest tests/e2e/ -v --ignore=tests/e2e/test_tool_filtering_e2e.py --ignore=tests/e2e/test_gui_review_session.py  # Run tests directly
 pytest tests/e2e/test_note_tools.py -v  # Run a single test file
 pytest tests/unit/ -v                   # Run unit tests (tunnel in-memory transport)
 ```
@@ -73,6 +73,8 @@ Anki addon that runs an MCP server inside Anki, exposing collection operations t
 **Key Principle**: Never access `mw.col` from background threads. All Anki operations must go through the queue bridge to execute on the main Qt thread.
 
 Both HTTP and tunnel transports share the same `Server` object (same handlers, same tools). Each runs its own `Server.run()` with separate streams and session state. Either can be enabled/disabled independently.
+
+A tool handler that reaches `mw.taskman.run_in_background` (e.g. via an async CollectionOp) can trigger a nested `RequestProcessor` drain mid-handler: `run_in_background`, when called from the main thread, synchronously flushes any `run_on_main` closures already queued before it returns — including a drain closure for a second MCP request that arrived while the first was still being handled. A `_draining` re-entrancy guard makes that nested drain call a safe no-op so the outer drain loop handles the queued request instead — see `request_processor.py`'s `_process_pending()` docstring for the full mechanics.
 
 ### Core Files
 
@@ -164,9 +166,11 @@ def my_tool(arg: str) -> dict[str, Any]:
 ```
 
 Options:
-- `write=True`: Calls `mw.reset()` after the handler runs, on success or error, so open deck browser/overview/reviewer screens refresh (`requireReset`/`maybeReset` are obsolete no-ops in current Anki and are not used)
+- `write=True`: Marks the tool as mutating the collection — this is the `destructive` precondition, and is reserved for a future MCP `readOnlyHint` (not wired up yet). Also gates `_write_lock`, which — when `refresh_ui` is also true — calls `mw.reset()` after the handler runs, on success or error, so open deck browser/overview/reviewer screens refresh (`maybeReset` is an obsolete no-op in current Anki; `requireReset` prints a deprecation notice plus a full stack trace before calling `mw.reset()` anyway, so neither is used here)
+- `refresh_ui=True` (default): Only meaningful when `write=True`. Set `False` for a tool that already refreshes Anki's UI itself (e.g. `gui_answer_card`, whose reviewer op is its own async `CollectionOp`) — an extra `mw.reset()` there would race it.
 - `require_col=True` (default): Checks collection is open before running
 - `destructive=True`: Hides the tool from MCP clients unless the operator opts in via `enabled_destructive_tools` config (see "Tool Filtering"). Requires `write=True` — `ValueError` at import time otherwise. For multi-action tools, mark individual actions with `_destructive: ClassVar[bool] = True` on the action's Params model instead.
+- `opt_in=True`: Hides the tool from MCP clients unless the operator opts in via `enabled_opt_in_tools` config (see "Tool Filtering"). Does not require `write=True` — unlike `destructive`, this is for tools that are opt-in for reasons other than being dangerous.
 
 #### @Resource Decorator
 
@@ -491,6 +495,8 @@ Both share one `Server` object and run on the same asyncio loop (see "Tunnel Arc
 - Startup validation (`validate_enabled_destructive_tools`) warns on typos and on no-op entries that name a real but non-destructive tool/action.
 - Shipped destructive primitives: `change_note_type` is the first whole-tool destructive tool (`@Tool(..., destructive=True)`), and `model_fields:remove` is the first destructive action (`_destructive: ClassVar[bool] = True` on its Params model). Both stay hidden until named in `enabled_destructive_tools`.
 
+**Opt-in tools**: Tools declared with `@Tool(..., opt_in=True)` — or actions whose Params model sets `_opt_in: ClassVar[bool] = True` — are **hidden from `tools/list` by default**, the same mechanism as `destructive` but for tools/actions that are opt-in for reasons other than being dangerous (new/experimental surface area). The operator opts in via the `enabled_opt_in_tools` config allow-list, exact `"tool"` / `"tool:action"` match, composing with `disabled_tools` and independent of the destructive gate. Unlike `destructive`, `opt_in=True` does NOT require `write=True`. Startup validation (`validate_enabled_opt_in_tools`) mirrors `validate_enabled_destructive_tools`. Shipped opt-in primitives: `gui_deck_review` and `gui_answer_card` (the GUI hands-free review-session tools), both stay hidden until named in `enabled_opt_in_tools`.
+
 ### Pending Full-Sync Flag (`schema_state.py`)
 
 Every model-mutating tool's success payload carries `will_force_full_sync` (`RESULT_KEY`), added by `attach_full_sync_flag(result, col)`. Contract:
@@ -529,11 +535,11 @@ make e2e                        # Runs BOTH regular and filtered suites
 
 # Or step by step:
 make e2e-up                     # Build + start container (waits 5s)
-make e2e-test                   # Run pytest (excludes tool filtering tests)
+make e2e-test                   # Run pytest (excludes tool filtering tests and test_gui_review_session.py)
 make e2e-down                   # Stop container
 ```
 
-**Two test suites**: `make e2e` runs both the regular suite (port 3141, all tools enabled) and the filtered suite (port 3142, `docker-compose.filtered.yml`, which sets both `disabled_tools` and `enabled_destructive_tools`). `make e2e-filtered-test` runs `test_tool_filtering_e2e.py` **and `test_model_fields_remove.py`** — the latter is not a filtering test, it just needs the filtered container's `enabled_destructive_tools: ["model_fields:remove"]` to see the destructive action at all (it self-skips on port 3141). Both are excluded from `make e2e-test`.
+**Two test suites**: `make e2e` runs both the regular suite (port 3141, all tools enabled) and the filtered suite (port 3142, `docker-compose.filtered.yml`, which sets `disabled_tools`, `enabled_destructive_tools`, and `enabled_opt_in_tools`). `make e2e-filtered-test` runs `test_tool_filtering_e2e.py`, `test_model_fields_remove.py`, **and `test_gui_review_session.py`** — the latter two are not filtering tests themselves, they just need the filtered container's config to see their tools at all: `test_model_fields_remove.py` needs `enabled_destructive_tools: ["model_fields:remove"]`, and `test_gui_review_session.py` needs `enabled_opt_in_tools: ["gui_deck_review", "gui_answer_card"]` since those two tools are opt-in and absent from the default (port 3141) schema. The three differ in HOW they self-skip, though: `test_model_fields_remove.py` skips based on tool absence (its `_require_remove_action` fixture checks whether `remove` is in the schema) and so is safe to leave in `make e2e-test`'s collection without an explicit `--ignore`. `test_gui_review_session.py` instead self-skips unless pointed at port 3142 (keyed on the server URL, not tool absence, precisely so a reveal regression on port 3142 fails loudly instead of quietly skipping) -- it's still excluded via `--ignore` too, matching `test_tool_filtering_e2e.py` (which has no self-skip at all and would otherwise fail outright against the default server).
 
 **MCP Inspector pin**: the test client is pinned to an exact npm version, in **three literals that must stay in sync** — `INSPECTOR_DEFAULT_VERSION` in `tests/e2e/helpers.py` (used by the suite), and in the `Makefile` both `INSPECTOR_VERSION ?=` and the `override INSPECTOR_VERSION :=` empty-env fallback (used by the readiness probes). `tests/unit/test_version_consistency.py` asserts all three agree. Both files honour an `INSPECTOR_VERSION` environment variable, and `make` exports it, so `make e2e INSPECTOR_VERSION=latest` moves both at once. The pin buys reproducibility; the cost — finding upstream breakage late — is paid by `.github/workflows/e2e-inspector-latest.yml`, a nightly that reuses `e2e.yml` via `workflow_call` with `latest`. A breaking Inspector release therefore shows up as a red canary, not as a blocked release. The suite needs Inspector **2.x** specifically: a tool error must exit non-zero, write a `{"error":{"code":...}}` envelope to stderr, and still write the result envelope to stdout.
 

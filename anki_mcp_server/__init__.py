@@ -279,7 +279,11 @@ from .config import Config, ConfigManager
 from .connection_manager import ConnectionManager
 from .diagnostics_section import DiagnosticsSection
 from .http_auth import validate_http_api_key
-from .tool_decorator import validate_disabled_tools, validate_enabled_destructive_tools
+from .tool_decorator import (
+    validate_disabled_tools,
+    validate_enabled_destructive_tools,
+    validate_enabled_opt_in_tools,
+)
 from .transport_security_config import validate_http_allowlist
 from .tunnel.ui import toolbar_indicator
 from .tunnel.ui.settings_section import TunnelSettingsSection
@@ -329,6 +333,9 @@ def _on_profile_opened() -> None:
     warnings.extend(validate_disabled_tools(config.disabled_tools))
     warnings.extend(
         validate_enabled_destructive_tools(config.enabled_destructive_tools)
+    )
+    warnings.extend(
+        validate_enabled_opt_in_tools(config.enabled_opt_in_tools)
     )
     warnings.extend(validate_http_allowlist(config))
     warnings.extend(validate_http_api_key(config))

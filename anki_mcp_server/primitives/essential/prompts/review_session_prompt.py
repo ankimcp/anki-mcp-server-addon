@@ -57,6 +57,11 @@ GUI REVIEW MODE:
   or render card content yourself, you only read what the reviewer is showing
 - Never call get_due_cards, present_card, or rate_card in this mode -- they are for
   AI-driven review sessions outside the GUI reviewer and would desync it
+- Note: gui_deck_review and gui_answer_card are opt-in tools. If they are missing from
+  your tools list, tell the user they need to add "gui_deck_review" and "gui_answer_card"
+  to the enabled_opt_in_tools setting in the addon config
+- If this is a voice-only session, read the card text aloud plainly -- skip describing
+  images, audio, or HTML markup, and don't read out formatting
 - Rate cards based on quality of the user's recall:
   * Again (1): Completely forgot or major errors
   * Hard (2): Struggled but got it eventually
@@ -74,11 +79,16 @@ WORKFLOW:
 6. Evaluate their response and suggest a rating (1-4)
 7. Wait for user confirmation, then use gui_answer_card with that ease to record it
    - It returns immediately and does not wait for Anki to finish advancing the reviewer
+   - Note its answered_count value -- this is how you confirm the rating actually took
 8. Call gui_current_card for the next card
    - If it reports advancing=true, Anki hasn't finished yet -- call gui_current_card again
-   - If it reports the same cardId with advancing=false, the rating did not take effect --
-     stop and tell the user rather than re-rating
+     (up to ~5 times; if it is still advancing after that, tell the user to check the
+     Anki window instead of continuing to poll)
    - If it reports inReview=false, there are no more cards due -- end the session here
+   - Once advancing=false, compare its answered_count to the value from step 7 -- if it
+     did NOT increase, the rating did not take effect: stop and tell the user rather than
+     re-rating. (A repeated cardId alone is NOT evidence of failure -- Anki's learn-ahead
+     can legitimately re-show the same card.)
    - Otherwise it is the next card -- repeat from step 3
 9. Continue until a gui_current_card call reports inReview=false or {card_limit} cards reviewed
 

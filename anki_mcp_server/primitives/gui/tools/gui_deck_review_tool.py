@@ -1,4 +1,6 @@
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -13,8 +15,11 @@ from ....handler_wrappers import HandlerError, get_col
     "Anki's reviewer drops back to the deck overview on its own when nothing is due, so "
     "inReview=false with no error is a normal outcome, not a failure.",
     write=False,
+    opt_in=True,
 )
-def gui_deck_review(deck_name: str) -> dict[str, Any]:
+def gui_deck_review(
+    deck_name: Annotated[str, Field(description="Deck to open in Anki's reviewer")],
+) -> dict[str, Any]:
     from aqt import mw
 
     col = get_col()
@@ -30,6 +35,12 @@ def gui_deck_review(deck_name: str) -> dict[str, Any]:
         )
 
     col.decks.select(deck["id"])
+    # aqt/overview.py and aqt/main.py both call this right before entering
+    # review state -- without it, Collection._startTime is never set, and the
+    # first answerCard() call (which reads elapsed time off it) raises if a
+    # timebox limit is configured and nothing has been studied yet this
+    # session, leaving the reviewer stuck in "transition".
+    col.startTimebox()
     mw.moveToState("review")
 
     if mw.state == "review" and mw.reviewer.card:

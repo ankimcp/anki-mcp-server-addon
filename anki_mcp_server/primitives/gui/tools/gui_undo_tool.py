@@ -14,7 +14,10 @@ logger = logging.getLogger(__name__)
     "IMPORTANT: Only use when user explicitly requests undoing an action. "
     "This tool is for note editing/creation workflows, NOT for review sessions. "
     "Use this to undo mistakes in note creation, editing, or card management.",
-    write=True,
+    # write=False: mw.undo() is an async CollectionOp that refreshes Anki's
+    # UI itself once it completes; write=True's immediate post-handler
+    # mw.reset() would race it.
+    write=False,
 )
 def gui_undo() -> dict[str, Any]:
     from aqt import mw

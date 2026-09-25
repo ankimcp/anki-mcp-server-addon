@@ -119,7 +119,7 @@ e2e-down:
 
 # Run E2E tests (assumes container is running)
 e2e-test:
-	pytest tests/e2e/ -v --ignore=tests/e2e/test_tool_filtering_e2e.py
+	pytest tests/e2e/ -v --ignore=tests/e2e/test_tool_filtering_e2e.py --ignore=tests/e2e/test_gui_review_session.py
 
 # Show container logs (follows -- interactive use only, never in CI)
 e2e-logs:
@@ -162,8 +162,12 @@ e2e-filtered-down:
 # Run filtered E2E tests (assumes container is running).
 # test_model_fields_remove.py rides along because it needs the filtered
 # container's `enabled_destructive_tools` config, not because it tests filtering.
+# test_gui_review_session.py rides along for the same reason: it exercises
+# gui_deck_review/gui_answer_card, which are opt-in tools absent from the
+# default server's schema -- it needs the filtered container's
+# `enabled_opt_in_tools` config to see them at all.
 e2e-filtered-test:
-	MCP_SERVER_URL=http://localhost:3142 pytest tests/e2e/test_tool_filtering_e2e.py tests/e2e/test_model_fields_remove.py -v
+	MCP_SERVER_URL=http://localhost:3142 pytest tests/e2e/test_tool_filtering_e2e.py tests/e2e/test_model_fields_remove.py tests/e2e/test_gui_review_session.py -v
 
 # Show filtered container logs (follows -- interactive use only, never in CI)
 e2e-filtered-logs:

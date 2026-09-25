@@ -45,8 +45,7 @@ def rate_card(
             hint="Verify the card ID is correct using get_due_cards or other card operations",
         )
 
-    # Computed BEFORE answerCard() mutates the card -- see _ease_names.py.
-    rating_name = ease_name(col, card, rating)
+    rating_name = ease_name(rating)
 
     scheduler = col.sched
     card.start_timer()

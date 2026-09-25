@@ -1,4 +1,6 @@
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import HandlerError, get_col
@@ -18,30 +20,37 @@ from ...essential.tools._ease_names import ease_name
     "the same card. This tool does not wait for Anki to finish advancing the reviewer -- it "
     "returns immediately with pending=True; call gui_current_card afterwards to see the next "
     "card (it reports advancing=true while Anki is still transitioning).",
-    # Deliberately write=False even though this mutates the collection:
-    # answer_card is already its own CollectionOp with its own undo entry, and
-    # write=True's _write_lock would call mw.reset() right after this handler
-    # returns -- while the reviewer is still mid-"transition" from the async
-    # op _answerCard() just kicked off. That reset() synthesizes an
-    # operation_did_execute with everything marked changed, which sets
-    # reviewer._refresh_needed=QUEUES and rebuilds the queue underneath the
-    # in-flight op. write is otherwise reserved for a future readOnlyHint
-    # (see tool_decorator.py) -- don't flip this to True later without
-    # re-checking that reasoning.
-    write=False,
+    write=True,
+    # answer_card is already its own CollectionOp with its own undo entry and
+    # refreshes the reviewer itself -- an extra mw.reset() from _write_lock
+    # would race the async op while it's still mid-"transition" (see
+    # tool_decorator.py's refresh_ui doc).
+    refresh_ui=False,
+    opt_in=True,
 )
-def gui_answer_card(ease: int) -> dict[str, Any]:
+def gui_answer_card(
+    ease: Annotated[int, Field(description="Answer button to press: 1=Again, 2=Hard, 3=Good, 4=Easy")],
+) -> dict[str, Any]:
     from aqt import mw
 
     col = get_col()
 
     if not mw.reviewer or not mw.reviewer.card or mw.state != "review":
-        return {
-            "success": True,
-            "inReview": False,
-            "message": "Not in review mode - no card to answer",
-            "hint": "Use gui_deck_review to start reviewing a deck first.",
-        }
+        raise HandlerError(
+            "Not in review mode - no card to answer",
+            hint="Use gui_deck_review to start reviewing a deck first.",
+        )
+
+    # Not strictly required for correctness -- the state != "answer" check
+    # below already rejects a call made during "transition" too -- but this
+    # gives a caller that double-calls gui_answer_card in quick succession a
+    # more specific, actionable error than the generic "answer is not on
+    # screen yet" below.
+    if mw.reviewer.state == "transition":
+        raise HandlerError(
+            "Anki is still advancing the reviewer from the previous answer",
+            hint="Call gui_current_card and wait until advancing=false before answering again.",
+        )
 
     if mw.reviewer.state != "answer":
         raise HandlerError(
@@ -60,8 +69,7 @@ def gui_answer_card(ease: int) -> dict[str, Any]:
         )
 
     answered_card_id = card.id
-    # Computed BEFORE _answerCard() mutates the card -- see _ease_names.py.
-    ease_display_name = ease_name(col, card, ease)
+    ease_display_name = ease_name(ease)
 
     # reviewer._answerCard() reschedules and advances via Anki's own async
     # CollectionOp -- it returns before the op completes. Handlers on the main
@@ -92,7 +100,14 @@ def gui_answer_card(ease: int) -> dict[str, Any]:
         "ease": ease,
         "easeName": ease_display_name,
         "pending": True,
+        # len(mw.reviewer._answeredIds) -- the reliable "did the rating take"
+        # signal. A repeated card with the same cardId can legitimately
+        # reappear (learn-ahead), so callers should check this increased
+        # rather than compare cardId. See gui_current_card, which returns
+        # the same count.
+        "answered_count": len(mw.reviewer._answeredIds),
         "message": "Rating recorded. Anki is advancing the reviewer.",
-        "hint": "Call gui_current_card for the next card. If it returns the same cardId "
-        "with advancing=true, call it again.",
+        "hint": "Call gui_current_card for the next card (up to ~5 times while "
+        "advancing=true, then check the Anki window). Confirm the rating took by "
+        "comparing answered_count to this response's value, not cardId.",
     }

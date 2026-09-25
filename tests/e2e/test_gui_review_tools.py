@@ -1,15 +1,15 @@
 """Tests for the GUI reviewer tools outside review mode.
 
-Scope note (important): as of test_gui_review_session.py (which sorts before
-this file and enters the reviewer via gui_deck_review, restoring
-``mw.state == "deckBrowser"`` in its own ``finally``), the reviewer IS entered
-elsewhere in the suite. By the time this module's tests run, though, that
-earlier file has already left ``mw.state`` back at ``"deckBrowser"`` and
-``mw.reviewer.card`` at ``None`` -- so these tests still pin down exactly the
-"not in review" guard of gui_current_card / gui_show_answer / gui_show_question:
-these tools must SOFT-fail (success=True, inReview=False) instead of raising,
-so an AI client can tell "the user isn't reviewing" apart from "the call blew
-up".
+Scope note (important): these tests pin down exactly the "not in review" guard
+of gui_current_card / gui_show_answer / gui_show_question: these tools must
+SOFT-fail (success=True, inReview=False) instead of raising, so an AI client
+can tell "the user isn't reviewing" apart from "the call blew up". That only
+holds while the reviewer really is inactive, so the autouse ``_leave_reviewer``
+fixture below returns to the deck browser after every test in this module --
+this file does not depend on test collection/execution order to leave the
+reviewer in the right state (gui_deck_review/gui_answer_card, which do enter
+review state, live in test_gui_review_session.py against a differently
+configured server -- see that file's docstring).
 
 gui_select_card has the analogous guard for the Card Browser window: it is
 tested here for the same reason (the Browser is never opened in this suite --
@@ -17,8 +17,25 @@ no test calls gui_browse, and there is no other code path that opens it).
 """
 from __future__ import annotations
 
+import pytest
+
 from .conftest import unique_id
 from .helpers import call_tool, list_tools
+
+
+@pytest.fixture(autouse=True)
+def _leave_reviewer():
+    """Return to the deck browser before AND after every test in this module.
+
+    Makes each test's "not in review" assertions independent of whatever
+    reviewer state a previous test (in this file or elsewhere) left behind,
+    instead of relying on test collection/execution order. The "before" half
+    protects the very first test collected in this module too -- without it,
+    only tests after the first would actually be guaranteed a clean state.
+    """
+    call_tool("gui_deck_browser")
+    yield
+    call_tool("gui_deck_browser")
 
 # Card IDs are epoch-millisecond timestamps, so this one cannot exist.
 NONEXISTENT_CARD_ID = 99999999999999

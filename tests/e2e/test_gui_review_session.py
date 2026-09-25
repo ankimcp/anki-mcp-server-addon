@@ -1,23 +1,56 @@
 """E2E tests for the GUI review-session tools: gui_deck_review and gui_answer_card.
 
+IMPORTANT -- OPT-IN TOOLS, HIDDEN BY DEFAULT
+---------------------------------------------
+Both tools are declared ``@Tool(..., opt_in=True)``, so they are hidden from
+``tools/list`` unless the operator opts in via the ``enabled_opt_in_tools``
+addon config allow-list. The DEFAULT e2e container (port 3141,
+``.docker/config.json``) does not opt them in -- see
+test_destructive_tools_e2e.py's ``TestOptInToolsHiddenByDefault`` for that HIDE
+half. This file runs against the FILTERED container instead (port 3142,
+``.docker/config-filtered.json``, which lists
+``"gui_deck_review"``/``"gui_answer_card"`` in ``enabled_opt_in_tools``), via
+the ``e2e-filtered-test`` Makefile target -- see CLAUDE.md's "Two test suites".
+
 Scope note: test_gui_review_tools.py only exercises the "not in review" guards of
-gui_current_card / gui_show_answer / gui_show_question, because nothing else in
-the suite ever starts a review session. gui_deck_review is the first MCP tool
-that actually drives Anki's own reviewer into "review" state, so this file also
-exercises the in-review branches of those tools for the first time.
+gui_current_card / gui_show_answer / gui_show_question, because it runs against
+the default (unfiltered) container where gui_deck_review is unavailable to start
+a review session. gui_deck_review is the first MCP tool that actually drives
+Anki's own reviewer into "review" state, so this file also exercises the
+in-review branches of those tools for the first time.
 """
 from __future__ import annotations
 
 import time
 
+import pytest
+
 from .conftest import unique_id
-from .helpers import call_tool, list_tools
+from .helpers import SERVER_URL, call_tool, list_tools
 
 # Bound on polling gui_current_card for the reviewer to finish advancing after
 # gui_answer_card. gui_answer_card returns before Anki's CollectionOp completes
 # (see gui_answer_card_tool.py), so the outcome is only observable this way.
 _ADVANCE_POLL_TIMEOUT_SECONDS = 5.0
 _ADVANCE_POLL_INTERVAL_SECONDS = 0.2
+
+
+@pytest.fixture(autouse=True)
+def _require_filtered_server():
+    """Skip this whole file unless pointed at the filtered server (port 3142).
+
+    Deliberately keyed on the SERVER URL, not on whether gui_deck_review /
+    gui_answer_card are present in tools/list: skipping on tool-absence would
+    make a real reveal regression on the filtered server (enabled_opt_in_tools
+    failing to expose them) look like a harmless skip instead of a failure.
+    """
+    if ":3142" not in SERVER_URL:
+        pytest.skip(
+            "gui_deck_review/gui_answer_card are opt-in tools only exposed by "
+            "the filtered server (port 3142, .docker/config-filtered.json); "
+            f"MCP_SERVER_URL is currently {SERVER_URL!r}. Run via "
+            "'make e2e-filtered-test'."
+        )
 
 
 def _make_deck_with_note(uid: str) -> tuple[str, int]:
@@ -153,6 +186,9 @@ class TestGuiReviewSessionFlow:
             )
             # Only one card was due, so the session should have ended.
             assert settled["inReview"] is False
+            # The reliable "did the rating take" signal: exactly one more
+            # answer than what gui_answer_card itself reported.
+            assert settled["answered_count"] == answered["answered_count"] + 1
 
             # The card graduated out of the "new" queue -- proof it was
             # actually answered through the reviewer, not left desynced.

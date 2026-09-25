@@ -1,5 +1,7 @@
-from typing import Any
+from typing import Annotated, Any
 import logging
+
+from pydantic import Field
 
 from ....tool_decorator import Tool
 from ....handler_wrappers import get_col
@@ -59,7 +61,11 @@ def _answer_buttons(col: Any, reviewer: Any, card: Any) -> tuple[list[int], list
     "rate_card are for AI-driven review sessions outside the GUI reviewer.",
     write=False,
 )
-def gui_current_card(include_answer: bool = False) -> dict[str, Any]:
+def gui_current_card(
+    include_answer: Annotated[
+        bool, Field(description="Also return the note's fields and rendered answer")
+    ] = False,
+) -> dict[str, Any]:
     from aqt import mw
 
     col = get_col()
@@ -69,6 +75,12 @@ def gui_current_card(include_answer: bool = False) -> dict[str, Any]:
             "success": True,
             "cardInfo": None,
             "inReview": False,
+            # mw.reviewer always exists (Anki constructs it once at startup);
+            # only .card/mw.state indicate whether a session is active. Kept
+            # here too so callers can track answered_count across the
+            # inReview=false boundary (e.g. right after the last card ends
+            # a session) without a KeyError.
+            "answered_count": len(mw.reviewer._answeredIds),
             "message": "Not currently in review mode",
             "hint": "Open a deck in Anki and start reviewing to see current card information.",
         }
@@ -118,6 +130,11 @@ def gui_current_card(include_answer: bool = False) -> dict[str, Any]:
         "cardInfo": card_info,
         "inReview": True,
         "advancing": mw.reviewer.state == "transition",
+        # len(mw.reviewer._answeredIds) -- compare against gui_answer_card's
+        # answered_count to confirm a rating actually took effect. A card
+        # reappearing with the same cardId is not itself evidence of failure
+        # (learn-ahead can legitimately re-show it), so check this instead.
+        "answered_count": len(mw.reviewer._answeredIds),
         "message": message,
         "hint": "Use gui_edit_note with the noteId from this response to edit the note behind this card.",
     }

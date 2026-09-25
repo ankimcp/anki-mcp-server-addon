@@ -29,12 +29,29 @@ def gui_show_answer() -> dict[str, Any]:
             "hint": "Start reviewing a deck in Anki to use this tool.",
         }
 
+    # _showAnswer() flips reviewer.state to "answer" unconditionally -- if
+    # Anki is still mid-"transition" from a previous gui_answer_card call,
+    # calling it here would make a subsequent gui_answer_card pass its state
+    # check and re-answer the same card. Bail out without touching the
+    # reviewer; the caller should poll gui_current_card until advancing=false.
+    if mw.reviewer.state == "transition":
+        return {
+            "success": True,
+            "inReview": True,
+            "advancing": True,
+            "message": "Anki is still advancing the reviewer from the previous answer",
+            "hint": "Call gui_current_card and wait until advancing=false before showing the answer.",
+        }
+
     mw.reviewer._showAnswer()
 
     return {
         "success": True,
         "inReview": True,
-        "advancing": mw.reviewer.state == "transition",
+        # Always False: the transition guard above already returned early if
+        # the reviewer was mid-transition, and _showAnswer() itself always
+        # sets state to "answer", never "transition".
+        "advancing": False,
         "message": "Answer side is now displayed",
         "hint": "Use gui_current_card to get full card details including the answer content.",
     }

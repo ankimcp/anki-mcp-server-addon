@@ -34,9 +34,19 @@ def gui_show_question() -> dict[str, Any]:
             "hint": "Start reviewing a deck in Anki to use this tool.",
         }
 
-    # Captured before _showQuestion(), which sets state to "question" and
-    # would otherwise clobber the "transition" marker this reports.
-    advancing = mw.reviewer.state == "transition"
+    # _showQuestion() sets reviewer.state to "question" unconditionally -- if
+    # Anki is still mid-"transition" from a previous gui_answer_card call,
+    # calling it here would clobber that marker. Bail out without touching
+    # the reviewer; the caller should poll gui_current_card until
+    # advancing=false.
+    if mw.reviewer.state == "transition":
+        return {
+            "success": True,
+            "inReview": True,
+            "advancing": True,
+            "message": "Anki is still advancing the reviewer from the previous answer",
+            "hint": "Call gui_current_card and wait until advancing=false before showing the question.",
+        }
 
     mw.reviewer._showQuestion()
     logger.info("Question side shown successfully")
@@ -44,7 +54,7 @@ def gui_show_question() -> dict[str, Any]:
     return {
         "success": True,
         "inReview": True,
-        "advancing": advancing,
+        "advancing": False,
         "message": "Question side is now displayed",
         "hint": "Use gui_current_card to get the card details, or gui_show_answer to reveal the answer.",
     }

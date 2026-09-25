@@ -23,12 +23,9 @@ Architecture:
       no-ops on an empty queue
     - stop() clears the waker and flips the _active flag so late callbacks
       (already queued in Qt's event loop) return without touching the queue
-    - A handler that reaches mw.taskman.run_in_background (sync, gui_undo,
-      gui_answer_card) can trigger a nested drain call mid-handler, since
-      run_in_background flushes queued run_on_main closures synchronously
-      when called from the main thread; a _draining re-entrancy guard makes
-      the nested call a no-op, and the outer drain's loop picks the request
-      up afterwards instead
+    - A handler that reaches mw.taskman.run_in_background can trigger a
+      nested drain call mid-handler; see _process_pending()'s "Re-entrancy"
+      section below for the full mechanics and the _draining guard.
 
 Performance:
     - Zero idle churn (no wakeups while no client is talking)
@@ -76,19 +73,10 @@ class RequestProcessor:
             (delivered by Qt after stop()) check this flag and return
             immediately, closing the shutdown race.
         _draining: True while a drain loop is actually running requests.
-            Guards against re-entrant drains: ``mw.taskman.run_in_background``,
-            when called from the main thread, synchronously flushes every
-            queued ``run_on_main`` closure before returning. A handler that
-            reaches it mid-drain (sync via ``_sync_runner.py``, ``gui_undo``
-            via ``mw.undo()`` -> CollectionOp, ``gui_answer_card`` via
-            ``reviewer._answerCard()``) can therefore trigger a second
-            ``_process_pending()`` nested inside the first if a second
-            request is already queued (queue_bridge.py puts the request,
-            then wakes, so the put always precedes the nested flush). The
-            guard makes the nested call a safe no-op; the outer loop's
-            ``while True`` re-checks the queue after every handler, so the
-            request the nested call would have picked up is still drained,
-            just by the outer loop instead.
+            Guards against re-entrant drains triggered by a handler that
+            reaches ``mw.taskman.run_in_background`` mid-drain -- see
+            ``_process_pending()``'s "Re-entrancy" section below for the
+            full mechanics.
 
     Note:
         With the default scheduler this class requires a running Anki
