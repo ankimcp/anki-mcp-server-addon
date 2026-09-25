@@ -31,12 +31,12 @@
 <li><p><b>Hosted Anki — if you don't want or can't run your computer 24/7.</b> A full copy of Anki on our servers, reachable by your AI around the clock and by you in your browser. Part of the Pro plan ($15/month), still experimental. <a href="https://ankimcp.ai/docs/hosted-anki/">Learn more →</a></p></li>
 </ul>
 
-<h2>New in v0.29.0</h2>
-<p>Every tool parameter now carries a short description in the schema your assistant reads, so it gets the argument shapes right on the first try instead of retrying against validation errors — a real saving for smaller, cheaper models and for your context window. <a href="https://github.com/ankimcp/anki-mcp-server-addon/releases/latest">Full changelog →</a></p>
+<h2>New in v0.30.0</h2>
+<p>Hands-free review, right inside Anki's own reviewer window: ask your assistant to open a deck, and it can read the card on screen, flip it, and press the answer button for you — built for voice sessions where typing isn't an option. Misheard your rating? It can undo the last one. Both tools are <b>off by default</b> — turn them on in <b>Tools → Add-ons → AnkiMCP Server → Config</b> by adding <code>"enabled_opt_in_tools": ["gui_deck_review", "gui_answer_card"]</code>, then restart Anki. <a href="https://github.com/ankimcp/anki-mcp-server-addon/releases/latest">Full changelog →</a></p>
 
 <p>────────────────────────</p>
-<h2>⚠️ Windows — one extra step for this update</h2>
-<p><b>Fixed in v0.29.1:</b> on Windows, updating or deleting the add-on from inside Anki used to fail with an <b>"Access is denied"</b> error and leave the add-on unable to load. From v0.29.1 onwards it just works. The update <b>to</b> v0.29.1 is the last one that needs care, because the old version is still the one running while Anki replaces it.</p>
+<h2>⚠️ Windows — one extra step if you're updating from before 0.29.1</h2>
+<p><b>Fixed in v0.29.1:</b> on Windows, updating or deleting the add-on from inside Anki used to fail with an <b>"Access is denied"</b> error and leave the add-on unable to load. From v0.29.1 onwards it just works. If you're already on 0.29.1 or later, ordinary updates need no special care — skip this section. If you're updating from an older version, the update <b>to</b> 0.29.1 or later is the one that needs care, because the old version is still the one running while Anki replaces it.</p>
 <p>First: open <b>Tools → Add-ons</b>, select AnkiMCP Server, click <b>Toggle Enabled</b> so it shows as disabled, and <b>restart Anki</b>. <b>Never update or delete the add-on while it is still enabled.</b> Then pick one of these:</p>
 <ul>
 <li><b>Update it — recommended.</b> Click <b>Check for Updates</b> and install. Anki keeps the add-on disabled afterwards, so select it again, click <b>Toggle Enabled</b> to turn it back on, and restart Anki. Your settings and your tunnel sign-in are kept.</li>
