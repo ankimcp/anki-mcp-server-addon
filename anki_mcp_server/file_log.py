@@ -18,8 +18,14 @@ Logger naming:
     All addon modules log under the top-level ``anki_mcp_server`` logger (or the
     AnkiWeb addon-id package name at runtime). We attach the file handler to that
     root-of-addon logger so every child ``logging.getLogger(__name__)`` in the
-    addon propagates into the file. The handler is added without touching the
-    root logger, so we never capture unrelated Anki/third-party logging.
+    addon propagates into the file. The same handler is additionally attached to
+    an explicit list of third-party loggers (``_FORWARDED_LOGGER_NAMES`` --
+    currently just ``mcp.server.transport_security``) whose records would
+    otherwise never reach the file: they don't propagate into our logger, and
+    DNS-rebinding-protection rejections (bad Host/Origin headers) logged there
+    are exactly the kind of thing an operator needs in the log. The root logger
+    is still never touched, so we never capture unrelated Anki/third-party
+    logging beyond that explicit list.
 """
 
 from __future__ import annotations
@@ -40,6 +46,15 @@ _ADDON_LOGGER_NAME = __name__.split(".")[0]
 # Marker attached to our handler so re-initialization is idempotent and we never
 # stack duplicate handlers across profile reloads.
 _HANDLER_TAG = "ankimcp_file_handler"
+
+# Third-party loggers whose records don't propagate into the addon logger but
+# still belong in the file. Currently just the vendored MCP SDK's DNS-rebinding
+# protection, which logs Host/Origin rejections as WARNINGs on this logger
+# name -- without forwarding it, a rejected request never shows up even with
+# log_to_file enabled (observability gap noted in #78). Kept short and
+# explicit on purpose: attaching to the broad "mcp" logger would be far too
+# noisy.
+_FORWARDED_LOGGER_NAMES: tuple[str, ...] = ("mcp.server.transport_security",)
 
 _LOG_FILENAME = "ankimcp.log"
 _MAX_BYTES = 1 * 1024 * 1024  # ~1 MB per file
@@ -185,6 +200,11 @@ def _existing_handler(logger: logging.Logger) -> Optional[logging.Handler]:
     return None
 
 
+def _forwarded_loggers() -> tuple[logging.Logger, ...]:
+    """The third-party loggers our handler is additionally attached to."""
+    return tuple(logging.getLogger(name) for name in _FORWARDED_LOGGER_NAMES)
+
+
 def init_file_logging(enabled: bool, user_files_dir) -> None:
     """Configure (or tear down) rotating file logging for the addon.
 
@@ -225,9 +245,11 @@ def init_file_logging(enabled: bool, user_files_dir) -> None:
             # trying to release, defeating the whole point of this call.
             # Raising the level above CRITICAL makes callHandlers' level
             # check (`record.levelno >= hdlr.level`) reject the record before
-            # handle()/emit() ever runs, closing that race.
+            # handle()/emit() ever runs, closing that race. Applied once,
+            # before removing from any of the loggers it was attached to.
             existing.setLevel(logging.CRITICAL + 1)
-            logger.removeHandler(existing)
+            for lg in (logger, *_forwarded_loggers()):
+                lg.removeHandler(existing)
             try:
                 existing.close()
             except Exception:
@@ -267,6 +289,17 @@ def init_file_logging(enabled: bool, user_files_dir) -> None:
         # Ensure our records reach the handler. Don't disturb the root logger.
         if logger.level == logging.NOTSET or logger.level > logging.INFO:
             logger.setLevel(logging.INFO)
+
+        # Same handler instance on the forwarded third-party loggers -- the
+        # redacting filter lives on the handler, so sharing it applies
+        # redaction everywhere for free, with no per-logger duplication. We
+        # deliberately do NOT touch their level: Anki's own aqt/log.py sets
+        # the root logger to INFO before any add-on loads, so their WARNINGs
+        # already reach the handler, and floor-ing here would override an
+        # operator-raised level.
+        for fw_logger in _forwarded_loggers():
+            if handler not in fw_logger.handlers:
+                fw_logger.addHandler(handler)
         _initialized = True
     except Exception as exc:  # pragma: no cover - defensive
         # Logging setup itself failed — never propagate.
