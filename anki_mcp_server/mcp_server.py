@@ -581,11 +581,18 @@ class McpServer:
                 allow_credentials=True,
             )
 
+        # log_config=None is load-bearing: uvicorn's default log_config runs
+        # logging.config.dictConfig(), which shuts down EVERY handler in Anki's
+        # process (Anki's, other add-ons', our file log) and kills this thread
+        # if any of them raises anything but OSError/ValueError on the way
+        # (with the default logging.raiseExceptions = True). None skips that;
+        # log_level still sets the uvicorn.error/.access/.asgi logger levels.
         config = uvicorn.Config(
             app,
             host=self._config.http_host,
             port=self._config.http_port,
             log_level="warning",
+            log_config=None,
         )
         server = uvicorn.Server(config)
         # Publish before serving so stop() can reach it via call_soon_threadsafe.
