@@ -13,7 +13,7 @@ which would silently undo ``file_log``'s forwarding of that logger.
 
 These tests run the real ``McpServer._run_http_mode`` with a REAL
 ``uvicorn.Config`` (that is where ``configure_logging()`` runs) and only
-``uvicorn.Server`` mocked out, so nothing binds a port.
+``uvicorn.Server`` and the socket binder mocked out, so nothing binds a port.
 
 They mutate process-global logging state, so every fixture restores what it
 touched in a finalizer that runs even when the test fails.
@@ -110,7 +110,7 @@ def uvicorn_error_sentinel() -> Iterator[logging.Handler]:
 
 @pytest.fixture()
 def server() -> McpServer:
-    return McpServer(MagicMock(spec=QueueBridge), Config(http_port=3141, http_host="127.0.0.1"))
+    return McpServer(MagicMock(spec=QueueBridge), Config(http_port=0, http_host="127.0.0.1"))
 
 
 @pytest.fixture()
@@ -123,8 +123,10 @@ def mock_fastmcp() -> MagicMock:
 @pytest.fixture()
 def mock_uvicorn_server() -> Iterator[MagicMock]:
     # Patch the attribute mcp_server.py actually resolves (``uvicorn.Server``
-    # via its ``import uvicorn``); uvicorn.Config stays real.
-    with patch.object(mcp_server_module.uvicorn, "Server") as server_cls:
+    # via its ``import uvicorn``); uvicorn.Config stays real. The socket
+    # binder is stubbed too so nothing binds the configured port.
+    with patch.object(mcp_server_module.uvicorn, "Server") as server_cls, \
+            patch.object(mcp_server_module, "_bind_http_sockets", return_value=[MagicMock()]):
         server_cls.return_value.serve = AsyncMock()
         yield server_cls
 

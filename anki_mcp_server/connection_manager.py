@@ -278,19 +278,57 @@ class ConnectionManager:
 
     @property
     def http_running(self) -> bool:
-        """Whether the HTTP server is running.
+        """Whether the HTTP server is actually serving.
 
-        Returns True only when the background thread is running AND HTTP
-        is enabled in the config.  When ``http_enabled=False`` the
-        background thread still runs (for the tunnel) but uvicorn is not
-        serving, so this returns False.
+        True only when the components exist, HTTP is enabled in the config,
+        the background thread and its loop are alive, and uvicorn finished
+        startup. When ``http_enabled=False`` the background thread still runs
+        (for the tunnel) but uvicorn is not serving, so this returns False.
 
         Thread Safety:
             Safe to read from any thread -- reads simple attributes.
         """
-        if not self.is_running:
+        server = self._server
+        if not self.is_running or server is None or not self._config.http_enabled:
             return False
-        return self._config.http_enabled
+        return server.loop_alive and server.http_started
+
+    @property
+    def http_error(self) -> Optional[str]:
+        """Why the HTTP server is not serving, or None if there is no known reason.
+
+        Precedence: the HTTP startup failure reason (the loop stayed alive
+        for the tunnel) first, since it names the actual cause such as a
+        port clash; otherwise, if the background loop is dead, the reason
+        the thread died. None when stopped, still starting, or healthy.
+
+        Thread Safety:
+            Safe to read from any thread -- reads simple attributes.
+        """
+        server = self._server
+        if server is None:
+            return None
+        if server.http_error is not None:
+            return server.http_error
+        if not server.loop_alive:
+            return server.fatal_error
+        return None
+
+    @property
+    def loop_error(self) -> Optional[str]:
+        """Why the background loop is dead, or None while it is alive.
+
+        Unlike ``http_error`` this ignores HTTP entirely, so it is the reason
+        to show for the tunnel: a port clash leaves the loop (and the tunnel)
+        usable and yields None here. None when stopped or alive.
+
+        Thread Safety:
+            Safe to read from any thread -- reads simple attributes.
+        """
+        server = self._server
+        if server is None or server.loop_alive:
+            return None
+        return server.fatal_error
 
     def update_config(self, config: Config) -> None:
         """Update configuration and restart if running.
@@ -338,8 +376,11 @@ class ConnectionManager:
     def connect_tunnel(self) -> None:
         """Start the tunnel connection.
 
-        Checks for stored credentials, then tells the MCP server to start
-        the tunnel. If credentials are missing, logs an error and returns.
+        Checks that the background loop is alive and that credentials are
+        stored, then tells the MCP server to start the tunnel. Every failure
+        (including the server refusing to schedule the start) writes an error
+        line to the tunnel log panel; an already-connected tunnel is a no-op
+        that only logs at INFO.
 
         Thread Safety:
             Must be called from Qt main thread.
@@ -347,6 +388,16 @@ class ConnectionManager:
         if not self.is_running or self._server is None:
             logger.warning("Cannot connect tunnel: MCP server not running")
             self._tunnel_log.error("Cannot connect: server not running")
+            return
+
+        if not self._server.loop_alive:
+            reason = self._server.fatal_error
+            detail = f" ({reason})" if reason else ""
+            logger.warning("Cannot connect tunnel: background loop not running%s", detail)
+            self._tunnel_log.error(
+                f"Cannot connect: the server's background loop is not running{detail}"
+                " — enable log_to_file and restart Anki for details"
+            )
             return
 
         if self.tunnel_connected:
@@ -362,7 +413,7 @@ class ConnectionManager:
 
         self._tunnel_log.info("Connecting to tunnel...")
 
-        self._server.start_tunnel(
+        scheduled = self._server.start_tunnel(
             credentials_manager=self._credentials_manager,
             auth=self._auth,
             on_tunnel_established=self._on_tunnel_established,
@@ -372,6 +423,11 @@ class ConnectionManager:
             on_reconnecting=self._on_tunnel_reconnecting,
             on_stopped=self._on_tunnel_stopped,
         )
+        if not scheduled:
+            self._tunnel_log.error(
+                "Cannot connect: the server's background loop stopped"
+                " — enable log_to_file and restart Anki for details"
+            )
 
     def disconnect_tunnel(self) -> None:
         """Stop the tunnel connection.

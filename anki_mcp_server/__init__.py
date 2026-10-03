@@ -471,7 +471,13 @@ def _show_settings() -> None:
     layout.addWidget(http_checkbox)
 
     # Status + URL (visible only when enabled)
-    http_status = "connected" if _connection_manager.http_running else "disconnected"
+    if _connection_manager.http_running:
+        http_status = "connected"
+    elif _connection_manager.http_error:
+        from html import escape
+        http_status = f"error — {escape(_connection_manager.http_error)}"
+    else:
+        http_status = "disconnected"
     if config.http_path:
         server_url = f"http://{config.http_host}:{config.http_port}/{config.http_path.strip('/')}/"
     else:

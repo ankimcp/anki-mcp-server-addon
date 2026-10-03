@@ -274,7 +274,7 @@ Key details:
 
 #### Threading
 
-The tunnel runs on the **same asyncio event loop** as HTTP (the background thread in `mcp_server.py`). Both HTTP and tunnel share one `Server` object (via `FastMCP._mcp_server`). Each transport runs its own `Server.run()` with independent streams — no cross-contamination. When `http_enabled=False`, the asyncio loop stays alive via an `asyncio.Event` wait instead of uvicorn.
+The tunnel runs on the **same asyncio event loop** as HTTP (the background thread in `mcp_server.py`). Both HTTP and tunnel share one `Server` object (via `FastMCP._mcp_server`). Each transport runs its own `Server.run()` with independent streams — no cross-contamination. When `http_enabled=False`, or HTTP fails to start (see "Port Already in Use"), the asyncio loop stays alive via an `asyncio.Event` wait instead of uvicorn.
 
 #### Module Responsibilities
 
@@ -461,7 +461,7 @@ The teardown branch (`init_file_logging(enabled=False, ...)`) makes the handler 
 
 ### Background-thread / dependency-load resilience
 
-- The MCP server's background daemon thread target (`mcp_server.py` `_run`) wraps `asyncio.run(_async_main())` in a `try/except BaseException` that logs the full traceback (`exc_info=True`). Without it, any exception — setup phase (building FastMCP, registering tools) or serve phase (uvicorn) — would silently kill the thread, leaving a client to hang. Mirrors the existing `_run_tunnel` guard.
+- The MCP server's background daemon thread target (`mcp_server.py` `_run`) wraps `asyncio.run(_async_main())` in a `try/except BaseException` that logs the full traceback (`exc_info=True`). Without it, any exception — setup phase (building FastMCP, registering tools) or serve phase (uvicorn) — would silently kill the thread, leaving a client to hang. Mirrors the existing `_run_tunnel` guard. It also records the failure as `McpServer.fatal_error`, which the settings dialog and diagnostics snapshot show, and `connect_tunnel()` refuses with an error line in the tunnel log panel when the loop is dead. Bind failures (`OSError`, or `UnicodeError` for an unencodable host) and failures inside uvicorn's own startup never reach this guard — `_run_http_mode` handles them (see "Port Already in Use"). Everything else in `_run_http_mode` still does: an exception from `streamable_http_app()`, `uvicorn.Config(...)`, middleware construction, or anything after uvicorn reports `started`.
 - `dependency_loader.py` hardens the cached-`pydantic_core`/`rpds` load: a **pre-flight `open()`** of the native `.pyd`/`.so` surfaces lock/permission problems as an `OSError` with a real `winerror`/`errno` (a bare `import` masks them as an errno-less `ImportError`). `_classify_native_load_error` maps WinError 32 → locked (transient), 5 → access-denied, ENOENT → missing. `_import_with_lock_retry` retries ONLY the lock class with short exponential backoff (~50/100/200/400ms), never access-denied or missing. Re-downloads use an **atomic temp-swap** (`_atomic_swap_dir`): extract into a fresh sibling `.tmp-*` dir, write markers there, then `os.replace`-swap into the cache (moving any existing dir aside first, restoring it if the swap fails). A failed re-download therefore NEVER destroys an existing good cache.
 - **Download timeout + bounded retry + overall budget** (issue #73): the PyPI metadata request and the wheel fetch each get a `_NETWORK_TIMEOUT_SECONDS` (30s) `urlopen` timeout — but that bounds only a SINGLE socket operation, not the whole download: a server trickling one byte every 29s never trips it. On top of the per-socket timeout there are two more layers:
   - Up to `_DOWNLOAD_MAX_ATTEMPTS` (3) attempts per request with a sliced, UI-pumping, cancellable backoff (`_wait_with_ui_pump`, polling every `_BACKOFF_POLL_INTERVAL_SECONDS` = 0.05s) between them, via the shared `_retry_network_call` helper. The backoff is sliced (not a single blocking `time.sleep`) because a plain sleep freezes Qt: `QProgressDialog.wasCanceled()` only reflects a click once an event-loop pump delivers it, so a single long sleep makes Cancel unresponsive for the whole backoff.
@@ -482,7 +482,7 @@ There is no `Config.mode` field and no `is_valid_for_mode()` — the addon does 
 - **HTTP** — gated by `http_enabled` (default `True`). When enabled, uvicorn serves the Streamable HTTP endpoint.
 - **Tunnel** — never auto-started. The user explicitly clicks "Connect Tunnel" in the settings dialog; configured via `tunnel_server_url` / `tunnel_client_id`.
 
-Both share one `Server` object and run on the same asyncio loop (see "Tunnel Architecture"). Don't add `mode`-based conditionals — branch on `http_enabled` and the tunnel's connection state instead.
+Both share one `Server` object and run on the same asyncio loop (see "Tunnel Architecture"). Don't add `mode`-based conditionals — branch on `http_enabled` and the tunnel's connection state instead. HTTP failing to start does not end the loop, so the tunnel stays usable. `ConnectionManager.http_running` is the truthful HTTP state (enabled AND `McpServer.loop_alive` AND `McpServer.http_started`), and `ConnectionManager.http_error` gives the reason when it isn't. `ConnectionManager.loop_error` is the dead loop's `fatal_error` only (None while the loop is alive, even after a port clash) — "Copy diagnostics" uses it for the `Tunnel : unavailable (...)` line.
 
 ### Tool Filtering
 
@@ -663,6 +663,8 @@ Long operations (like `sync`) run synchronously on main thread and can freeze UI
 ### Port Already in Use
 
 Change port in Anki's addon config: *Tools → Add-ons → AnkiMCP Server → Config*
+
+A port clash shows as `Status: error — cannot listen on <host>:<port>: <OS reason>` in the settings dialog and as `HTTP   : enabled (not running: cannot listen on <host>:<port>: <OS reason>)` in "Copy diagnostics" (the reason is the OS's `strerror`, e.g. `Address already in use` on macOS/Linux; Windows words it differently), and is logged at ERROR. It does not take the tunnel down: `_run_http_mode` binds the sockets itself (`_bind_http_sockets`, asyncio's `SO_REUSEADDR` semantics — not `uvicorn.Config.bind_socket()`, which sets it on Windows too and would let us bind a port another process is listening on), hands them to `uvicorn.Server.serve(sockets=...)` (asyncio calls `listen()` on them), and on a bind `OSError` (or `UnicodeError` for an unencodable host) — or a `SystemExit`/`Exception` out of `serve()` before uvicorn reports `started`, since uvicorn turns startup failures into `sys.exit` — records `McpServer.http_error` and keeps the loop alive on the same `_async_shutdown` wait tunnel-only mode uses.
 
 ### Restart Required for Config Changes
 
