@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
     "Use dry_run=true to preview what would be deleted without actually deleting anything "
     "(confirmDeletion is ignored during dry runs). "
     "Returns deletedCount, cardsDeleted, and notFoundCount.",
+    title="Delete Notes",
     write=True,
 )
 def delete_notes(

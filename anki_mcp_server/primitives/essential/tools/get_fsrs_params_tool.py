@@ -19,6 +19,7 @@ from ._fsrs_helpers import (
     "Returns FSRS weights, desired retention, max interval, and other settings. "
     "If deck_name is empty, returns parameters for all presets with their associated decks. "
     "If deck_name is provided, returns parameters for the preset used by that deck.",
+    title="Get FSRS Parameters",
 )
 def get_fsrs_params(
     deck_name: Annotated[str, Field(description="Deck to look up the preset for; empty returns all presets")] = "",

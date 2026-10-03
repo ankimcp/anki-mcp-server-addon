@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
     "Add a new note to Anki. Use model_names to see available note types and "
     "model_field_names to see required fields. Returns the note ID on success. "
     "IMPORTANT: Only create notes that were explicitly requested by the user.",
+    title="Add Note",
     write=True,
+    destructive_hint=False,
 )
 def add_note(
     deck_name: Annotated[str, Field(description="Deck to add the note to")],

@@ -113,8 +113,14 @@ def _get_file_bytes(
     "Store a media file to Anki's collection.media folder. Accepts files via "
     "base64 data, local file path, or URL. Use this to add images, audio, or "
     "other media files that can be referenced in note fields. "
-    "Returns the stored filename and full path.",
+    "Returns the stored filename and full path. "
+    "See https://docs.ankiweb.net/media.html for how Anki stores and references "
+    "media. URL fetches to private-network addresses are blocked unless the host "
+    "is listed in the media_allowed_hosts config.",
+    title="Store Media File",
     write=True,
+    destructive_hint=False,
+    open_world_hint=True,
 )
 def store_media_file(
     filename: Annotated[str, Field(description="Filename to store the media under")],

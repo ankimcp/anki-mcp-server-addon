@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
     "IMPORTANT: Only use when user explicitly requests editing a note via GUI. "
     "This tool is for note editing workflows when user wants to manually edit in "
     "the Anki interface. For programmatic editing, use update_note_fields instead.",
+    title="Open Note Editor",
     write=False,
 )
 def gui_edit_note(

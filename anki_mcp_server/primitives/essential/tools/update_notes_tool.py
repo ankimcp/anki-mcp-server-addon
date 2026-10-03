@@ -33,6 +33,7 @@ class NoteUpdateEntry(BaseModel):
     "IMPORTANT: Only update notes that the user explicitly asked to modify. "
     "Returns summary counts (updated, failed) and a per-note results array with "
     "retry hints for recoverable failures.",
+    title="Update Notes",
     write=True,
 )
 def update_notes(

@@ -42,6 +42,7 @@ _SIDE_KEYS = {"Front": "qfmt", "Back": "afmt"}
     + " Editing the HTML of existing card templates does not itself modify the "
       "schema, so this is typically false unless the collection was already "
       "dirty.",
+    title="Update Note Type Templates",
     write=True,
 )
 def update_model_templates(

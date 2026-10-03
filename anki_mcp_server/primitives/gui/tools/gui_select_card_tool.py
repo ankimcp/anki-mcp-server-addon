@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
     "IMPORTANT: Only use when user explicitly requests selecting a card in the browser. "
     "This tool is for note editing/creation workflows, NOT for review sessions. "
     "The Card Browser must already be open (use gui_browse first).",
+    title="Select Card in Browser",
     write=False,
 )
 def gui_select_card(

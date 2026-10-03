@@ -73,6 +73,7 @@ def _build_first_field_labels(col: Any, note_ids: list[int]) -> list[dict[str, A
     "one call to find AND label results instead of find_notes followed by notes_info. "
     "The labels identify notes; read full content with notes_info before editing. "
     "Pass 'noteIds' (not 'noteLabels') to any tool that wants note IDs.",
+    title="Find Notes",
 )
 def find_notes(
     query: Annotated[

@@ -12,6 +12,7 @@ from ....handler_wrappers import get_col
     "Returns array of card IDs found. IMPORTANT: Only use when user explicitly "
     "requests opening the browser. This tool is for note editing/creation workflows, "
     "NOT for review sessions. Use this to find and select cards/notes that need editing.",
+    title="Open Card Browser",
     write=False,
 )
 def gui_browse(

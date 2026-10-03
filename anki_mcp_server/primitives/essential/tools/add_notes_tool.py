@@ -33,7 +33,9 @@ class NoteEntry(BaseModel):
     "IMPORTANT: Only create notes that were explicitly requested by the user. "
     "Returns summary counts (created, skipped, failed) and a per-note results array with status and note_id. "
     'Each note is {"fields": {...}, "tags": [...]}; tags is a JSON array.',
+    title="Add Notes",
     write=True,
+    destructive_hint=False,
 )
 def add_notes(
     deck_name: Annotated[str, Field(description="Deck to add all notes to")],

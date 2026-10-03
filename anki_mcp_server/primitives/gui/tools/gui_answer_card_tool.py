@@ -20,6 +20,7 @@ from ...essential.tools._ease_names import ease_name
     "the same card. This tool does not wait for Anki to finish advancing the reviewer -- it "
     "returns immediately with pending=True; call gui_current_card afterwards to see the next "
     "card (it reports advancing=true while Anki is still transitioning).",
+    title="Answer Card in Reviewer",
     write=True,
     # answer_card is already its own CollectionOp with its own undo entry and
     # refreshes the reviewer itself -- an extra mw.reset() from _write_lock

@@ -395,3 +395,120 @@ def install_mw(monkeypatch):
         return mw
 
     return _install
+
+
+# ---------------------------------------------------------------------------
+# 6. The REAL primitives tree + a real FastMCP populated with every tool.
+#
+# Section 3 stubs ``anki_mcp_server.primitives`` so unrelated tests never
+# import the tool modules. Tests that inspect the actual ``tools/list`` schema
+# a client would see (or the real wrapped handlers in ``handler_registry``)
+# need the OPPOSITE. ``_ensure_real_primitives`` discards the stub, imports
+# the real ``anki_mcp_server.primitives`` package tree -- which runs the
+# ``pkgutil.walk_packages`` auto-discovery of every ``@Tool`` (what
+# ``mcp_server.py`` does at startup, minus uvicorn/Qt) -- and then puts the
+# stub entries back so later test modules still see the lightweight boundary.
+# It is a one-time detour, not a permanent swap.
+#
+# It runs from ``pytest_collection_modifyitems`` -- after every test module
+# has been imported but before any fixture runs -- and only when a collected
+# test needs ``real_mcp``/``tools_list``, so single-file runs of unrelated
+# tests keep the stub-only boundary. Running it before any fixture matters:
+# fixtures like ``sync_tool`` above load a @Tool module by file under its real
+# dotted name, and a later real import would re-register that tool.
+#
+# ``aqt``/``anki`` are not imported at module scope by any tool file, so this
+# works against the ``aqt`` stub from section 2 -- no real Anki needed.
+# ---------------------------------------------------------------------------
+_REAL_PRIMITIVES_FIXTURES = frozenset({"real_mcp", "tools_list"})
+_real_primitives_tools: types.ModuleType | None = None
+
+
+def _ensure_real_primitives() -> types.ModuleType:
+    global _real_primitives_tools
+    if _real_primitives_tools is not None:
+        return _real_primitives_tools
+
+    import importlib
+
+    stubbed = {
+        name: sys.modules[name]
+        for name in list(sys.modules)
+        if name == "anki_mcp_server.primitives"
+        or name.startswith("anki_mcp_server.primitives.")
+    }
+    for name in stubbed:
+        del sys.modules[name]
+
+    _real_primitives_tools = importlib.import_module("anki_mcp_server.primitives.tools")
+
+    for name, module in stubbed.items():
+        sys.modules[name] = module
+
+    return _real_primitives_tools
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(session, config, items):
+    if any(_REAL_PRIMITIVES_FIXTURES & set(getattr(item, "fixturenames", ())) for item in items):
+        _ensure_real_primitives()
+
+
+async def _noop_call_main_thread(*args, **kwargs) -> dict:
+    """Tools are never invoked through FastMCP here -- only registered for listing."""
+    return {}
+
+
+def _all_whole_tool_gated(meta_key: str) -> list[str]:
+    """Every registered tool whose WHOLE-TOOL gate flag (``meta_key``, one of
+    ``"destructive"``/``"opt_in"``) is set -- derived from ``_registry`` so
+    ``real_mcp`` can't silently stop covering a tool's schema just because a
+    new gated primitive was added and nobody remembered to hand-list it.
+
+    Per-action gated entries (e.g. model_fields:remove) are deliberately NOT
+    included: opting in a single action of a multi-action tool wouldn't
+    change anything observed here, since the tool still exposes one
+    top-level "params" property regardless of which actions are enabled.
+    """
+    from anki_mcp_server.tool_decorator import _registry
+
+    return [name for name, meta in _registry.items() if meta[meta_key]]
+
+
+@pytest.fixture(scope="session")
+def real_mcp():
+    from mcp.server.fastmcp import FastMCP
+
+    primitives_tools = _ensure_real_primitives()
+    mcp = FastMCP("test-server")
+    primitives_tools.register_all_tools(
+        mcp,
+        _noop_call_main_thread,
+        disabled_tools=None,
+        # Opt in every whole-tool-destructive / whole-tool-opt-in primitive
+        # (see CLAUDE.md "Tool Filtering") so their schemas are covered too --
+        # see _all_whole_tool_gated's docstring for why per-action entries are
+        # excluded.
+        enabled_destructive_tools=_all_whole_tool_gated("destructive"),
+        enabled_opt_in_tools=_all_whole_tool_gated("opt_in"),
+    )
+    return mcp
+
+
+@pytest.fixture(scope="session")
+def tools_list(real_mcp):
+    import asyncio
+
+    from anki_mcp_server.tool_decorator import _registry
+
+    result = asyncio.run(real_mcp.list_tools())
+    # Compare against the decorator's own registry so a test can't pass
+    # vacuously (e.g. if auto-discovery silently registered zero tools) and
+    # doesn't need a hand-maintained floor that drifts as tools are added.
+    # Every whole-tool-gated primitive is opted in by real_mcp, so every
+    # registered tool should be listed -- counts should be equal, not just >=.
+    assert len(result) == len(_registry), (
+        f"Expected {len(_registry)} registered tools (from _registry), got "
+        f"{len(result)} -- auto-discovery or destructive opt-in may be broken"
+    )
+    return result

@@ -14,6 +14,7 @@ from ....handler_wrappers import HandlerError, get_col
     "present_card / rate_card, which drive a review without touching the reviewer UI. "
     "Anki's reviewer drops back to the deck overview on its own when nothing is due, so "
     "inReview=false with no error is a normal outcome, not a failure.",
+    title="Start Deck Review",
     write=False,
     opt_in=True,
 )

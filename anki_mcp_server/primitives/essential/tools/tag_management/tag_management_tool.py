@@ -120,6 +120,7 @@ TagManagementParams = Annotated[
 @Tool(
     "tag_management",
     _BASE_DESCRIPTION,  # Rebuilt dynamically at MCP registration from _tool_description ClassVars
+    title="Tag Management",
     write=True,
 )
 def tag_management(params: TagManagementParams) -> dict[str, Any]:

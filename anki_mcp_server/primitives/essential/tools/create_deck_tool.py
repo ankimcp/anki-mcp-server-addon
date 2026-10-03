@@ -16,7 +16,9 @@ from ....handler_wrappers import HandlerError, get_col
     'creating a deck unless the user EXPLICITLY asks to add them. Wait for user instructions '
     'before adding any content. '
     'Returns deckId and created flag (false if deck already existed).',
+    title="Create Deck",
     write=True,
+    destructive_hint=False,
 )
 def create_deck(
     deck_name: Annotated[

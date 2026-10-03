@@ -10,6 +10,7 @@ from ....handler_wrappers import HandlerError
     "IMPORTANT: Only use when user explicitly requests opening the deck browser. "
     "This tool is for deck management and organization workflows, NOT for review sessions. "
     "Use this when user wants to see all decks or manage deck structure.",
+    title="Open Deck Browser",
     write=False,
 )
 def gui_deck_browser() -> dict[str, Any]:

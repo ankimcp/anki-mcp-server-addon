@@ -16,6 +16,7 @@ import types
 
 import pytest
 
+from anki_mcp_server.handler_wrappers import HandlerError
 from anki_mcp_server.tool_decorator import _write_lock
 
 
@@ -132,6 +133,47 @@ class TestResetFailureDoesNotMaskHandlerOutcome:
         # The handler's own exception must propagate, not the reset() one.
         with pytest.raises(ValueError, match="original error"):
             wrapped()
+
+
+class TestRealToolsSkipReset:
+    """Regression lock for real tools declared with refresh_ui=False.
+
+    ``refresh_ui`` isn't stored in ``_registry``, so these drive the real
+    wrapped handlers from ``handler_registry`` (populated by conftest.py's
+    ``real_mcp`` bootstrap) against a fake mw and assert mw.reset() never
+    runs. ``sync`` only starts/polls a background job, so a reset would
+    contend with the in-flight transfer; ``gui_undo``'s mw.undo() is an
+    async op that refreshes the UI itself.
+    """
+
+    @pytest.fixture
+    def handlers(self, real_mcp):
+        from anki_mcp_server.handler_registry import _handlers
+
+        return _handlers
+
+    def test_sync_poll_does_not_call_reset(self, handlers, install_mw):
+        mw = install_mw(_fake_mw())
+
+        # An unknown job_id returns not_found without starting anything.
+        with pytest.raises(Exception, match=r"^\[not_found\] Sync job not found") as excinfo:
+            handlers["sync"](job_id="no-such-job")
+        assert isinstance(excinfo.value.__context__, HandlerError)
+        assert excinfo.value.__context__.code == "not_found"
+
+        assert len(mw._reset_calls) == 0
+
+    def test_gui_undo_does_not_call_reset(self, handlers, install_mw):
+        mw = install_mw(_fake_mw())
+        mw.col.undo_status = lambda: types.SimpleNamespace(undo="Edit Note")
+        undo_calls: list[None] = []
+        mw.undo = lambda: undo_calls.append(None)
+
+        result = handlers["gui_undo"]()
+
+        assert result["undone"] is True
+        assert len(undo_calls) == 1
+        assert len(mw._reset_calls) == 0
 
 
 class TestClosedCollectionGuard:

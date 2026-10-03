@@ -10,6 +10,7 @@ from ....handler_wrappers import HandlerError
     "IMPORTANT: Only use when user explicitly requests opening the Add Cards dialog. "
     "This tool simply opens the dialog for manual note creation - "
     "it does not pre-fill any fields. For programmatic note creation, use add_note instead.",
+    title="Open Add Cards Dialog",
     write=False,
     require_col=False,
 )

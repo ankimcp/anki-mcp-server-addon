@@ -82,7 +82,7 @@ def test_probe_tool_with_optional_annotated_param_registers():
     # Guard against leaking into other tests / a prior failed run.
     assert tool_name not in _registry
 
-    @Tool(tool_name, "Probe tool for _is_annotated_union regression")
+    @Tool(tool_name, "Probe tool for _is_annotated_union regression", title="Probe Tool")
     def probe_tool(
         query: Annotated[Optional[str], Field(description="Anki search query")] = None,
     ) -> dict:

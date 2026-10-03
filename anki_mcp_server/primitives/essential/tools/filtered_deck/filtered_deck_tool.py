@@ -104,6 +104,7 @@ FilteredDeckParams = Annotated[
 @Tool(
     "filtered_deck",
     _BASE_DESCRIPTION,  # Rebuilt dynamically at MCP registration from _tool_description ClassVars
+    title="Filtered Decks",
     write=True,
 )
 def filtered_deck(params: FilteredDeckParams) -> dict[str, Any]:

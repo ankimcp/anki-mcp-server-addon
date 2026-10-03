@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
     "list_decks",
     "List all available Anki decks, optionally with statistics. Remember to sync first at the start of a review session for latest data. "
     "Returns deck objects with deck_id, name, and is_filtered. With include_stats=true, adds per-deck card counts (new, learn, review, total).",
+    title="List Decks",
 )
 def list_decks(
     include_stats: Annotated[bool, Field(description="Add per-deck card counts (new, learn, review, total)")] = False,

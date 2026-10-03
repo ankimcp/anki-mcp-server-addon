@@ -139,6 +139,7 @@ _DROP = -1
       "Sync everything before running this. A dry run writes nothing, so its "
       "will_force_full_sync is the collection's CURRENT state; the separate "
       "would_force_full_sync key carries the prediction.",
+    title="Change Note Type",
     write=True,
     destructive=True,
 )

@@ -14,6 +14,7 @@ from ._model_helpers import LATEX_POST_KEY, LATEX_PRE_KEY, LATEX_SVG_KEY
     "('latex_pre', 'latex_post', 'latex_svg') -- the header/footer wrapped around "
     "[latex] and [$]...[/$] blocks when rendering them. Only ask for it when "
     "diagnosing or fixing LaTeX/TikZ rendering; it is omitted by default.",
+    title="Note Type Styling",
 )
 def model_styling(
     model_name: Annotated[str, Field(description="Note type to inspect")],

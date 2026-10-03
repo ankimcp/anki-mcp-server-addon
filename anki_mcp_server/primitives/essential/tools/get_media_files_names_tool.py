@@ -12,6 +12,7 @@ from ....handler_wrappers import HandlerError, get_col
     "get_media_files_names",
     "List all media files in Anki's media folder with optional pattern filtering. "
     "Use patterns like '*.mp3' for audio files, '*.jpg' for images, etc.",
+    title="List Media Files",
 )
 def get_media_files_names(
     pattern: Annotated[Optional[str], Field(description="Glob pattern to filter filenames, e.g. '*.mp3'")] = None,
