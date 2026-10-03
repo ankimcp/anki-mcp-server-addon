@@ -88,7 +88,7 @@ class _MockMCP:
     def __init__(self) -> None:
         self.registered: list[dict] = []
 
-    def tool(self, *, description):
+    def tool(self, *, description, title=None, annotations=None):
         def decorator(fn):
             self.registered.append(
                 {
@@ -161,10 +161,13 @@ def _single_meta(name: str, *, opt_in: bool) -> dict:
     return {
         "name": name,
         "description": f"{name} description",
+        "title": name,
         "original": handler,
         "write": True,
         "destructive": False,
         "opt_in": opt_in,
+        "destructive_hint": True,
+        "open_world_hint": False,
     }
 
 
@@ -176,10 +179,13 @@ def _multi_meta(name: str, union) -> dict:
     return {
         "name": name,
         "description": f"{name} description",
+        "title": name,
         "original": handler,
         "write": True,
         "destructive": False,
         "opt_in": False,  # whole-tool flag; per-action gating is via _opt_in
+        "destructive_hint": True,
+        "open_world_hint": False,
     }
 
 
@@ -282,10 +288,13 @@ class TestRegisterToolsWholeTool:
                 "danger": {
                     "name": "danger",
                     "description": "danger description",
+                    "title": "Danger",
                     "original": handler,
                     "write": True,
                     "destructive": True,
                     "opt_in": True,
+                    "destructive_hint": True,
+                    "open_world_hint": False,
                 }
             }
         )
@@ -475,7 +484,7 @@ class TestOptInWriteIndependence:
     def test_opt_in_without_write_is_allowed(self, patch_registry):
         patch_registry({})
 
-        @Tool("read_only_opt_in", "desc", write=False, opt_in=True)
+        @Tool("read_only_opt_in", "desc", title="Read Only Opt In", write=False, opt_in=True)
         def read_only_opt_in() -> dict:
             return {}
 
@@ -485,7 +494,7 @@ class TestOptInWriteIndependence:
     def test_default_non_opt_in_ok(self, patch_registry):
         patch_registry({})
 
-        @Tool("plain_opt_in_check", "desc")
+        @Tool("plain_opt_in_check", "desc", title="Plain Opt In Check")
         def plain_opt_in_check() -> dict:
             return {}
 

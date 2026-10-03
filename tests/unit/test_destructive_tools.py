@@ -100,16 +100,17 @@ TwoDestructiveUnion = Annotated[
 class _MockMCP:
     """Recorder MCP whose .tool() captures (description, wrapper) per tool.
 
-    ``register_tools`` -> ``_make_mcp_tool`` calls ``mcp.tool(description=...)``
-    and applies the returned decorator to the async wrapper. We capture both
-    so tests can assert which tools registered and inspect the rebuilt
-    discriminated-union schema for per-action gating.
+    ``register_tools`` -> ``_make_mcp_tool`` calls
+    ``mcp.tool(title=..., description=..., annotations=...)`` and applies the
+    returned decorator to the async wrapper. We capture the description and
+    wrapper so tests can assert which tools registered and inspect the
+    rebuilt discriminated-union schema for per-action gating.
     """
 
     def __init__(self) -> None:
         self.registered: list[dict] = []
 
-    def tool(self, *, description):
+    def tool(self, *, description, title=None, annotations=None):
         def decorator(fn):
             self.registered.append(
                 {
@@ -209,10 +210,13 @@ def _single_meta(name: str, *, destructive: bool) -> dict:
     return {
         "name": name,
         "description": f"{name} description",
+        "title": name,
         "original": handler,
         "write": True,
         "destructive": destructive,
         "opt_in": False,
+        "destructive_hint": True,
+        "open_world_hint": False,
     }
 
 
@@ -235,10 +239,13 @@ def _multi_meta(name: str, union, *, destructive: bool = False) -> dict:
     return {
         "name": name,
         "description": f"{name} description",
+        "title": name,
         "original": handler,
         "write": True,
         "destructive": destructive,
         "opt_in": False,
+        "destructive_hint": True,
+        "open_world_hint": False,
     }
 
 
@@ -573,13 +580,13 @@ class TestDestructiveWriteGuard:
 
     def test_destructive_without_write_raises(self):
         with pytest.raises(ValueError, match="destructive=True requires write=True"):
-            Tool("bad_tool", "desc", destructive=True)
+            Tool("bad_tool", "desc", title="Bad Tool", destructive=True)
 
     def test_destructive_with_write_ok(self, patch_registry):
         # patch_registry gives us a clean registry so registration succeeds.
         patch_registry({})
 
-        @Tool("ok_destructive", "desc", write=True, destructive=True)
+        @Tool("ok_destructive", "desc", title="OK Destructive", write=True, destructive=True)
         def ok_destructive() -> dict:
             return {}
 
@@ -589,7 +596,7 @@ class TestDestructiveWriteGuard:
     def test_default_non_destructive_ok(self, patch_registry):
         patch_registry({})
 
-        @Tool("plain", "desc")
+        @Tool("plain", "desc", title="Plain")
         def plain() -> dict:
             return {}
 

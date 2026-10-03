@@ -33,6 +33,7 @@ _TYPE_NAMES = {
     "Get FSRS memory state (stability, difficulty, retrievability) for one or more cards. "
     "Requires FSRS to be enabled. Returns per-card memory state along with scheduling info. "
     "Use recompute=True to recalculate from the review log (slower but ensures accuracy).",
+    title="Card Memory State",
 )
 def get_card_memory_state(
     card_ids: Annotated[list[int], Field(description="Card IDs to look up")],

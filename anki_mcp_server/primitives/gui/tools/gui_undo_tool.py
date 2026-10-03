@@ -14,10 +14,12 @@ logger = logging.getLogger(__name__)
     "Returns undone=true if there was something to undo. "
     "IMPORTANT: only call this when the user explicitly asks to undo; in a hands-free GUI review session it is the right way to take back a mis-heard or mistaken rating (never 'correct' a rating by rating again). "
     "After undoing a reviewer rating, the reviewer only re-shows the undone card once the Anki window regains focus, so a gui_current_card call made immediately afterwards may still report the previous card -- ask the user to click into Anki, then read again.",
-    # write=False: mw.undo() is an async CollectionOp that refreshes Anki's
-    # UI itself once it completes; write=True's immediate post-handler
-    # mw.reset() would race it.
-    write=False,
+    title="Undo Last Action",
+    write=True,
+    # mw.undo() is an async CollectionOp that refreshes Anki's UI itself once
+    # it completes; _write_lock's immediate post-handler mw.reset() would race
+    # it.
+    refresh_ui=False,
 )
 def gui_undo() -> dict[str, Any]:
     from aqt import mw

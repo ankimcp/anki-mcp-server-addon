@@ -80,6 +80,7 @@ def _is_due_today(queue: int, due: int, sched_today: int, day_cutoff: int) -> bo
     "1000, max 1000) and offset; cards are ordered by card id for stable paging. "
     "Prefer this over find_notes + notes_info + get_card_memory_state when you only need "
     "scheduling metrics: it is one compact read and does not require FSRS.",
+    title="Card Statistics",
 )
 def cards_stats(
     deck: Annotated[str, Field(description="Deck name, including subdecks")],

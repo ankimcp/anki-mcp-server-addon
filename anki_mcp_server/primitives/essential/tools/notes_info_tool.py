@@ -44,6 +44,7 @@ def _apply_excerpt(fields_dict: dict[str, dict[str, Any]], excerpt_chars: int) -
     "cheaply, NOT to search their content - content search belongs in find_notes queries, which run server-side "
     "over full content. Never use a truncated value as the basis for an edit: re-read the field without "
     "excerpt_chars first, otherwise you will write back a cut-off value.",
+    title="Note Details",
 )
 def notes_info(
     notes: Annotated[list[int], Field(description="Note IDs to fetch")],

@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
     "changes.\n"
     "  " + JSON_LITERAL_CAVEAT + "\n\n"
     "Note: media file attachment (audio/picture) is not yet supported. WARNING: Do not view the note in Anki browser while updating, or the fields will not update properly. Close the browser or switch to a different note before updating. IMPORTANT: Only update notes that the user explicitly asked to modify.",
+    title="Update Note Fields",
     write=True,
 )
 def update_note_fields(

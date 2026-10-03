@@ -344,13 +344,17 @@ class TestMakeMcpToolValidation:
         return {
             "name": "test_multi",
             "description": "placeholder",
+            "title": "Test Multi",
             "original": func,
+            "write": True,
+            "destructive_hint": True,
+            "open_world_hint": False,
         }
 
     def _make_mock_mcp(self):
         """Return a minimal mock MCP object whose .tool() returns a decorator."""
         class _MockMCP:
-            def tool(self, *, description):
+            def tool(self, *, description, title=None, annotations=None):
                 def decorator(fn):
                     return fn
                 return decorator

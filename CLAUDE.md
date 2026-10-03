@@ -155,6 +155,7 @@ from ....handler_wrappers import HandlerError
 @Tool(
     "my_tool",                    # Tool name exposed to MCP clients
     "Description for AI",         # Shown to AI to understand usage
+    title="My Tool",              # Required: human-readable title shown by MCP clients
     write=True,                   # Set True for operations that modify collection
 )
 def my_tool(arg: str) -> dict[str, Any]:
@@ -166,11 +167,16 @@ def my_tool(arg: str) -> dict[str, Any]:
 ```
 
 Options:
-- `write=True`: Marks the tool as mutating the collection — this is the `destructive` precondition, and is reserved for a future MCP `readOnlyHint` (not wired up yet). Also gates `_write_lock`, which — when `refresh_ui` is also true — calls `mw.reset()` after the handler runs, on success or error, so open deck browser/overview/reviewer screens refresh (`maybeReset` is an obsolete no-op in current Anki; `requireReset` prints a deprecation notice plus a full stack trace before calling `mw.reset()` anyway, so neither is used here)
+- `title="..."` (**required**, keyword-only): Human-readable title, Title Case (`"Add Note"`, `"Get FSRS Parameters"`). Empty/whitespace → `ValueError` at import time. Sent both as the Tool's top-level `title` and as `ToolAnnotations.title` so old and new clients see it.
+- `write=True`: Marks the tool as mutating the collection. Drives the MCP `readOnlyHint` (`readOnlyHint = not write`) — so a tool that mutates the collection must be `write=True`; if an immediate `mw.reset()` would be wrong (it refreshes the UI itself, like `gui_undo`/`gui_answer_card`, or only starts a background job, like `sync`), add `refresh_ui=False`. It is also the `destructive` precondition, and gates `_write_lock`, which — when `refresh_ui` is also true — calls `mw.reset()` after the handler runs, on success or error, so open deck browser/overview/reviewer screens refresh (`maybeReset` is an obsolete no-op in current Anki; `requireReset` prints a deprecation notice plus a full stack trace before calling `mw.reset()` anyway, so neither is used here)
 - `refresh_ui=True` (default): Only meaningful when `write=True`. Set `False` for a tool that already refreshes Anki's UI itself (e.g. `gui_answer_card`, whose reviewer op is its own async `CollectionOp`) — an extra `mw.reset()` there would race it.
 - `require_col=True` (default): Checks collection is open before running
 - `destructive=True`: Hides the tool from MCP clients unless the operator opts in via `enabled_destructive_tools` config (see "Tool Filtering"). Requires `write=True` — `ValueError` at import time otherwise. For multi-action tools, mark individual actions with `_destructive: ClassVar[bool] = True` on the action's Params model instead.
 - `opt_in=True`: Hides the tool from MCP clients unless the operator opts in via `enabled_opt_in_tools` config (see "Tool Filtering"). Does not require `write=True` — unlike `destructive`, this is for tools that are opt-in for reasons other than being dangerous.
+- `destructive_hint=None` (default): The MCP `destructiveHint`. For `write=True` tools `None` resolves to `True` — conservative, since `destructiveHint=False` promises *only additive* updates. Set `False` only on purely additive tools (`add_note`, `add_notes`, `create_deck`, `create_model`, `store_media_file`). Passing any value on a `write=False` tool is a `ValueError`; read-only tools omit `destructiveHint` on the wire.
+- `open_world_hint=False` (default): The MCP `openWorldHint`. MCP's own default is `True`, which is wrong for a local-collection server, so it's always sent explicitly. Only `sync` (AnkiWeb) and `store_media_file` (URL fetches) set `True`.
+
+**`destructive` vs `destructive_hint`** — separate concepts, don't conflate them. `destructive=True` is an operator-facing visibility gate (hidden unless opted in via `enabled_destructive_tools`) reserved for a few high-risk primitives. `destructive_hint` is the client-facing MCP annotation covering anything not purely additive — most write tools. `destructive=True` with `destructive_hint=False` is a contradiction → `ValueError`. Multi-action tools get one static annotation set for the whole tool (the union over their actions), not per-action hints.
 
 #### @Resource Decorator
 
@@ -336,7 +342,7 @@ Follow the existing module patterns:
 
 **Single-file tool:**
 1. Create `primitives/essential/tools/my_tool.py` (or `gui/tools/` for UI tools)
-2. Use `@Tool` decorator with name, description, and optional `write=True`
+2. Use `@Tool` decorator with name, description, required `title=`, and optional `write=True` / `destructive_hint` / `open_world_hint`
 3. Rebuild: `./package.sh` — auto-discovered via `pkgutil.walk_packages`
 
 **Multi-action tool:** Create a subpackage (see "Multi-Action Tools" pattern above)

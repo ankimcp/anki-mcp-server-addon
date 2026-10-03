@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
     "rate_card on a card in the reviewer, it bypasses the reviewer and leaves it desynced. "
     "get_due_cards, present_card and rate_card are for AI-driven review sessions outside the "
     "GUI reviewer.",
+    title="Show Question in Reviewer",
     write=False,
 )
 def gui_show_question() -> dict[str, Any]:

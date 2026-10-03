@@ -10,6 +10,7 @@ from ....handler_wrappers import HandlerError, get_col
     "model_templates",
     "Get the card template HTML (Front and Back) for each card type in a note type (model). "
     "Returns the raw HTML templates used to render cards during review and editing.",
+    title="Note Type Templates",
 )
 def model_templates(model_name: Annotated[str, Field(description="Note type to inspect")]) -> dict[str, Any]:
     col = get_col()

@@ -84,8 +84,14 @@ _DESCRIPTION = (
 @Tool(
     "sync",
     _DESCRIPTION,
-    write=False,          # sync manages the collection via its own gate
+    title="Sync with AnkiWeb",
+    write=True,           # mutates the collection (resolve=download replaces it)
+    # Only starts/polls a background job: an immediate mw.reset() would contend
+    # with the in-flight transfer (block on the backend or race
+    # close_for_full_sync). The resolve path resets itself in _on_resolve_done.
+    refresh_ui=False,
     require_col=False,    # must bypass the collection gate (polling must work while col is closed)
+    open_world_hint=True,
 )
 def sync(
     job_id: Annotated[Optional[str], Field(description="Job to poll or resolve; omit to start a new sync")] = None,

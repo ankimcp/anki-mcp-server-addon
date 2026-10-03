@@ -58,6 +58,7 @@ def _fsrs_params_equal(params1: list[float], params2: list[float]) -> bool:
     "Set apply_results=True to save the optimized parameters. "
     "This operation runs synchronously and typically takes 5-30 seconds depending on review history size. "
     "Returns current_params vs optimized_params comparison, already_optimal flag, and applied flag.",
+    title="Optimize FSRS Parameters",
     write=True,
 )
 def optimize_fsrs_params(

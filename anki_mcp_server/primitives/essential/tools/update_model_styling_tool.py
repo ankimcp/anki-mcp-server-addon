@@ -44,6 +44,7 @@ from ._patch_helpers import (
     + FULL_SYNC_FLAG_DOC
     + " Editing CSS or the LaTeX preamble does not itself modify the schema, so "
       "this is typically false unless the collection was already dirty.",
+    title="Update Note Type Styling",
     write=True,
 )
 def update_model_styling(

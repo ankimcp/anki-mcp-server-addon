@@ -16,6 +16,7 @@ from ....tool_decorator import Tool
     "rating, when the user has asked for hands-free rating -- never use rate_card on a card "
     "in the reviewer, it bypasses the reviewer and leaves it desynced. get_due_cards, "
     "present_card and rate_card are for AI-driven review sessions outside the GUI reviewer.",
+    title="Show Answer in Reviewer",
     write=False,
 )
 def gui_show_answer() -> dict[str, Any]:

@@ -94,6 +94,7 @@ ModelFieldsParams = Annotated[
 @Tool(
     "model_fields",
     _BASE_DESCRIPTION,  # Rebuilt dynamically at MCP registration from _tool_description ClassVars
+    title="Note Type Fields",
     write=True,
 )
 def model_fields(params: ModelFieldsParams) -> dict[str, Any]:

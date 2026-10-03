@@ -11,6 +11,7 @@ from ....handler_wrappers import HandlerError, get_col
     "Get the field names and descriptions for a specific note type (model). "
     "Use this to know what fields are required when creating notes of this type. "
     "Returns both field_names (list of strings) and fields (list of objects with name and description).",
+    title="Note Type Field Names",
 )
 def model_field_names(model_name: Annotated[str, Field(description="Note type to inspect")]) -> dict[str, Any]:
     col = get_col()

@@ -15,6 +15,7 @@ from ._ease_names import ease_name
     "and the user must have confirmed or modified your suggested rating. "
     "Never submit a rating the user has not confirmed after seeing the answer. "
     "Returns next_review date, new_interval (days for review cards), and card_type.",
+    title="Rate Card",
     write=True,
 )
 def rate_card(

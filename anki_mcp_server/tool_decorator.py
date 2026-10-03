@@ -3,6 +3,7 @@ from functools import wraps
 import inspect
 import logging
 
+from mcp.types import ToolAnnotations
 from pydantic import Field
 from pydantic.fields import FieldInfo
 
@@ -19,7 +20,7 @@ from .handler_wrappers import (
 logger = logging.getLogger(__name__)
 
 # Global registry storing all tools registered via @Tool decorator
-# Key: tool name, Value: dict with name, description, original (unwrapped)
+# Key: tool name, Value: metadata dict (see `_register`)
 _registry: dict[str, dict[str, Any]] = {}
 
 
@@ -27,17 +28,28 @@ _registry: dict[str, dict[str, Any]] = {}
 # Tool - Decorator class that registers functions as MCP tools
 # ------------------------------------------------------------------------------
 # Usage:
-#   @Tool("tool_name", "Description for AI", write=True)
+#   @Tool("tool_name", "Description for AI", title="Tool Name", write=True)
 #   def my_tool(arg: str) -> dict:
 #       ...
 #
 # Parameters:
 #   - name: Unique tool identifier exposed to MCP clients
 #   - description: Shown to AI to understand when/how to use the tool
-#   - write: If True, marks the tool as mutating the collection (the
-#     destructive precondition below; reserved for a future readOnlyHint).
-#     Also gates whether _write_lock refreshes Anki's UI after the handler
-#     runs -- see refresh_ui.
+#   - title: Required, keyword-only. Human-readable title shown by MCP
+#     clients (e.g. "Add Note"). Sent both as the Tool's top-level title and
+#     as ToolAnnotations.title. Empty/whitespace is a definition error.
+#   - write: If True, marks the tool as mutating the collection. Drives the
+#     MCP readOnlyHint (readOnlyHint = not write) and is the destructive
+#     precondition below. Also gates whether _write_lock refreshes Anki's UI
+#     after the handler runs -- see refresh_ui.
+#   - destructive_hint: MCP destructiveHint, only meaningful when write=True.
+#     None (default) resolves to True for write tools -- the conservative
+#     choice, since destructiveHint=False promises *only additive* updates.
+#     Set False only for purely additive tools (e.g. add_note). Passing any
+#     value on a write=False tool is a definition error.
+#   - open_world_hint: MCP openWorldHint. Default False (the MCP default of
+#     True is wrong for a local-collection server); set True only for tools
+#     that reach external entities (AnkiWeb sync, URL fetches).
 #   - refresh_ui: Only meaningful when write=True. If True (default), calls
 #     mw.reset() after the handler to refresh open deck browser/overview/
 #     reviewer screens. Set False for a tool that already refreshes the UI
@@ -57,6 +69,17 @@ _registry: dict[str, dict[str, Any]] = {}
 #     surface area). Same "tool" / "tool:action" allow-list syntax as
 #     enabled_destructive_tools.
 #
+# destructive vs destructive_hint: these are separate concepts and must not
+# be conflated. destructive=True is an operator-facing visibility gate (hidden
+# from tools/list unless opted in via enabled_destructive_tools) reserved for
+# a handful of high-risk primitives. destructive_hint is the MCP
+# destructiveHint annotation, a much wider client-facing notion covering
+# anything that isn't purely additive (most write tools). destructive=True
+# with destructive_hint=False is a contradiction and raises ValueError.
+#
+# Multi-action tools carry one static set of annotations for the whole tool
+# (the union over their actions), not per-action hints.
+#
 # What happens at import time:
 #   1. Wraps with _write_lock if write=True (Anki UI refresh, unless
 #      refresh_ui=False)
@@ -72,21 +95,47 @@ class Tool:
         description: str,
         handler: Optional[Callable[..., Any]] = None,
         *,
+        title: str,
         write: bool = False,
         refresh_ui: bool = True,
         require_col: bool = True,
         destructive: bool = False,
         opt_in: bool = False,
+        destructive_hint: Optional[bool] = None,
+        open_world_hint: bool = False,
     ):
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError(
+                f"Tool '{name}': title must be a non-empty string "
+                f"(shown to MCP clients as the tool's human-readable name)"
+            )
         if destructive and not write:
             raise ValueError(
                 f"Tool '{name}': destructive=True requires write=True "
                 f"(a destructive tool that doesn't modify the collection "
                 f"is a definition error)"
             )
+        if destructive_hint is not None and not write:
+            raise ValueError(
+                f"Tool '{name}': destructive_hint requires write=True "
+                f"(MCP destructiveHint is only meaningful for tools that "
+                f"modify the collection)"
+            )
+        if destructive and destructive_hint is False:
+            raise ValueError(
+                f"Tool '{name}': destructive=True contradicts "
+                f"destructive_hint=False"
+            )
         self.name = name
         self.description = description
+        self.title = title
         self.write = write
+        self.destructive_hint = (
+            (True if destructive_hint is None else destructive_hint)
+            if write
+            else None
+        )
+        self.open_world_hint = open_world_hint
         self.refresh_ui = refresh_ui
         self.require_col = require_col
         self.destructive = destructive
@@ -126,15 +175,19 @@ class Tool:
         register_handler(self.name, wrapped)
 
         # Store for MCP tool creation later
-        # "write" is stored for future use (MCP ToolAnnotations readOnlyHint);
-        # "destructive" gates registration behind enabled_destructive_tools.
+        # "title"/"write"/"destructive_hint"/"open_world_hint" become the MCP
+        # ToolAnnotations; "destructive" gates registration behind
+        # enabled_destructive_tools.
         _registry[self.name] = {
             "name": self.name,
             "description": self.description,
+            "title": self.title,
             "original": func,
             "write": self.write,
             "destructive": self.destructive,
             "opt_in": self.opt_in,
+            "destructive_hint": self.destructive_hint,
+            "open_world_hint": self.open_world_hint,
         }
 
 
@@ -703,6 +756,22 @@ def register_tools(
 
 
 # ------------------------------------------------------------------------------
+# _build_tool_annotations - MCP ToolAnnotations from a _registry entry
+# ------------------------------------------------------------------------------
+# readOnlyHint is derived from write; destructiveHint is only meaningful for
+# write tools, so it is omitted (None) for read-only ones.
+# ------------------------------------------------------------------------------
+def _build_tool_annotations(meta: dict[str, Any]) -> ToolAnnotations:
+    write = meta["write"]
+    return ToolAnnotations(
+        title=meta["title"],
+        readOnlyHint=not write,
+        destructiveHint=meta["destructive_hint"] if write else None,
+        openWorldHint=meta["open_world_hint"],
+    )
+
+
+# ------------------------------------------------------------------------------
 # _make_mcp_tool - Create single async MCP tool wrapper
 # ------------------------------------------------------------------------------
 # Creates an async function that:
@@ -715,6 +784,9 @@ def register_tools(
 #
 # For multi-action tools with disabled actions, rebuilds the Pydantic
 # discriminated union and description to exclude filtered actions.
+#
+# Registers with the title at top level (2025-06-18 spec) AND inside
+# ToolAnnotations.title (the older location) so either reader sees it.
 # ------------------------------------------------------------------------------
 def _make_mcp_tool(
     mcp: Any,
@@ -787,4 +859,8 @@ def _make_mcp_tool(
     wrapper.__annotations__ = annotations
 
     # Register with FastMCP
-    mcp.tool(description=description)(wrapper)
+    mcp.tool(
+        title=meta["title"],
+        description=description,
+        annotations=_build_tool_annotations(meta),
+    )(wrapper)

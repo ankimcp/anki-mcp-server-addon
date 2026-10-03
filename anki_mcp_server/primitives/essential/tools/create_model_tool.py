@@ -15,7 +15,9 @@ from ....schema_state import FULL_SYNC_FLAG_DOC, attach_full_sync_flag
     + FULL_SYNC_FLAG_DOC
     + " Creating a note type does not itself modify the schema, so this is "
       "typically false unless the collection was already dirty.",
+    title="Create Note Type",
     write=True,
+    destructive_hint=False,
 )
 def create_model(
     model_name: Annotated[str, Field(description="Name for the new note type; must not already exist")],

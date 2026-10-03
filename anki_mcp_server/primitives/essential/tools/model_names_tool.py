@@ -9,6 +9,7 @@ from ....handler_wrappers import get_col
     "model_names",
     "Get a list of all available note type (model) names in Anki. Use this to see what note types are available before creating notes. "
     "Returns modelNames list and commonTypes shortcuts (basic, basicReversed, cloze).",
+    title="Note Type Names",
 )
 def model_names() -> dict[str, Any]:
     col = get_col()

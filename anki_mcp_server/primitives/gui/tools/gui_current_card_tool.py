@@ -59,6 +59,7 @@ def _answer_buttons(col: Any, reviewer: Any, card: Any) -> tuple[list[int], list
     "user has asked for hands-free rating -- never use rate_card on a card in the reviewer, "
     "it bypasses the reviewer and leaves it desynced. get_due_cards, present_card and "
     "rate_card are for AI-driven review sessions outside the GUI reviewer.",
+    title="Current Reviewer Card",
     write=False,
 )
 def gui_current_card(

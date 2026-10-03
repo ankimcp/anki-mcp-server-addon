@@ -136,6 +136,7 @@ CardManagementParams = Annotated[
 @Tool(
     "card_management",
     _BASE_DESCRIPTION,  # Rebuilt dynamically at MCP registration from _tool_description ClassVars
+    title="Card Management",
     write=True,
 )
 def card_management(params: CardManagementParams) -> dict[str, Any]:

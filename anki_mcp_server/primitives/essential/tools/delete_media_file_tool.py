@@ -13,6 +13,7 @@ from ....media_validators import sanitize_media_filename
     "Move a media file to Anki's trash folder. The file can be recovered via "
     "Anki's 'Check Media' dialog until the trash is emptied. Sync to propagate "
     "the deletion to other devices. Confirm with the user before deleting.",
+    title="Delete Media File",
     write=True,
 )
 def delete_media_file(

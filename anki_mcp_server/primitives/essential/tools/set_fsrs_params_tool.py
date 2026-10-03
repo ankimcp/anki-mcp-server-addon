@@ -23,6 +23,7 @@ _EXPECTED_PARAM_COUNTS = {
     "Can set FSRS weights, desired retention (0.70-0.99), and/or max interval. "
     "At least one parameter must be changed. Returns old/new diff for each changed field. "
     "Use get_fsrs_params first to see current values.",
+    title="Set FSRS Parameters",
     write=True,
 )
 def set_fsrs_params(
