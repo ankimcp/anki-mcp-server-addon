@@ -112,12 +112,19 @@ class DiagnosticsSection(QWidget):
         """Human-readable transport-state lines for the snapshot."""
         http = "enabled" if self._config.http_enabled else "disabled"
         if self._config.http_enabled:
-            http += " (running)" if self._cm.http_running else " (not running)"
+            if self._cm.http_running:
+                http += " (running)"
+            elif self._cm.http_error:
+                http += f" (not running: {self._cm.http_error})"
+            else:
+                http += " (not running)"
 
         if self._cm.tunnel_connected:
             tunnel = "connected"
         elif self._cm.tunnel_active:
             tunnel = "connecting/reconnecting"
+        elif self._cm.loop_error:
+            tunnel = f"unavailable ({self._cm.loop_error})"
         else:
             tunnel = "not connected"
 

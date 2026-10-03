@@ -19,7 +19,11 @@ Thread Safety:
 """
 
 import asyncio
+import errno
 import logging
+import os
+import socket
+import sys
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -38,6 +42,32 @@ from .queue_bridge import BridgeError, QueueBridge, ToolRequest
 from .primitives import register_all_tools, register_all_resources, register_all_prompts
 
 logger = logging.getLogger(__name__)
+
+# asyncio's create_server default for reuse_address.
+_REUSE_ADDRESS = os.name == "posix" and sys.platform != "cygwin"
+
+
+class _FirstErrorCapture(logging.Handler):
+    """Remembers the first record at ERROR or above, reduced to one line.
+
+    The record can be a whole traceback (Starlette passes
+    ``traceback.format_exc()`` on lifespan failure and uvicorn logs it
+    verbatim); its last non-empty line names the exception, which is what
+    fits a single-line status label.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(logging.ERROR)
+        self.message: Optional[str] = None
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self.message is None:
+            try:
+                lines = record.getMessage().strip().splitlines()
+                if lines:
+                    self.message = lines[-1]
+            except Exception:  # noqa: BLE001 - a bad record must not break startup
+                pass
 
 
 def build_fastmcp(streamable_path: str, transport_security: TransportSecuritySettings) -> FastMCP:
@@ -64,6 +94,77 @@ def build_fastmcp(streamable_path: str, transport_security: TransportSecuritySet
     )
     mcp._mcp_server.version = __version__
     return mcp
+
+
+def _bind_http_sockets(host: str, port: int) -> list[socket.socket]:
+    """Bind the HTTP server sockets the way ``loop.create_server`` would.
+
+    This is what uvicorn itself does with ``host``/``port`` (it calls
+    ``loop.create_server``), done up front so a failure is an ``OSError`` we
+    can handle. The sockets are bound but not listening, exactly as
+    ``create_server`` leaves its own: uvicorn passes them to
+    ``loop.create_server(sock=...)``, whose ``Server._start_serving`` calls
+    ``listen(backlog)`` with uvicorn's configured backlog. Mirrors CPython
+    3.13's ``BaseEventLoop.create_server``:
+
+    - one socket per distinct address ``host`` resolves to (so ``localhost``
+      still gets both ``::1`` and ``127.0.0.1``);
+    - an address whose ``socket()`` call fails for any reason is skipped
+      (e.g. ``EAFNOSUPPORT`` with IPv6 disabled in the kernel);
+    - an address whose ``bind()`` fails with ``EADDRNOTAVAIL`` is skipped
+      (bpo-30945: e.g. ``localhost`` -> ``::1`` with IPv6 off on every
+      interface); any other bind error fails the whole call;
+    - ``SO_REUSEADDR`` on POSIX only, and ``IPV6_V6ONLY`` on IPv6 sockets.
+
+    ``uvicorn.Config.bind_socket()`` is deliberately not used: it sets
+    ``SO_REUSEADDR`` on Windows too, where that lets a second socket bind a
+    port another process is already listening on instead of failing, and it
+    reports a bind failure via ``sys.exit`` rather than ``OSError``.
+
+    Raises:
+        OSError: name resolution failed, a bind failed with anything but
+            ``EADDRNOTAVAIL``, or no address could be bound at all. Sockets
+            created before the failure are closed first.
+        UnicodeError: ``host`` cannot be IDNA-encoded (e.g. a label longer
+            than 63 characters); ``getaddrinfo`` raises it before any socket
+            exists.
+    """
+    infos = socket.getaddrinfo(
+        host or None, port, type=socket.SOCK_STREAM, flags=socket.AI_PASSIVE,
+    )
+    sockets: list[socket.socket] = []
+    seen: set[tuple[int, Any]] = set()
+    try:
+        for family, socktype, proto, _canonname, sockaddr in infos:
+            if (family, sockaddr) in seen:
+                continue
+            seen.add((family, sockaddr))
+            try:
+                sock = socket.socket(family, socktype, proto)
+            except OSError:
+                continue
+            sockets.append(sock)
+            if _REUSE_ADDRESS:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, True)
+            if family == socket.AF_INET6 and hasattr(socket, "IPPROTO_IPV6"):
+                sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, True)
+            try:
+                sock.bind(sockaddr)
+            except OSError as exc:
+                if exc.errno == errno.EADDRNOTAVAIL:
+                    sockets.pop()
+                    sock.close()
+                    continue
+                raise
+        if not sockets:
+            raise OSError(
+                f"could not bind on any address out of {[info[4] for info in infos]!r}"
+            )
+    except BaseException:
+        for sock in sockets:
+            sock.close()
+        raise
+    return sockets
 
 
 class McpServer:
@@ -95,6 +196,8 @@ class McpServer:
         _tunnel_task: The asyncio task running TunnelReconnectManager.run()
         _tunnel_manager: The active TunnelReconnectManager instance
         _tunnel_running: Thread-safe flag indicating tunnel status
+        _http_error: Why HTTP failed to start (loop kept alive), or None
+        _fatal_error: Why the background thread died, or None
     """
 
     def __init__(self, bridge: QueueBridge, config: Config) -> None:
@@ -121,8 +224,8 @@ class McpServer:
         self._mcp_instance: Optional[FastMCP] = None
 
         # Async keepalive event — created on the event loop in _async_main(),
-        # used to keep the loop alive when HTTP is disabled (tunnel-only mode).
-        # In HTTP mode, uvicorn.Server.serve() blocks the loop instead.
+        # used to keep the loop alive when HTTP is disabled (tunnel-only mode)
+        # or failed to start. Otherwise uvicorn.Server.serve() blocks the loop.
         self._async_shutdown: Optional[asyncio.Event] = None
 
         # Tunnel state — all access is thread-safe via GIL for simple
@@ -131,6 +234,12 @@ class McpServer:
         self._tunnel_task: Optional[asyncio.Task] = None
         self._tunnel_manager: Optional[Any] = None  # TunnelReconnectManager
         self._tunnel_running: bool = False
+
+        # Failure reasons for the UI. _http_error: HTTP could not start but
+        # the loop stayed up for the tunnel. _fatal_error: the background
+        # thread itself died (loop gone, tunnel impossible).
+        self._http_error: Optional[str] = None
+        self._fatal_error: Optional[str] = None
 
     def start(self) -> None:
         """Start MCP server in background thread.
@@ -208,11 +317,16 @@ class McpServer:
         on_request_completed: Callable[[str, int, float], None] | None = None,
         on_reconnecting: Callable[[int, float], None] | None = None,
         on_stopped: Callable[[int, str], None] | None = None,
-    ) -> None:
+    ) -> bool:
         """Start the tunnel alongside the HTTP server.
 
         Called from the Qt main thread. Schedules tunnel startup on the
         background asyncio loop via asyncio.run_coroutine_threadsafe().
+
+        Returns:
+            True once startup is scheduled on the loop; False (after logging
+            a warning) when the loop is not running, so nothing was scheduled
+            and none of the callbacks will fire.
 
         Args:
             credentials_manager: CredentialsManager instance for token I/O.
@@ -236,7 +350,7 @@ class McpServer:
         loop = self._loop
         if loop is None or loop.is_closed():
             logger.warning("Cannot start tunnel: asyncio loop not running")
-            return
+            return False
 
         asyncio.run_coroutine_threadsafe(
             self._start_tunnel_async(
@@ -251,6 +365,7 @@ class McpServer:
             ),
             loop,
         )
+        return True
 
     def stop_tunnel(self) -> None:
         """Stop the tunnel if running.
@@ -289,6 +404,53 @@ class McpServer:
         """
         task = self._tunnel_task
         return task is not None and not task.done()
+
+    # ------------------------------------------------------------------
+    # Server health — read from the Qt main thread
+    # ------------------------------------------------------------------
+
+    @property
+    def loop_alive(self) -> bool:
+        """Whether the background thread and its asyncio loop are both alive.
+
+        False before ``_async_main`` has captured the loop, after
+        ``asyncio.run`` has closed it, and once the thread has exited.
+
+        Thread Safety:
+            Safe to read from any thread.
+        """
+        loop = self._loop
+        thread = self._thread
+        return (
+            loop is not None
+            and not loop.is_closed()
+            and thread is not None
+            and thread.is_alive()
+        )
+
+    @property
+    def http_started(self) -> bool:
+        """Whether uvicorn finished startup and is accepting connections.
+
+        Derived from ``uvicorn.Server.started``, which uvicorn sets at the
+        end of ``startup()`` once every listener is serving. It is never
+        reset, so pair it with ``loop_alive`` to know HTTP is still up.
+
+        Thread Safety:
+            Safe to read from any thread.
+        """
+        server = self._uvicorn_server
+        return server is not None and bool(server.started)
+
+    @property
+    def http_error(self) -> Optional[str]:
+        """Why HTTP failed to start while the loop stayed alive, or None."""
+        return self._http_error
+
+    @property
+    def fatal_error(self) -> Optional[str]:
+        """Why the background thread died (``"<ExcType>: <msg>"``), or None."""
+        return self._fatal_error
 
     # ------------------------------------------------------------------
     # Tunnel async internals — run on the background asyncio loop
@@ -435,7 +597,8 @@ class McpServer:
         ``threading.excepthook``), leaving a connected client to hang until it
         times out. This mirrors how ``_run_tunnel`` already guards the tunnel
         task. We catch ``BaseException`` for the same reason it does: anyio /
-        asyncio can surface ``BaseExceptionGroup`` here.
+        asyncio can surface ``BaseExceptionGroup`` here. The failure is also
+        recorded as ``fatal_error`` so the settings dialog can say why.
 
         Thread Safety:
             Runs in background thread. Never accesses Qt or Anki APIs directly.
@@ -443,6 +606,7 @@ class McpServer:
         try:
             asyncio.run(self._async_main())
         except BaseException as exc:  # noqa: BLE001 - must not let the thread die silently
+            self._fatal_error = f"{type(exc).__name__}: {exc}"
             logger.error(
                 "MCP server background thread failed unexpectedly: %s",
                 exc,
@@ -553,6 +717,18 @@ class McpServer:
         unwinds on its next tick, releasing the listening socket so the next
         profile open can rebind the port.
 
+        The listening sockets are bound here (``_bind_http_sockets``) and
+        handed to ``serve()``, and closed in this method's ``finally`` on
+        every path. uvicorn's own ``shutdown()`` also closes them, but only
+        when startup completed; ``socket.close()`` is idempotent.
+
+        HTTP failing to start must not end the loop, because the tunnel runs
+        on it too. A bind ``OSError``, or a ``SystemExit``/``Exception``
+        escaping ``serve()`` before uvicorn reports ``started`` (uvicorn turns
+        startup failures into ``sys.exit``), is recorded as ``http_error``,
+        logged, and followed by the same ``_async_shutdown`` wait that keeps
+        tunnel-only mode alive. Exceptions after startup still propagate.
+
         Args:
             mcp: Configured FastMCP server instance with tools defined
 
@@ -581,14 +757,56 @@ class McpServer:
                 allow_credentials=True,
             )
 
+        # log_config=None is load-bearing: uvicorn's default log_config runs
+        # logging.config.dictConfig(), which shuts down EVERY handler in Anki's
+        # process (Anki's, other add-ons', our file log) and kills this thread
+        # if any of them raises anything but OSError/ValueError on the way
+        # (with the default logging.raiseExceptions = True). None skips that;
+        # log_level still sets the uvicorn.error/.access/.asgi logger levels.
         config = uvicorn.Config(
             app,
             host=self._config.http_host,
             port=self._config.http_port,
             log_level="warning",
+            log_config=None,
         )
         server = uvicorn.Server(config)
+
+        host, port = self._config.http_host, self._config.http_port
+        try:
+            sockets = _bind_http_sockets(host, port)
+        except (OSError, UnicodeError) as exc:
+            reason = getattr(exc, "strerror", None) or exc
+            self._http_error = f"cannot listen on {host}:{port}: {reason}"
+            logger.error("HTTP server failed to start: %s", self._http_error)
+            await self._async_shutdown.wait()
+            return
+
         # Publish before serving so stop() can reach it via call_soon_threadsafe.
         self._uvicorn_server = server
 
-        await server.serve()
+        # uvicorn logs the real startup failure on uvicorn.error and then
+        # exits with a bare code, so keep its first ERROR for the dialog.
+        uvicorn_errors = _FirstErrorCapture()
+        uvicorn_error_logger = logging.getLogger("uvicorn.error")
+        uvicorn_error_logger.addHandler(uvicorn_errors)
+        failure: Optional[BaseException] = None
+        try:
+            await server.serve(sockets=sockets)
+        except (SystemExit, Exception) as exc:
+            if server.started:
+                raise
+            failure = exc
+        finally:
+            uvicorn_error_logger.removeHandler(uvicorn_errors)
+            for sock in sockets:
+                sock.close()
+
+        if failure is not None:
+            reason = uvicorn_errors.message or f"{type(failure).__name__}: {failure}"
+            self._http_error = f"HTTP server failed to start: {reason}"
+            logger.error(
+                "%s", self._http_error,
+                exc_info=failure if isinstance(failure, Exception) else None,
+            )
+            await self._async_shutdown.wait()
