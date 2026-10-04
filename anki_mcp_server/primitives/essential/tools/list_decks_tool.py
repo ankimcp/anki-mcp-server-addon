@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 
 @Tool(
     "list_decks",
-    "List all available Anki decks, optionally with statistics. Remember to sync first at the start of a review session for latest data. "
+    "List all available Anki decks, optionally with statistics. "
+    "Counts reflect the local collection at call time; this call does not sync with AnkiWeb. "
     "Returns deck objects with deck_id, name, and is_filtered. With include_stats=true, adds per-deck card counts (new, learn, review, total).",
     title="List Decks",
 )

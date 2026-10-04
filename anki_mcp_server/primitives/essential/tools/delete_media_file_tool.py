@@ -11,10 +11,12 @@ from ....media_validators import sanitize_media_filename
 @Tool(
     "delete_media_file",
     "Move a media file to Anki's trash folder. The file can be recovered via "
-    "Anki's 'Check Media' dialog until the trash is emptied. Sync to propagate "
-    "the deletion to other devices. Confirm with the user before deleting.",
+    "Anki's 'Check Media' dialog until the trash is emptied. The deletion reaches "
+    "other devices only after a sync. Intended for files the user has confirmed "
+    "should be deleted.",
     title="Delete Media File",
     write=True,
+    idempotent_hint=True,
 )
 def delete_media_file(
     filename: Annotated[str, Field(description="Media filename to move to trash")],

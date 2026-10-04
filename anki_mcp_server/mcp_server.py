@@ -46,6 +46,24 @@ logger = logging.getLogger(__name__)
 # asyncio's create_server default for reuse_address.
 _REUSE_ADDRESS = os.name == "posix" and sys.platform != "cygwin"
 
+# Server-level instructions sent in the initialize result. The Anthropic
+# Software Directory Policy asks tool descriptions to state what each tool does
+# and when it applies; cross-tool workflow guidance lives here instead.
+SERVER_INSTRUCTIONS = (
+    "This server works on the user's local Anki collection. When the user syncs "
+    "Anki across devices, offer to sync with AnkiWeb at the start and end of a "
+    "session; no tool call syncs implicitly; only the sync tool contacts AnkiWeb. "
+    "AI-driven review loop: get_due_cards -> present_card (question first, then "
+    "show_answer=true once the user has answered) -> rate_card, with the user "
+    "confirming the rating after seeing the answer. Review inside Anki's own "
+    "window (when the GUI review tools are enabled): gui_deck_review -> "
+    "gui_current_card -> gui_show_answer -> gui_answer_card; by default the user "
+    "presses the answer buttons themselves, and gui_answer_card applies only when "
+    "the user asked for hands-free rating and confirmed the rating; rate_card does not "
+    "apply to a card shown in Anki's reviewer. Create, edit or delete only the "
+    "notes, decks, note types and media the user asked for."
+)
+
 
 class _FirstErrorCapture(logging.Handler):
     """Remembers the first record at ERROR or above, reduced to one line.
@@ -82,6 +100,7 @@ def build_fastmcp(streamable_path: str, transport_security: TransportSecuritySet
     """
     mcp = FastMCP(
         "anki-mcp",
+        instructions=SERVER_INSTRUCTIONS,
         website_url="https://ankimcp.ai",
         icons=[Icon(
             src="https://ankimcp.ai/favicon.svg",

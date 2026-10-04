@@ -34,7 +34,7 @@ A second native dependency, `rpds` (from `rpds-py`), is handled the same way —
 - **Field management** - Add, rename, and reposition note-type fields via the `model_fields` tool (with an opt-in [destructive](#destructive-tools-opt-in) remove)
 - **Bulk card stats** - The read-only `cards_stats` tool returns compact per-card scheduling metrics (type/queue/interval/tags/`dueToday`) for a whole deck including subdecks, FSRS-independent — a lean bulk read for analytics
 - **GUI review sessions** - Hands-free review in Anki's own reviewer window: `gui_deck_review` opens a deck, `gui_answer_card` presses the answer button for you. [Opt-in](#opt-in-tools), hidden until named in `enabled_opt_in_tools`
-- **MCP tool annotations** - Every tool declares a `title`, `readOnlyHint`, `destructiveHint` and `openWorldHint`, so clients can show readable names and confirm before data-changing calls
+- **MCP tool annotations** - Every tool declares a `title`, `readOnlyHint`, `destructiveHint` and `openWorldHint` (plus `idempotentHint` on write tools that are safe to repeat), so clients can show readable names and confirm before data-changing calls
 - **Cross-platform** - Works on macOS, Windows, and Linux (x64 and ARM)
 
 ## Installation
@@ -474,7 +474,7 @@ Optional hardening via config:
 
 Every tool parameter carries a short `description` in the MCP input schema (since 0.29.0), so clients that show or feed the schema to the model get argument shapes without trial and error. Nested action parameters of multi-action tools are described on their Pydantic models and appear under `$defs`.
 
-Every tool also carries MCP annotations (since 0.31.0): a human-readable `title`, `readOnlyHint` (true for tools that never modify the collection), `destructiveHint` (false only for the purely additive `add_note`, `add_notes`, `create_deck`, `create_model` and `store_media_file`), and `openWorldHint` (true only for `sync`, which talks to AnkiWeb, and `store_media_file`, which can fetch URLs).
+Every tool also carries MCP annotations (since 0.31.0): a human-readable `title`, `readOnlyHint` (true for tools that never modify the collection), `destructiveHint` (false only for the purely additive `add_note`, `add_notes`, `create_deck`, `create_model` and `store_media_file`), `idempotentHint` (since 0.32.0; true only for write tools where repeating the same call has no further effect: `create_deck`, `delete_notes`, `delete_media_file`, `set_fsrs_params` and `tag_management`; omitted on every other tool), and `openWorldHint` (true only for `sync`, which talks to AnkiWeb, and `store_media_file`, which can fetch URLs).
 
 **Upgrading from ≤ 0.27.x:** `get_due_cards` no longer returns `back` unless you pass `include_answer=true`, and `front` is now the rendered question HTML rather than the raw field. Clients that read `back` from this tool need the flag.
 

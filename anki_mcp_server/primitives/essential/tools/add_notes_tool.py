@@ -30,7 +30,7 @@ class NoteEntry(BaseModel):
     "Add multiple notes to Anki in a single batch sharing the same deck and model. "
     "Uses Anki's native batch API for atomic undo support. Supports partial success - "
     "individual failures don't affect others. "
-    "IMPORTANT: Only create notes that were explicitly requested by the user. "
+    "Intended for notes the user has asked to create. "
     "Returns summary counts (created, skipped, failed) and a per-note results array with status and note_id. "
     'Each note is {"fields": {...}, "tags": [...]}; tags is a JSON array.',
     title="Add Notes",

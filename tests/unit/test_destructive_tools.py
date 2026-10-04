@@ -216,6 +216,7 @@ def _single_meta(name: str, *, destructive: bool) -> dict:
         "destructive": destructive,
         "opt_in": False,
         "destructive_hint": True,
+        "idempotent_hint": None,
         "open_world_hint": False,
     }
 
@@ -245,6 +246,7 @@ def _multi_meta(name: str, union, *, destructive: bool = False) -> dict:
         "destructive": destructive,
         "opt_in": False,
         "destructive_hint": True,
+        "idempotent_hint": None,
         "open_world_hint": False,
     }
 

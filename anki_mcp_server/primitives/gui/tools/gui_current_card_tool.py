@@ -47,17 +47,17 @@ def _answer_buttons(col: Any, reviewer: Any, card: Any) -> tuple[list[int], list
     "null unless the card is currently being studied from a filtered deck. "
     "The answer and the note's fields are omitted by default (no 'answer' or 'fields' key in "
     "cardInfo) -- a note's fields can themselves contain the answer (e.g. a Basic note's Back "
-    "field), so both are gated together. Pass include_answer=True to receive both -- during a "
-    "review, do not request it until the user has answered the question. "
+    "field), so both are gated together. Pass include_answer=True to receive both -- omitting "
+    "it means a review session need not receive the answer before the user has answered. "
     "Returns inReview=false when the reviewer is not active. advancing=true means Anki is "
     "still transitioning to the next card after a rating -- the card shown may be the one "
     "just answered, so call this again to get the actual next card. "
     "Use this when the user is reviewing in Anki's GUI and asks about the card in front of them "
     "(for example 'explain this card'), or to find the note behind it before editing. "
-    "Read-only: by default the user presses the answer buttons themselves. Only use "
-    "gui_answer_card, after gui_show_answer and an explicit user-confirmed rating, when the "
-    "user has asked for hands-free rating -- never use rate_card on a card in the reviewer, "
-    "it bypasses the reviewer and leaves it desynced. get_due_cards, present_card and "
+    "Read-only: by default the user presses the answer buttons themselves. gui_answer_card "
+    "applies when the user has asked for hands-free rating, after gui_show_answer and an "
+    "explicit user-confirmed rating. rate_card bypasses the reviewer and leaves it desynced, "
+    "so it does not apply to a card shown in the reviewer. get_due_cards, present_card and "
     "rate_card are for AI-driven review sessions outside the GUI reviewer.",
     title="Current Reviewer Card",
     write=False,

@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
     "gui_select_card",
     "Select a specific card in an open Card Browser window. "
     "Returns true if browser is open and card was selected, false if browser is not open. "
-    "IMPORTANT: Only use when user explicitly requests selecting a card in the browser. "
-    "This tool is for note editing/creation workflows, NOT for review sessions. "
-    "The Card Browser must already be open (use gui_browse first).",
+    "For when the user asks to select a card in the browser, in note editing/creation "
+    "workflows; not part of a review session. "
+    "The Card Browser must already be open (gui_browse opens it).",
     title="Select Card in Browser",
     write=False,
 )

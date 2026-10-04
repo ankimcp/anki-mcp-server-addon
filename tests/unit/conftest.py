@@ -487,9 +487,14 @@ def real_mcp():
         disabled_tools=None,
         # Opt in every whole-tool-destructive / whole-tool-opt-in primitive
         # (see CLAUDE.md "Tool Filtering") so their schemas are covered too --
-        # see _all_whole_tool_gated's docstring for why per-action entries are
-        # excluded.
-        enabled_destructive_tools=_all_whole_tool_gated("destructive"),
+        # see _all_whole_tool_gated's docstring for why per-action entries
+        # aren't derived. model_fields:remove is named explicitly so its
+        # per-action description is on the wire for description scans; it
+        # doesn't change the tool count.
+        enabled_destructive_tools=[
+            *_all_whole_tool_gated("destructive"),
+            "model_fields:remove",
+        ],
         enabled_opt_in_tools=_all_whole_tool_gated("opt_in"),
     )
     return mcp

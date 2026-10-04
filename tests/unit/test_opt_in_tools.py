@@ -167,6 +167,7 @@ def _single_meta(name: str, *, opt_in: bool) -> dict:
         "destructive": False,
         "opt_in": opt_in,
         "destructive_hint": True,
+        "idempotent_hint": None,
         "open_world_hint": False,
     }
 
@@ -185,6 +186,7 @@ def _multi_meta(name: str, union) -> dict:
         "destructive": False,
         "opt_in": False,  # whole-tool flag; per-action gating is via _opt_in
         "destructive_hint": True,
+        "idempotent_hint": None,
         "open_world_hint": False,
     }
 
@@ -294,6 +296,7 @@ class TestRegisterToolsWholeTool:
                     "destructive": True,
                     "opt_in": True,
                     "destructive_hint": True,
+                    "idempotent_hint": None,
                     "open_world_hint": False,
                 }
             }

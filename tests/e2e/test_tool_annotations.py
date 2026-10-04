@@ -83,3 +83,9 @@ class TestAnnotationSpotChecks:
 
     def test_list_decks_is_closed_world(self, tools_by_name):
         assert self._ann(tools_by_name, "list_decks")["openWorldHint"] is False
+
+    def test_create_deck_is_idempotent(self, tools_by_name):
+        assert self._ann(tools_by_name, "create_deck")["idempotentHint"] is True
+
+    def test_add_note_has_no_idempotent_hint(self, tools_by_name):
+        assert "idempotentHint" not in self._ann(tools_by_name, "add_note")

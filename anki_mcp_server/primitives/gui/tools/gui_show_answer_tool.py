@@ -12,9 +12,9 @@ from ....tool_decorator import Tool
     "Use this when the user is reviewing in Anki's GUI and asks to reveal or flip the "
     "card in front of them. "
     "This only changes what is displayed: by default the user presses the answer buttons "
-    "themselves. Only use gui_answer_card, after this call and an explicit user-confirmed "
-    "rating, when the user has asked for hands-free rating -- never use rate_card on a card "
-    "in the reviewer, it bypasses the reviewer and leaves it desynced. get_due_cards, "
+    "themselves. gui_answer_card applies when the user has asked for hands-free rating, "
+    "after this call and an explicit user-confirmed rating. rate_card bypasses the reviewer "
+    "and leaves it desynced, so it does not apply to a card shown in the reviewer. get_due_cards, "
     "present_card and rate_card are for AI-driven review sessions outside the GUI reviewer.",
     title="Show Answer in Reviewer",
     write=False,

@@ -7,9 +7,8 @@ from ....handler_wrappers import HandlerError
 @Tool(
     "gui_deck_browser",
     "Open Anki Deck Browser dialog showing all decks. "
-    "IMPORTANT: Only use when user explicitly requests opening the deck browser. "
-    "This tool is for deck management and organization workflows, NOT for review sessions. "
-    "Use this when user wants to see all decks or manage deck structure.",
+    "For when the user asks to open the deck browser, to see all decks or manage deck "
+    "structure; not part of a review session.",
     title="Open Deck Browser",
     write=False,
 )

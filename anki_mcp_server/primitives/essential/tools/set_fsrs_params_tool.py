@@ -25,6 +25,7 @@ _EXPECTED_PARAM_COUNTS = {
     "Use get_fsrs_params first to see current values.",
     title="Set FSRS Parameters",
     write=True,
+    idempotent_hint=True,
 )
 def set_fsrs_params(
     preset_name: Annotated[str, Field(description="Deck config preset to update")],

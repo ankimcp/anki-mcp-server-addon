@@ -348,6 +348,7 @@ class TestMakeMcpToolValidation:
             "original": func,
             "write": True,
             "destructive_hint": True,
+            "idempotent_hint": None,
             "open_world_hint": False,
         }
 

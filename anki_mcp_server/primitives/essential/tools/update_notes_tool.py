@@ -30,7 +30,7 @@ class NoteUpdateEntry(BaseModel):
     "only specified fields are changed). Failures for individual notes do not affect others. "
     "Use dry_run=true to validate all entries and preview which notes would be updated "
     "without writing any changes — useful before committing a large bulk edit. "
-    "IMPORTANT: Only update notes that the user explicitly asked to modify. "
+    "Intended for notes the user has asked to modify. "
     "Returns summary counts (updated, failed) and a per-note results array with "
     "retry hints for recoverable failures.",
     title="Update Notes",

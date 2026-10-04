@@ -15,9 +15,8 @@ logger = logging.getLogger(__name__)
     "Open Anki note editor dialog for a specific note ID. Allows manual editing "
     "of note fields, tags, and cards in the GUI. The note editor is opened in the "
     "Anki Browser, which provides full editing capabilities. "
-    "IMPORTANT: Only use when user explicitly requests editing a note via GUI. "
-    "This tool is for note editing workflows when user wants to manually edit in "
-    "the Anki interface. For programmatic editing, use update_note_fields instead.",
+    "For when the user asks to edit a note manually in the Anki interface. "
+    "Programmatic editing is done by update_note_fields.",
     title="Open Note Editor",
     write=False,
 )

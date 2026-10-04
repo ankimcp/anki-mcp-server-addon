@@ -10,14 +10,13 @@ from ...essential.tools._ease_names import ease_name
 @Tool(
     "gui_answer_card",
     "Press an answer button (1=Again, 2=Hard, 3=Good, 4=Easy) on the card currently shown "
-    "in Anki's own reviewer, advancing it exactly like a real button press. Only use this "
-    "when the user has explicitly asked for hands-free rating while reviewing in Anki's "
-    "window (a voice/hands-free session) -- by default the USER presses the answer buttons "
-    "themselves. Preconditions: the answer must already be on screen (call gui_show_answer "
-    "first) and the user must have confirmed the rating; never call this to rate a card on "
-    "the user's behalf without confirmation, and never use rate_card for a card shown in "
-    "the reviewer -- rate_card bypasses the reviewer and leaves it desynced, still showing "
-    "the same card. This tool does not wait for Anki to finish advancing the reviewer -- it "
+    "in Anki's own reviewer, advancing it exactly like a real button press. Applies when "
+    "the user has asked for hands-free rating while reviewing in Anki's window (a "
+    "voice/hands-free session) -- by default the USER presses the answer buttons "
+    "themselves. Preconditions: the answer must already be on screen (gui_show_answer "
+    "puts it there) and the rating must be one the user has confirmed. rate_card bypasses "
+    "the reviewer and leaves it desynced, still showing the same card, so it does not "
+    "apply to a card shown in the reviewer. This tool does not wait for Anki to finish advancing the reviewer -- it "
     "returns immediately with pending=True; call gui_current_card afterwards to see the next "
     "card (it reports advancing=true while Anki is still transitioning).",
     title="Answer Card in Reviewer",

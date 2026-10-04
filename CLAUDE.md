@@ -174,6 +174,7 @@ Options:
 - `destructive=True`: Hides the tool from MCP clients unless the operator opts in via `enabled_destructive_tools` config (see "Tool Filtering"). Requires `write=True` — `ValueError` at import time otherwise. For multi-action tools, mark individual actions with `_destructive: ClassVar[bool] = True` on the action's Params model instead.
 - `opt_in=True`: Hides the tool from MCP clients unless the operator opts in via `enabled_opt_in_tools` config (see "Tool Filtering"). Does not require `write=True` — unlike `destructive`, this is for tools that are opt-in for reasons other than being dangerous.
 - `destructive_hint=None` (default): The MCP `destructiveHint`. For `write=True` tools `None` resolves to `True` — conservative, since `destructiveHint=False` promises *only additive* updates. Set `False` only on purely additive tools (`add_note`, `add_notes`, `create_deck`, `create_model`, `store_media_file`). Passing any value on a `write=False` tool is a `ValueError`; read-only tools omit `destructiveHint` on the wire.
+- `idempotent_hint=None` (default): The MCP `idempotentHint`. `None` omits it on the wire (MCP then assumes `False`). Set `True` only on write tools where repeating the same call with the same arguments has no further effect (`create_deck`, `delete_notes`, `delete_media_file`, `set_fsrs_params`, `tag_management`). Not on the `old_str`/`new_str` patch-mode tools (`update_note_fields`, `update_model_styling`, `update_model_templates`): a repeat patch call can re-apply the edit. Passing any value on a `write=False` tool is a `ValueError`; read-only tools omit `idempotentHint` on the wire.
 - `open_world_hint=False` (default): The MCP `openWorldHint`. MCP's own default is `True`, which is wrong for a local-collection server, so it's always sent explicitly. Only `sync` (AnkiWeb) and `store_media_file` (URL fetches) set `True`.
 
 **`destructive` vs `destructive_hint`** — separate concepts, don't conflate them. `destructive=True` is an operator-facing visibility gate (hidden unless opted in via `enabled_destructive_tools`) reserved for a few high-risk primitives. `destructive_hint` is the client-facing MCP annotation covering anything not purely additive — most write tools. `destructive=True` with `destructive_hint=False` is a contradiction → `ValueError`. Multi-action tools get one static annotation set for the whole tool (the union over their actions), not per-action hints.
@@ -589,7 +590,7 @@ prompt = get_prompt("review_session", {"review_style": "quick"})
 Test conventions:
 - One test file per feature area (e.g., `test_note_tools.py`, `test_fsrs_tools.py`)
 - Group related tests in classes (e.g., `class TestNoteTools`)
-- Tool args are always strings (MCP CLI serialization)
+- Pass tool args as native Python values: `call_tool` JSON-encodes dicts/lists and `str()`-formats everything else into `--tool-arg key=value` for the Inspector CLI
 - Check `result.get("isError") is True` for expected error responses
 
 ### Manual Testing

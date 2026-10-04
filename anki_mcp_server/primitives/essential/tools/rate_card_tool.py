@@ -13,7 +13,7 @@ from ._ease_names import ease_name
     "Submit a rating for a card to update Anki's spaced repetition scheduling. "
     "Precondition: the answer must already have been revealed to the user via present_card(show_answer=true), "
     "and the user must have confirmed or modified your suggested rating. "
-    "Never submit a rating the user has not confirmed after seeing the answer. "
+    "The rating is applied to the schedule immediately, so it is meant for a rating the user has confirmed after seeing the answer. "
     "Returns next_review date, new_interval (days for review cards), and card_type.",
     title="Rate Card",
     write=True,

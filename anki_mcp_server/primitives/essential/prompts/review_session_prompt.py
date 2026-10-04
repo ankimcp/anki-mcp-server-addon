@@ -55,8 +55,8 @@ SESSION PARAMETERS:
 GUI REVIEW MODE:
 - The card stays visible on screen in Anki's reviewer the whole time -- you never fetch
   or render card content yourself, you only read what the reviewer is showing
-- Never call get_due_cards, present_card, or rate_card in this mode -- they are for
-  AI-driven review sessions outside the GUI reviewer and would desync it
+- get_due_cards, present_card and rate_card drive a review outside the GUI reviewer and
+  would desync it, so they are not part of this mode
 - Note: gui_deck_review and gui_answer_card are opt-in tools. If they are missing from
   your tools list, tell the user they need to add "gui_deck_review" and "gui_answer_card"
   to the enabled_opt_in_tools setting in the addon config
@@ -69,15 +69,16 @@ GUI REVIEW MODE:
   * Easy (4): Instant, effortless recall
 
 WORKFLOW:
-1. First, sync to get latest data: Use the sync tool
+1. Offer to sync first — it brings in reviews done on other devices
 2. Use gui_deck_review with deck_name="{deck_name}" to open the deck in Anki's reviewer
    - If it reports inReview=false, there are no cards due -- end the session here
-3. Use gui_current_card (do not pass include_answer) to read the question that is on screen
+3. Use gui_current_card to read the question that is on screen (include_answer stays off
+   here; it returns the answer)
 4. Wait for the user's answer
 5. Use gui_show_answer to reveal the answer side in the reviewer, then use gui_current_card
    with include_answer=true to read the answer for evaluation
 6. Evaluate their response and suggest a rating (1-4)
-7. Wait for user confirmation, then use gui_answer_card with that ease to record it
+7. Once the user confirms the rating, use gui_answer_card with that ease to record it
    - It returns immediately and does not wait for Anki to finish advancing the reviewer
    - Note its answered_count value -- this is how you confirm the rating actually took
 8. Call gui_current_card for the next card
@@ -92,13 +93,13 @@ WORKFLOW:
    - Otherwise it is the next card -- repeat from step 3
 9. Continue until a gui_current_card call reports inReview=false or {card_limit} cards reviewed
 
-IMPORTANT GUIDELINES:
-- Always sync before starting to ensure up-to-date card data
-- Never reveal or hint at the answer before the user has responded to the question
-- Only call gui_answer_card after gui_show_answer and the user confirmed the rating -
-  never rate a card "on their behalf" before that
+SESSION RULES:
+- Syncing before starting brings in reviews done on other devices; the user may decline
+- The answer is neither revealed nor hinted at until the user has responded to the question
+- gui_answer_card commits the rating as soon as it is called, so it comes after
+  gui_show_answer and the user's confirmation of the rating, not before
 - Be encouraging but honest about mistakes
-- If the user wants to stop early, that's fine - sync before ending
+- If the user wants to stop early, that's fine - offer to sync before ending
 - Track progress: "Card X of Y completed"
 - At the end, summarize the session (cards reviewed, performance distribution)
 
@@ -108,7 +109,7 @@ RATING GUIDE:
 - Struggling learners benefit from honest ratings (it schedules more reviews)
 - If unsure, rate "Hard" rather than "Again" for partial knowledge
 
-Begin by syncing and calling gui_deck_review for the "{deck_name}" deck."""
+Begin by offering a sync, then call gui_deck_review for the "{deck_name}" deck."""
 
     if review_style == "voice":
         style_instructions = """
@@ -126,8 +127,8 @@ VOICE REVIEW MODE:
   * Hard (2): Struggled but got it eventually
   * Good (3): Correct with reasonable effort
   * Easy (4): Instant, effortless recall
-- CRITICAL: At the end of the session, call card_management with
-  action="unbury" and deck_name to restore all skipped media cards"""
+- Cards skipped for media stay buried until the next day unless card_management with
+  action="unbury" and deck_name restores them; the session ends with that unbury call"""
     elif review_style == "quick":
         style_instructions = """
 QUICK REVIEW MODE:
@@ -157,31 +158,32 @@ SESSION PARAMETERS:
 {style_instructions}
 
 WORKFLOW:
-1. First, sync to get latest data: Use the sync tool
+1. Offer to sync first — it brings in reviews done on other devices
 2. Get the next due card: Use get_due_cards with deck_name="{deck_name}"
    - get_due_cards returns ONE card at a time in true scheduler order
-   - It returns the question only - never pass include_answer during a review, or you will see the answer
-     before the user does{'''
+   - It returns the question only - include_answer stays off during a review; it returns
+     the answer before the user has responded{'''
    - Use skip_images=True and skip_audio=True to filter out media cards''' if review_style == 'voice' else ''}
 3. Use present_card to show the question to the user
 4. Wait for their response
 5. Use present_card with show_answer=True to reveal the answer
 6. Evaluate their response and suggest a rating (1-4)
-7. Wait for user confirmation, then use rate_card to record their performance
+7. Once the user confirms the rating, use rate_card to record their performance
 8. Repeat from step 2 to get the next card
 9. Continue until no more cards are due or {card_limit} cards reviewed
 
-IMPORTANT GUIDELINES:
-- Always sync before starting to ensure up-to-date card data
-- Never reveal or hint at the answer before the user has responded to the question
-- Only call rate_card after the answer was shown with present_card(show_answer=True) and the user confirmed
-  the rating - never rate a card "on their behalf" before that
+SESSION RULES:
+- Syncing before starting brings in reviews done on other devices; the user may decline
+- The answer is neither revealed nor hinted at until the user has responded to the question
+- rate_card records the rating in Anki's scheduler immediately, so it comes after the answer was
+  shown with present_card(show_answer=True) and the user confirmed the rating, not before
 - Be encouraging but honest about mistakes
-- If the user wants to stop early, that's fine - sync before ending
+- If the user wants to stop early, that's fine - offer to sync before ending
 - Track progress: "Card X of Y completed"
 - At the end, summarize the session (cards reviewed, performance distribution){'''
-- CRITICAL: At session end, call card_management with action="unbury" and
-  deck_name="''' + deck_name + '''" to restore all skipped media cards''' if review_style == 'voice' else ''}
+- Cards skipped for media stay buried until the next day unless card_management with
+  action="unbury" and deck_name="''' + deck_name + '''" restores them; the session ends with
+  that unbury call''' if review_style == 'voice' else ''}
 
 RATING GUIDE:
 - Use the rating that best reflects the user's actual recall
@@ -189,4 +191,4 @@ RATING GUIDE:
 - Struggling learners benefit from honest ratings (it schedules more reviews)
 - If unsure, rate "Hard" rather than "Again" for partial knowledge
 
-Begin by syncing and fetching the first due card for the "{deck_name}" deck."""
+Begin by offering a sync, then fetch the first due card for the "{deck_name}" deck."""

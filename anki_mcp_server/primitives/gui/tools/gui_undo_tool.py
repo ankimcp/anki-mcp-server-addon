@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
     "gui_undo",
     "Undo the last action in Anki -- a note edit, a card-management change, or a rating just made in Anki's reviewer. "
     "Returns undone=true if there was something to undo. "
-    "IMPORTANT: only call this when the user explicitly asks to undo; in a hands-free GUI review session it is the right way to take back a mis-heard or mistaken rating (never 'correct' a rating by rating again). "
-    "After undoing a reviewer rating, the reviewer only re-shows the undone card once the Anki window regains focus, so a gui_current_card call made immediately afterwards may still report the previous card -- ask the user to click into Anki, then read again.",
+    "Applies when the user asks to undo. In a hands-free GUI review session it is how a mis-heard or mistaken rating is taken back; rating the card again does not correct a rating, it records a second one. "
+    "After undoing a reviewer rating, the reviewer only re-shows the undone card once the Anki window regains focus, so a gui_current_card call made immediately afterwards may still report the previous card until the user clicks into Anki.",
     title="Undo Last Action",
     write=True,
     # mw.undo() is an async CollectionOp that refreshes Anki's UI itself once

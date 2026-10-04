@@ -47,6 +47,11 @@ _registry: dict[str, dict[str, Any]] = {}
 #     choice, since destructiveHint=False promises *only additive* updates.
 #     Set False only for purely additive tools (e.g. add_note). Passing any
 #     value on a write=False tool is a definition error.
+#   - idempotent_hint: MCP idempotentHint, only meaningful when write=True.
+#     None (default) omits it on the wire (MCP then assumes False). Set True
+#     only when repeating the same call with the same arguments has no
+#     additional effect (e.g. create_deck, delete_notes). Passing any value
+#     on a write=False tool is a definition error.
 #   - open_world_hint: MCP openWorldHint. Default False (the MCP default of
 #     True is wrong for a local-collection server); set True only for tools
 #     that reach external entities (AnkiWeb sync, URL fetches).
@@ -102,6 +107,7 @@ class Tool:
         destructive: bool = False,
         opt_in: bool = False,
         destructive_hint: Optional[bool] = None,
+        idempotent_hint: Optional[bool] = None,
         open_world_hint: bool = False,
     ):
         if not isinstance(title, str) or not title.strip():
@@ -121,6 +127,12 @@ class Tool:
                 f"(MCP destructiveHint is only meaningful for tools that "
                 f"modify the collection)"
             )
+        if idempotent_hint is not None and not write:
+            raise ValueError(
+                f"Tool '{name}': idempotent_hint requires write=True "
+                f"(MCP idempotentHint is only meaningful for tools that "
+                f"modify the collection)"
+            )
         if destructive and destructive_hint is False:
             raise ValueError(
                 f"Tool '{name}': destructive=True contradicts "
@@ -135,6 +147,7 @@ class Tool:
             if write
             else None
         )
+        self.idempotent_hint = idempotent_hint
         self.open_world_hint = open_world_hint
         self.refresh_ui = refresh_ui
         self.require_col = require_col
@@ -175,8 +188,8 @@ class Tool:
         register_handler(self.name, wrapped)
 
         # Store for MCP tool creation later
-        # "title"/"write"/"destructive_hint"/"open_world_hint" become the MCP
-        # ToolAnnotations; "destructive" gates registration behind
+        # "title"/"write"/"destructive_hint"/"idempotent_hint"/"open_world_hint"
+        # become the MCP ToolAnnotations; "destructive" gates registration behind
         # enabled_destructive_tools.
         _registry[self.name] = {
             "name": self.name,
@@ -187,6 +200,7 @@ class Tool:
             "destructive": self.destructive,
             "opt_in": self.opt_in,
             "destructive_hint": self.destructive_hint,
+            "idempotent_hint": self.idempotent_hint,
             "open_world_hint": self.open_world_hint,
         }
 
@@ -758,8 +772,9 @@ def register_tools(
 # ------------------------------------------------------------------------------
 # _build_tool_annotations - MCP ToolAnnotations from a _registry entry
 # ------------------------------------------------------------------------------
-# readOnlyHint is derived from write; destructiveHint is only meaningful for
-# write tools, so it is omitted (None) for read-only ones.
+# readOnlyHint is derived from write; destructiveHint and idempotentHint are
+# only meaningful for write tools, so they are omitted (None) for read-only
+# ones. idempotentHint is also omitted for write tools that don't declare it.
 # ------------------------------------------------------------------------------
 def _build_tool_annotations(meta: dict[str, Any]) -> ToolAnnotations:
     write = meta["write"]
@@ -767,6 +782,7 @@ def _build_tool_annotations(meta: dict[str, Any]) -> ToolAnnotations:
         title=meta["title"],
         readOnlyHint=not write,
         destructiveHint=meta["destructive_hint"] if write else None,
+        idempotentHint=meta["idempotent_hint"] if write else None,
         openWorldHint=meta["open_world_hint"],
     )
 

@@ -1,5 +1,5 @@
 """Unit tests for MCP tool annotations (title, readOnlyHint, destructiveHint,
-openWorldHint) declared through the @Tool decorator.
+idempotentHint, openWorldHint) declared through the @Tool decorator.
 
 Covers the import-time definition guards in ``Tool.__init__``, the resolved
 values stored in ``_registry``, and the wire-level ``tools/list`` shape a real
@@ -68,6 +68,11 @@ class TestDefinitionGuards:
         with pytest.raises(ValueError, match="destructive_hint requires write=True"):
             Tool("ro", "desc", title="RO", destructive_hint=hint)
 
+    @pytest.mark.parametrize("hint", [True, False])
+    def test_idempotent_hint_on_read_only_tool_raises(self, hint):
+        with pytest.raises(ValueError, match="idempotent_hint requires write=True"):
+            Tool("ro", "desc", title="RO", idempotent_hint=hint)
+
     def test_destructive_gate_with_destructive_hint_false_raises(self):
         with pytest.raises(ValueError, match="contradicts destructive_hint=False"):
             Tool(
@@ -101,7 +106,15 @@ class TestRegistryResolution:
         meta = _registry["w"]
         assert meta["title"] == "Write Tool"
         assert meta["destructive_hint"] is True
+        assert meta["idempotent_hint"] is None
         assert meta["open_world_hint"] is False
+
+    def test_write_tool_explicit_idempotent(self, clean_registry):
+        @Tool("idem", "desc", title="Idem", write=True, idempotent_hint=True)
+        def idem() -> dict:
+            return {}
+
+        assert _registry["idem"]["idempotent_hint"] is True
 
     def test_write_tool_explicit_additive(self, clean_registry):
         @Tool("add", "desc", title="Add", write=True, destructive_hint=False)
@@ -118,6 +131,7 @@ class TestRegistryResolution:
         meta = _registry["r"]
         assert meta["write"] is False
         assert meta["destructive_hint"] is None
+        assert meta["idempotent_hint"] is None
         assert meta["open_world_hint"] is False
 
     def test_open_world_hint_opt_in(self, clean_registry):
@@ -155,6 +169,10 @@ class TestRegisteredAnnotations:
         def additive_open_tool() -> dict:
             return {}
 
+        @Tool("idempotent_tool", "desc", title="Idempotent Tool", write=True, idempotent_hint=True)
+        def idempotent_tool() -> dict:
+            return {}
+
         mcp = FastMCP("annotations-test")
         register_tools(mcp, _call_main_thread)
         return {t.name: _wire(t) for t in asyncio.run(mcp.list_tools())}
@@ -182,6 +200,15 @@ class TestRegisteredAnnotations:
             "readOnlyHint": False,
             "destructiveHint": False,
             "openWorldHint": True,
+        }
+
+    def test_idempotent_tool(self, listed):
+        assert listed["idempotent_tool"]["annotations"] == {
+            "title": "Idempotent Tool",
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": True,
+            "openWorldHint": False,
         }
 
 
@@ -230,3 +257,52 @@ def test_real_tool_spot_checks(tools_list, name, read_only, destructive, open_wo
     assert ann["readOnlyHint"] is read_only
     assert ann.get("destructiveHint") is destructive
     assert ann["openWorldHint"] is open_world
+
+
+_IDEMPOTENT_TOOLS_DESTRUCTIVE_HINT = {
+    "create_deck": False,
+    "delete_notes": True,
+    "delete_media_file": True,
+    "set_fsrs_params": True,
+    "tag_management": True,
+}
+
+
+@pytest.mark.parametrize(("name", "destructive"), sorted(_IDEMPOTENT_TOOLS_DESTRUCTIVE_HINT.items()))
+def test_idempotent_tools_wire_shape(tools_list, name, destructive):
+    tool = next(t for t in tools_list if t.name == name)
+    ann = _wire(tool)["annotations"]
+    assert ann == {
+        "title": tool.title,
+        "readOnlyHint": False,
+        "destructiveHint": destructive,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "find_notes",
+        "list_decks",
+        "add_note",
+        "add_notes",
+        "rate_card",
+        "sync",
+        # Patch mode (old_str/new_str) makes a repeat call re-apply the edit.
+        "update_note_fields",
+        "update_model_styling",
+        "update_model_templates",
+    ],
+)
+def test_idempotent_hint_absent(tools_list, name):
+    tool = next(t for t in tools_list if t.name == name)
+    assert "idempotentHint" not in _wire(tool)["annotations"]
+
+
+def test_only_the_declared_tools_are_idempotent(tools_list):
+    declared = {
+        t.name for t in tools_list if "idempotentHint" in _wire(t)["annotations"]
+    }
+    assert declared == set(_IDEMPOTENT_TOOLS_DESTRUCTIVE_HINT)

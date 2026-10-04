@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
     "Use this when the user is reviewing in Anki's GUI and asks to go back to the question "
     "side of the card in front of them. "
     "This only changes what is displayed: by default the user presses the answer buttons "
-    "themselves. Only use gui_answer_card, after gui_show_answer and an explicit "
-    "user-confirmed rating, when the user has asked for hands-free rating -- never use "
-    "rate_card on a card in the reviewer, it bypasses the reviewer and leaves it desynced. "
+    "themselves. gui_answer_card applies when the user has asked for hands-free rating, "
+    "after gui_show_answer and an explicit user-confirmed rating. rate_card bypasses the "
+    "reviewer and leaves it desynced, so it does not apply to a card shown in the reviewer. "
     "get_due_cards, present_card and rate_card are for AI-driven review sessions outside the "
     "GUI reviewer.",
     title="Show Question in Reviewer",

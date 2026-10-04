@@ -9,7 +9,8 @@ from ._render_helpers import render_question_with_style, render_answer
 
 @Tool(
     "present_card",
-    "Retrieve a card's content for review. WORKFLOW: 1) Show question, 2) Wait for user answer, 3) Show answer with show_answer=true, 4) Evaluate and suggest rating (1-4), 5) Wait for user confirmation (\"ok\"/\"next\" = accept, or they provide different rating), 6) Only then use rate_card. "
+    "Retrieve a card's content for review. Returns the question only unless show_answer=true, so the answer can be withheld until the user has responded. "
+    "This call does not rate the card; rating is a separate rate_card call. "
     "Returns a card object with card_id, question (rendered HTML, always returned), answer (rendered HTML, only when show_answer=true), deck_name, filtered_deck_name, note_type, and scheduling fields (interval, ease_factor, due, reviews, lapses). "
     "deck_name is the card's home deck; filtered_deck_name is always present and is null unless the card is currently being studied from a filtered deck.",
     title="Present Card",

@@ -42,8 +42,8 @@ def _apply_excerpt(fields_dict: dict[str, dict[str, Any]], excerpt_chars: int) -
     "Use excerpt_chars (>= 1) to cap every returned field value at that many characters; each field then also "
     "carries truncated (bool) and fullLength (original character count). Excerpts exist to IDENTIFY notes "
     "cheaply, NOT to search their content - content search belongs in find_notes queries, which run server-side "
-    "over full content. Never use a truncated value as the basis for an edit: re-read the field without "
-    "excerpt_chars first, otherwise you will write back a cut-off value.",
+    "over full content. A truncated value is not a safe basis for an edit: writing it back stores the cut-off "
+    "value. The full value comes from a call without excerpt_chars.",
     title="Note Details",
 )
 def notes_info(

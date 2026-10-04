@@ -39,8 +39,8 @@ class TestReviewSessionGuiStyle:
                 f"'{forbidden}' should not appear in the gui workflow steps"
             )
 
-        # The prohibition itself is stated elsewhere in the prompt.
-        assert "Never call get_due_cards, present_card, or rate_card" in text
+        # Why they are excluded is stated elsewhere in the prompt.
+        assert "get_due_cards, present_card and rate_card drive a review outside" in text
 
     def test_no_unbury_step(self):
         """gui mode never buries cards, so it must not mention unbury."""

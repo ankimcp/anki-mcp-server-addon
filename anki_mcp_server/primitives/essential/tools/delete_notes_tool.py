@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
     "Returns deletedCount, cardsDeleted, and notFoundCount.",
     title="Delete Notes",
     write=True,
+    idempotent_hint=True,
 )
 def delete_notes(
     notes: Annotated[list[int], Field(description="Note IDs to delete")],

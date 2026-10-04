@@ -9,9 +9,9 @@ from ....handler_wrappers import get_col
 @Tool(
     "gui_browse",
     "Open Anki Card Browser and search for cards using Anki query syntax. "
-    "Returns array of card IDs found. IMPORTANT: Only use when user explicitly "
-    "requests opening the browser. This tool is for note editing/creation workflows, "
-    "NOT for review sessions. Use this to find and select cards/notes that need editing.",
+    "Returns array of card IDs found. For when the user asks to open the browser; "
+    "not part of a review session. It serves note editing/creation workflows, "
+    "finding and selecting cards/notes that need editing.",
     title="Open Card Browser",
     write=False,
 )

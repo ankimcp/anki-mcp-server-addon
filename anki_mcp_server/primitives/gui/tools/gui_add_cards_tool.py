@@ -7,7 +7,7 @@ from ....handler_wrappers import HandlerError
 @Tool(
     "gui_add_cards",
     "Open Anki Add Cards dialog. "
-    "IMPORTANT: Only use when user explicitly requests opening the Add Cards dialog. "
+    "For when the user asks to open the Add Cards dialog. "
     "This tool simply opens the dialog for manual note creation - "
     "it does not pre-fill any fields. For programmatic note creation, use add_note instead.",
     title="Open Add Cards Dialog",
