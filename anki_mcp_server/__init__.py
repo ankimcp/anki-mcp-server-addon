@@ -17,7 +17,7 @@ if sys.version_info < (3, 10):
 
 from pathlib import Path
 
-__version__ = "0.32.0"
+__version__ = "0.33.0"
 
 # Packages we vendor directly (we ship our own copy under vendor/shared). This
 # is the set used for the system-package FALLBACK check on source/Nix installs:
@@ -555,6 +555,12 @@ def _show_settings() -> None:
     author_label = QLabel("<b>Created by</b> <a href='https://anatoly.dev'>Anatoly Tarnavsky</a>")
     author_label.setOpenExternalLinks(True)
     layout.addWidget(author_label)
+    rating_label = QLabel(
+        "👍 <b>Enjoying AnkiMCP?</b> <a href='https://ankiweb.net/shared/review/124672614'>Leave a thumbs-up on AnkiWeb</a>"
+        "<br>&nbsp;&nbsp;&nbsp;&nbsp;&bull; ten seconds for you, a big deal for the add-on."
+    )
+    rating_label.setOpenExternalLinks(True)
+    layout.addWidget(rating_label)
     layout.addSpacing(10)
 
     # -- Close button --
