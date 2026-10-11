@@ -1,9 +1,10 @@
 """E2E tests for MCP tool annotations on tools/list.
 
 Every tool must carry a human-readable ``title`` (top level, mirrored in
-``annotations.title``) plus ``readOnlyHint`` / ``openWorldHint``, and write
-tools must also declare ``destructiveHint``. Declared via ``@Tool(title=...,
-write=..., destructive_hint=..., open_world_hint=...)`` in tool_decorator.py.
+``annotations.title``) plus bool ``readOnlyHint`` / ``destructiveHint`` /
+``openWorldHint``; read-only tools send ``destructiveHint: false``.
+Declared via ``@Tool(title=..., write=..., destructive_hint=...,
+open_world_hint=...)`` in tool_decorator.py.
 """
 from __future__ import annotations
 
@@ -42,15 +43,14 @@ class TestAnnotationsOnEveryTool:
         ]
         assert not bad, f"readOnlyHint/openWorldHint missing or non-bool for: {bad}"
 
-    def test_destructive_hint_only_on_write_tools(self, tools_by_name):
+    def test_destructive_hint_is_bool_and_false_on_read_only(self, tools_by_name):
         bad: list[str] = []
         for name, t in tools_by_name.items():
             ann = t.get("annotations") or {}
-            if ann.get("readOnlyHint") is False:
-                if not isinstance(ann.get("destructiveHint"), bool):
-                    bad.append(f"{name}: write tool without bool destructiveHint")
-            elif "destructiveHint" in ann:
-                bad.append(f"{name}: read-only tool carries destructiveHint")
+            if not isinstance(ann.get("destructiveHint"), bool):
+                bad.append(f"{name}: destructiveHint missing or non-bool")
+            elif ann.get("readOnlyHint") is True and ann["destructiveHint"] is not False:
+                bad.append(f"{name}: read-only tool with destructiveHint != False")
         assert not bad, "\n".join(bad)
 
 
@@ -61,7 +61,9 @@ class TestAnnotationSpotChecks:
         return tools_by_name[name]["annotations"]
 
     def test_find_notes_is_read_only(self, tools_by_name):
-        assert self._ann(tools_by_name, "find_notes")["readOnlyHint"] is True
+        ann = self._ann(tools_by_name, "find_notes")
+        assert ann["readOnlyHint"] is True
+        assert ann["destructiveHint"] is False
 
     def test_add_note_is_additive_write(self, tools_by_name):
         ann = self._ann(tools_by_name, "add_note")

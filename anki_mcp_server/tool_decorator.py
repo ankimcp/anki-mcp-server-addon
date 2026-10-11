@@ -46,7 +46,8 @@ _registry: dict[str, dict[str, Any]] = {}
 #     None (default) resolves to True for write tools -- the conservative
 #     choice, since destructiveHint=False promises *only additive* updates.
 #     Set False only for purely additive tools (e.g. add_note). Passing any
-#     value on a write=False tool is a definition error.
+#     value on a write=False tool is a definition error; read-only tools
+#     always send destructiveHint=False on the wire.
 #   - idempotent_hint: MCP idempotentHint, only meaningful when write=True.
 #     None (default) omits it on the wire (MCP then assumes False). Set True
 #     only when repeating the same call with the same arguments has no
@@ -772,16 +773,18 @@ def register_tools(
 # ------------------------------------------------------------------------------
 # _build_tool_annotations - MCP ToolAnnotations from a _registry entry
 # ------------------------------------------------------------------------------
-# readOnlyHint is derived from write; destructiveHint and idempotentHint are
-# only meaningful for write tools, so they are omitted (None) for read-only
-# ones. idempotentHint is also omitted for write tools that don't declare it.
+# readOnlyHint is derived from write. destructiveHint is always an explicit
+# bool: a read-only tool is non-destructive, so it sends False (directory
+# scanners require the field on every tool). idempotentHint is only meaningful
+# for write tools, so it is omitted (None) for read-only ones and for write
+# tools that don't declare it.
 # ------------------------------------------------------------------------------
 def _build_tool_annotations(meta: dict[str, Any]) -> ToolAnnotations:
     write = meta["write"]
     return ToolAnnotations(
         title=meta["title"],
         readOnlyHint=not write,
-        destructiveHint=meta["destructive_hint"] if write else None,
+        destructiveHint=meta["destructive_hint"] if write else False,
         idempotentHint=meta["idempotent_hint"] if write else None,
         openWorldHint=meta["open_world_hint"],
     )

@@ -123,7 +123,7 @@ class TestRegistryResolution:
 
         assert _registry["add"]["destructive_hint"] is False
 
-    def test_read_tool_destructive_hint_is_none(self, clean_registry):
+    def test_read_tool_registry_destructive_hint_is_none(self, clean_registry):
         @Tool("r", "desc", title="Read Tool")
         def r() -> dict:
             return {}
@@ -183,6 +183,7 @@ class TestRegisteredAnnotations:
         assert tool["annotations"] == {
             "title": "Read Tool",
             "readOnlyHint": True,
+            "destructiveHint": False,
             "openWorldHint": False,
         }
 
@@ -231,19 +232,18 @@ def test_every_real_tool_has_complete_annotations(tools_list):
             problems.append(f"{tool.name}: readOnlyHint not a bool")
         if not isinstance(ann.get("openWorldHint"), bool):
             problems.append(f"{tool.name}: openWorldHint not a bool")
-        if ann.get("readOnlyHint") is False:
-            if not isinstance(ann.get("destructiveHint"), bool):
-                problems.append(f"{tool.name}: write tool without destructiveHint")
-        elif "destructiveHint" in ann:
-            problems.append(f"{tool.name}: read-only tool carries destructiveHint")
+        if not isinstance(ann.get("destructiveHint"), bool):
+            problems.append(f"{tool.name}: destructiveHint not a bool")
+        elif ann.get("readOnlyHint") is True and ann["destructiveHint"] is not False:
+            problems.append(f"{tool.name}: read-only tool with destructiveHint != False")
     assert not problems, "\n".join(problems)
 
 
 @pytest.mark.parametrize(
     ("name", "read_only", "destructive", "open_world"),
     [
-        ("find_notes", True, None, False),
-        ("list_decks", True, None, False),
+        ("find_notes", True, False, False),
+        ("list_decks", True, False, False),
         ("add_note", False, False, False),
         ("delete_notes", False, True, False),
         ("sync", False, True, True),
@@ -255,7 +255,7 @@ def test_real_tool_spot_checks(tools_list, name, read_only, destructive, open_wo
     tool = next(t for t in tools_list if t.name == name)
     ann = _wire(tool)["annotations"]
     assert ann["readOnlyHint"] is read_only
-    assert ann.get("destructiveHint") is destructive
+    assert ann["destructiveHint"] is destructive
     assert ann["openWorldHint"] is open_world
 
 
