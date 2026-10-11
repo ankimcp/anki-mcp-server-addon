@@ -1,4 +1,4 @@
-"""Tests for filtered_deck get_info action."""
+"""Tests for the filtered_deck_get_info tool."""
 from __future__ import annotations
 
 from .conftest import unique_id
@@ -29,22 +29,19 @@ def _create_filtered_deck(
     reschedule: bool = True,
 ) -> dict:
     """Create a filtered deck and return the result."""
-    return call_tool("filtered_deck", {
-        "params": {
-            "action": "create_or_update",
-            "name": name,
-            "search_terms": [
-                {"search": f'deck:"{source_deck}"', "limit": limit, "order": order},
-            ],
-            "reschedule": reschedule,
-        },
+    return call_tool("filtered_deck_upsert", {
+        "name": name,
+        "search_terms": [
+            {"search": f'deck:"{source_deck}"', "limit": limit, "order": order},
+        ],
+        "reschedule": reschedule,
     })
 
 
 # -- TestFilteredDeckGetInfo --------------------------------------------------
 
 class TestFilteredDeckGetInfo:
-    """Tests for the get_info action."""
+    """Tests for the filtered_deck_get_info tool."""
 
     def test_get_info_single_filtered_deck(self):
         """get_info should return search terms, reschedule, and card count."""
@@ -59,12 +56,7 @@ class TestFilteredDeckGetInfo:
         assert create_result.get("isError") is not True
         deck_id = create_result["deck_id"]
 
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "get_info",
-                "deck_ids": [deck_id],
-            },
-        })
+        result = call_tool("filtered_deck_get_info", {"deck_ids": [deck_id]})
 
         assert result.get("isError") is not True
         assert result["count"] == 1
@@ -97,11 +89,8 @@ class TestFilteredDeckGetInfo:
         r2 = _create_filtered_deck(fd2_name, source_deck, limit=3)
         assert r2.get("isError") is not True
 
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "get_info",
-                "deck_ids": [r1["deck_id"], r2["deck_id"]],
-            },
+        result = call_tool("filtered_deck_get_info", {
+            "deck_ids": [r1["deck_id"], r2["deck_id"]],
         })
 
         assert result.get("isError") is not True
@@ -120,12 +109,7 @@ class TestFilteredDeckGetInfo:
         create_result = call_tool("create_deck", {"deck_name": deck_name})
         deck_id = create_result["deckId"]
 
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "get_info",
-                "deck_ids": [deck_id],
-            },
-        })
+        result = call_tool("filtered_deck_get_info", {"deck_ids": [deck_id]})
 
         assert result.get("isError") is not True
         assert result["count"] == 1
@@ -146,26 +130,18 @@ class TestFilteredDeckGetInfo:
         _create_notes_in_deck(source2, 2, uid + "b")
 
         fd_name = f"E2E::GI2T_{uid}"
-        create_result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "name": fd_name,
-                "search_terms": [
-                    {"search": f'deck:"{source1}"', "limit": 10, "order": "due"},
-                    {"search": f'deck:"{source2}"', "limit": 20, "order": "random"},
-                ],
-                "reschedule": True,
-            },
+        create_result = call_tool("filtered_deck_upsert", {
+            "name": fd_name,
+            "search_terms": [
+                {"search": f'deck:"{source1}"', "limit": 10, "order": "due"},
+                {"search": f'deck:"{source2}"', "limit": 20, "order": "random"},
+            ],
+            "reschedule": True,
         })
         assert create_result.get("isError") is not True
         deck_id = create_result["deck_id"]
 
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "get_info",
-                "deck_ids": [deck_id],
-            },
-        })
+        result = call_tool("filtered_deck_get_info", {"deck_ids": [deck_id]})
 
         assert result.get("isError") is not True
         deck_info = result["decks"][0]
@@ -187,11 +163,8 @@ class TestFilteredDeckGetInfo:
 
         fake_id = 9999999999
 
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "get_info",
-                "deck_ids": [real_id, fake_id],
-            },
+        result = call_tool("filtered_deck_get_info", {
+            "deck_ids": [real_id, fake_id],
         })
 
         assert result.get("isError") is not True
@@ -202,22 +175,14 @@ class TestFilteredDeckGetInfo:
 
     def test_get_info_empty_deck_ids_error(self):
         """Empty deck_ids list should return a validation error."""
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "get_info",
-                "deck_ids": [],
-            },
-        })
+        result = call_tool("filtered_deck_get_info", {"deck_ids": []})
 
         assert result.get("isError") is True
 
     def test_get_info_over_limit_error(self):
         """More than 50 deck IDs should return a limit error."""
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "get_info",
-                "deck_ids": list(range(1, 52)),  # 51 IDs
-            },
+        result = call_tool("filtered_deck_get_info", {
+            "deck_ids": list(range(1, 52)),  # 51 IDs
         })
 
         assert result.get("isError") is True

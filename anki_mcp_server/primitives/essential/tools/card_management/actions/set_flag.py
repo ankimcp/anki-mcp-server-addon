@@ -1,4 +1,4 @@
-"""SetFlag action implementation for card_management tool."""
+"""Implementation for the card_set_flag tool."""
 from typing import Any
 
 from ......handler_wrappers import HandlerError, get_col

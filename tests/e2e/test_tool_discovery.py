@@ -13,6 +13,16 @@ class TestToolDiscovery:
         assert isinstance(tools, list)
         assert len(tools) > 0
 
+    def test_tool_count_on_default_server(self):
+        """64 tools are registered. The default server (.docker/config.json)
+        opts in change_note_type, so the three gated tools it leaves hidden
+        are model_field_remove (destructive) and gui_deck_review /
+        gui_answer_card (opt-in): 64 - 3 = 61.
+        """
+        names = [t["name"] for t in list_tools()]
+        assert len(names) == len(set(names))
+        assert len(names) == 61, sorted(names)
+
     def test_list_decks_tool_exists(self):
         """list_decks tool should be registered."""
         tools = list_tools()

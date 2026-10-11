@@ -112,12 +112,9 @@ class TestCardsStats:
 
         card_id = _card_ids_for(deck_name)[0]
 
-        sched = call_tool("card_management", {
-            "params": {
-                "action": "set_due_date",
-                "card_ids": [card_id],
-                "days": "0",
-            }
+        sched = call_tool("card_set_due_date", {
+            "card_ids": [card_id],
+            "days": "0",
         })
         assert sched.get("isError") is not True, sched
 
@@ -137,12 +134,7 @@ class TestCardsStats:
 
         card_id = _card_ids_for(deck_name)[0]
 
-        susp = call_tool("card_management", {
-            "params": {
-                "action": "suspend",
-                "card_ids": [card_id],
-            }
-        })
+        susp = call_tool("card_suspend", {"card_ids": [card_id]})
         assert susp.get("isError") is not True, susp
 
         result = call_tool("cards_stats", {"deck": deck_name})

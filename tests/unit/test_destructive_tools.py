@@ -1,95 +1,29 @@
 """Unit tests for the destructive-tools opt-in mechanism in tool_decorator.py.
 
-Covers GitHub issue #46: high-risk tools/actions ship hidden by default and
-must be explicitly opted in via the ``enabled_destructive_tools`` config
-allow-list.
+Covers GitHub issue #46: high-risk tools ship hidden by default and must be
+explicitly opted in via the ``enabled_destructive_tools`` config allow-list.
 
 These tests exercise the pure-Python gating logic and require no Anki/aqt --
-just pydantic and the standard library. They mirror the fixture style of
-``test_tool_filtering.py`` (the sibling suite for ``disabled_tools``):
+just the standard library. A ``_MockMCP`` recorder whose ``.tool()`` captures
+what got registered lets us assert on which tools reached ``tools/list``.
 
-  * Minimal Pydantic Params models with a ``Literal`` action field.
-  * A ``_destructive: ClassVar[bool] = True`` marker on the action models
-    that opt in to the destructive gate.
-  * A ``_MockMCP`` recorder whose ``.tool()`` captures what got registered,
-    so we can assert on which tools/actions reached ``tools/list``.
-
-IMPORTANT fixture note: the real ``_registry`` meta dicts (and the ones built
-by ``register_tools``/``validate_enabled_destructive_tools``) carry
-``"destructive"`` and ``"opt_in"`` keys. The existing ``test_tool_filtering.py``
-fakes predate those keys and omit them. Any fake meta dict that flows through
+IMPORTANT fixture note: the real ``_registry`` meta dicts carry
+``"destructive"`` and ``"opt_in"`` keys. Any fake meta dict that flows through
 ``register_tools`` or ``validate_enabled_destructive_tools`` here MUST include
-both ``"destructive"`` and ``"opt_in"`` (and, when relevant, action models
-marked ``_destructive``), because those code paths read ``meta["destructive"]``
-and ``meta["opt_in"]`` directly.
+both, because those code paths read ``meta["destructive"]`` and
+``meta["opt_in"]`` directly.
 """
 from __future__ import annotations
 
-from typing import Annotated, ClassVar, Literal, Union
-
 import pytest
-from pydantic import BaseModel, Field
 
 from anki_mcp_server.tool_decorator import (
     Tool,
-    _get_destructive_actions,
     _registry,
-    _validate_disabled_entries,
     register_tools,
     validate_disabled_tools,
     validate_enabled_destructive_tools,
 )
-
-
-# ---------------------------------------------------------------------------
-# Minimal test models (mirror the pattern in card_management_tool.py)
-#
-# SafeAParams / SafeBParams      -> non-destructive actions
-# DestructiveParams / DropParams -> actions marked _destructive=True
-# ---------------------------------------------------------------------------
-
-
-class SafeAParams(BaseModel):
-    _tool_description: ClassVar[str] = "safe_a: A safe action."
-    action: Literal["safe_a"]
-    value: int = 0
-
-
-class SafeBParams(BaseModel):
-    _tool_description: ClassVar[str] = "safe_b: Another safe action."
-    action: Literal["safe_b"]
-    name: str = ""
-
-
-class DestructiveParams(BaseModel):
-    _tool_description: ClassVar[str] = "wipe: Destroy things."
-    _destructive: ClassVar[bool] = True
-    action: Literal["wipe"]
-
-
-class DropParams(BaseModel):
-    _tool_description: ClassVar[str] = "drop: Drop things."
-    _destructive: ClassVar[bool] = True
-    action: Literal["drop"]
-
-
-# A multi-action union: two safe actions + one destructive action.
-MixedUnion = Annotated[
-    Union[SafeAParams, SafeBParams, DestructiveParams],
-    Field(discriminator="action"),
-]
-
-# A union where every action is safe (no _destructive markers).
-AllSafeUnion = Annotated[
-    Union[SafeAParams, SafeBParams],
-    Field(discriminator="action"),
-]
-
-# A union with two destructive actions among the safe ones.
-TwoDestructiveUnion = Annotated[
-    Union[SafeAParams, DestructiveParams, DropParams],
-    Field(discriminator="action"),
-]
 
 
 # ---------------------------------------------------------------------------
@@ -103,8 +37,7 @@ class _MockMCP:
     ``register_tools`` -> ``_make_mcp_tool`` calls
     ``mcp.tool(title=..., description=..., annotations=...)`` and applies the
     returned decorator to the async wrapper. We capture the description and
-    wrapper so tests can assert which tools registered and inspect the
-    rebuilt discriminated-union schema for per-action gating.
+    wrapper so tests can assert which tools registered.
     """
 
     def __init__(self) -> None:
@@ -140,45 +73,9 @@ async def _call_main_thread(name, kwargs):  # pragma: no cover - never awaited
     return {}
 
 
-def _schema_actions(entry: dict) -> set[str]:
-    """Extract action literals from a registered multi-action tool entry.
-
-    Reads the rebuilt ``params`` annotation that ``_make_mcp_tool`` placed on
-    the wrapper's ``__annotations__`` and pulls the ``Literal`` value out of
-    each union member's ``action`` field. This reflects exactly what reaches
-    the MCP schema (the union is what FastMCP turns into the JSON schema).
-    """
-    from typing import get_args
-
-    ann = entry["annotations"].get("params")
-    assert ann is not None, "expected a 'params' annotation on the wrapper"
-    union_args = get_args(ann)  # (Union[...], FieldInfo) OR (SingleModel, FieldInfo)
-    inner = union_args[0]
-    members = get_args(inner)
-    if not members:
-        # Single-member case: Annotated[X, Field()] collapses the union away.
-        members = (inner,)
-    actions: set[str] = set()
-    for m in members:
-        field = m.model_fields.get("action")
-        if field and hasattr(field.annotation, "__args__"):
-            actions.add(field.annotation.__args__[0])
-    return actions
-
-
 # ---------------------------------------------------------------------------
 # Registry-mutation fixtures
-#
-# Each builds a fresh registry around handler functions whose runtime
-# __annotations__ carry the union type (the addon does NOT use
-# `from __future__ import annotations`, so its annotations are real objects;
-# we set them explicitly here for the same reason).
 # ---------------------------------------------------------------------------
-
-
-def _set_union_annotation(func, union):
-    func.__annotations__ = {"params": union}
-    return func
 
 
 @pytest.fixture
@@ -202,9 +99,9 @@ def patch_registry(monkeypatch):
 
 
 def _single_meta(name: str, *, destructive: bool) -> dict:
-    """Registry meta for a single-action tool (no union param)."""
+    """Registry meta for a tool."""
 
-    def handler() -> dict:  # no params -> not a multi-action tool
+    def handler() -> dict:
         return {}
 
     return {
@@ -221,91 +118,13 @@ def _single_meta(name: str, *, destructive: bool) -> dict:
     }
 
 
-def _multi_meta(name: str, union, *, destructive: bool = False) -> dict:
-    """Registry meta for a multi-action tool.
-
-    ``destructive`` here is the WHOLE-TOOL flag (almost always False for
-    multi-action tools -- their destructiveness is per-action via the
-    ``_destructive`` ClassVar on member models). It is included because
-    ``register_tools`` reads ``meta["destructive"]`` unconditionally.
-    """
-
-    def handler(params):  # type: ignore[no-untyped-def]
-        return {}
-
-    _set_union_annotation(handler, union)
-    # Multi-action tools need a module-level _BASE_DESCRIPTION for
-    # _make_mcp_tool to rebuild the description. handler is defined in THIS
-    # module, so the module already needs the constant -- see below.
-    return {
-        "name": name,
-        "description": f"{name} description",
-        "title": name,
-        "original": handler,
-        "write": True,
-        "destructive": destructive,
-        "opt_in": False,
-        "destructive_hint": True,
-        "idempotent_hint": None,
-        "open_world_hint": False,
-    }
-
-
-# _make_mcp_tool looks up _BASE_DESCRIPTION in the module where the handler
-# was DEFINED (via inspect.getmodule). All our multi-action handlers are
-# defined in this test module, so the constant must live here.
-_BASE_DESCRIPTION = "Manage test things"
-
-
 # ===========================================================================
-# _get_destructive_actions
-# ===========================================================================
-
-
-class TestGetDestructiveActions:
-    """Tests for _get_destructive_actions()."""
-
-    def test_single_action_tool_returns_empty(self):
-        """A tool with no union param has no destructive actions."""
-
-        def handler() -> dict:
-            return {}
-
-        assert _get_destructive_actions(handler) == set()
-
-    def test_multi_action_with_destructive_returns_those_literals(self):
-        """Only actions whose model is marked _destructive are returned."""
-
-        def handler(params):  # type: ignore[no-untyped-def]
-            return {}
-
-        _set_union_annotation(handler, MixedUnion)
-        assert _get_destructive_actions(handler) == {"wipe"}
-
-    def test_multi_action_with_two_destructive(self):
-        def handler(params):  # type: ignore[no-untyped-def]
-            return {}
-
-        _set_union_annotation(handler, TwoDestructiveUnion)
-        assert _get_destructive_actions(handler) == {"wipe", "drop"}
-
-    def test_multi_action_all_safe_returns_empty(self):
-        """A union with no _destructive markers yields the empty set."""
-
-        def handler(params):  # type: ignore[no-untyped-def]
-            return {}
-
-        _set_union_annotation(handler, AllSafeUnion)
-        assert _get_destructive_actions(handler) == set()
-
-
-# ===========================================================================
-# register_tools -- whole-tool destructive gating
+# register_tools -- destructive gating
 # ===========================================================================
 
 
 class TestRegisterToolsWholeTool:
-    """Whole-tool destructive gate via register_tools()."""
+    """Destructive gate via register_tools()."""
 
     def test_destructive_tool_hidden_when_not_opted_in(self, patch_registry):
         patch_registry({"delete_decks": _single_meta("delete_decks", destructive=True)})
@@ -355,134 +174,14 @@ class TestRegisterToolsWholeTool:
         )
         assert "delete_decks" not in mcp.names()
 
-
-# ===========================================================================
-# register_tools -- per-action destructive gating
-# ===========================================================================
-
-
-class TestRegisterToolsPerAction:
-    """Per-action destructive gate within a multi-action tool."""
-
-    def test_destructive_action_removed_when_not_opted_in(self, patch_registry):
-        patch_registry({"deck_management": _multi_meta("deck_management", MixedUnion)})
-        mcp = _MockMCP()
-        register_tools(mcp, _call_main_thread, enabled_destructive_tools=[])
-
-        entry = mcp.by_name("deck_management")
-        assert entry is not None, "tool should still register (safe actions remain)"
-        actions = _schema_actions(entry)
-        assert "wipe" not in actions
-        assert {"safe_a", "safe_b"} <= actions
-
-    def test_destructive_action_present_when_action_opted_in(self, patch_registry):
-        patch_registry({"deck_management": _multi_meta("deck_management", MixedUnion)})
+    def test_tool_action_entry_reveals_nothing(self, patch_registry):
+        """A non-alias "tool:action" entry is not an opt-in for that tool."""
+        patch_registry({"delete_decks": _single_meta("delete_decks", destructive=True)})
         mcp = _MockMCP()
         register_tools(
-            mcp,
-            _call_main_thread,
-            enabled_destructive_tools=["deck_management:wipe"],
+            mcp, _call_main_thread, enabled_destructive_tools=["delete_decks:all"]
         )
-        entry = mcp.by_name("deck_management")
-        assert entry is not None
-        actions = _schema_actions(entry)
-        assert "wipe" in actions
-        assert {"safe_a", "safe_b"} <= actions
-
-    def test_whole_tool_opt_in_does_not_reveal_destructive_action(self, patch_registry):
-        """Exact-match: 'deck_management' (whole tool) != 'deck_management:wipe'."""
-        patch_registry({"deck_management": _multi_meta("deck_management", MixedUnion)})
-        mcp = _MockMCP()
-        register_tools(
-            mcp,
-            _call_main_thread,
-            enabled_destructive_tools=["deck_management"],
-        )
-        entry = mcp.by_name("deck_management")
-        assert entry is not None
-        actions = _schema_actions(entry)
-        assert "wipe" not in actions
-
-    def test_non_destructive_actions_always_present(self, patch_registry):
-        """Safe actions appear regardless of opt-in state."""
-        patch_registry({"deck_management": _multi_meta("deck_management", MixedUnion)})
-        mcp = _MockMCP()
-        register_tools(mcp, _call_main_thread)  # nothing opted in
-        entry = mcp.by_name("deck_management")
-        actions = _schema_actions(entry)
-        assert "safe_a" in actions
-        assert "safe_b" in actions
-
-    def test_opting_in_one_of_two_destructive_actions(self, patch_registry):
-        patch_registry(
-            {"deck_management": _multi_meta("deck_management", TwoDestructiveUnion)}
-        )
-        mcp = _MockMCP()
-        register_tools(
-            mcp,
-            _call_main_thread,
-            enabled_destructive_tools=["deck_management:wipe"],
-        )
-        entry = mcp.by_name("deck_management")
-        actions = _schema_actions(entry)
-        assert "wipe" in actions   # opted in
-        assert "drop" not in actions  # not opted in
-        assert "safe_a" in actions
-
-
-# ===========================================================================
-# register_tools -- precedence / composition with disabled_tools
-# ===========================================================================
-
-
-class TestRegisterToolsPrecedence:
-    """Precedence between destructive gating and disabled_tools."""
-
-    def test_opted_in_action_also_disabled_is_hidden(self, patch_registry):
-        """disabled_tools removes an action even if it was opted in."""
-        patch_registry({"deck_management": _multi_meta("deck_management", MixedUnion)})
-        mcp = _MockMCP()
-        register_tools(
-            mcp,
-            _call_main_thread,
-            disabled_tools=["deck_management:wipe"],
-            enabled_destructive_tools=["deck_management:wipe"],
-        )
-        entry = mcp.by_name("deck_management")
-        assert entry is not None
-        actions = _schema_actions(entry)
-        assert "wipe" not in actions
-
-    def test_all_actions_hidden_skips_whole_tool(self, patch_registry):
-        """If every action is gated/disabled, the tool is not registered.
-
-        Here the two safe actions are disabled and the destructive one is not
-        opted in -> nothing remains -> the tool is skipped entirely.
-        """
-        patch_registry({"deck_management": _multi_meta("deck_management", MixedUnion)})
-        mcp = _MockMCP()
-        register_tools(
-            mcp,
-            _call_main_thread,
-            disabled_tools=["deck_management:safe_a", "deck_management:safe_b"],
-            enabled_destructive_tools=[],  # wipe stays hidden
-        )
-        assert "deck_management" not in mcp.names()
-
-    def test_destructive_action_hidden_does_not_require_disabled_entry(
-        self, patch_registry
-    ):
-        """A destructive action is hidden purely by the opt-in gate.
-
-        No disabled_tools entry is needed -- the gate alone removes it, while
-        the safe actions register normally.
-        """
-        patch_registry({"deck_management": _multi_meta("deck_management", MixedUnion)})
-        mcp = _MockMCP()
-        register_tools(mcp, _call_main_thread)
-        entry = mcp.by_name("deck_management")
-        actions = _schema_actions(entry)
-        assert actions == {"safe_a", "safe_b"}
+        assert "delete_decks" not in mcp.names()
 
 
 # ===========================================================================
@@ -495,13 +194,11 @@ class TestValidateEnabledDestructiveTools:
 
     @pytest.fixture
     def destructive_registry(self, patch_registry):
-        """Registry with a destructive single tool, a safe tool, and a
-        multi-action tool that has one destructive + safe actions."""
+        """Registry with a destructive tool and a safe tool."""
         patch_registry(
             {
                 "delete_decks": _single_meta("delete_decks", destructive=True),
                 "sync": _single_meta("sync", destructive=False),
-                "deck_management": _multi_meta("deck_management", MixedUnion),
             }
         )
 
@@ -515,11 +212,11 @@ class TestValidateEnabledDestructiveTools:
         assert "enabled_destructive_tools" in warnings[0]
         assert "typo" in warnings[0]
 
-    def test_nonexistent_action_warns(self, destructive_registry):
-        warnings = validate_enabled_destructive_tools(["deck_management:ghost"])
+    def test_tool_action_entry_warns(self, destructive_registry):
+        warnings = validate_enabled_destructive_tools(["delete_decks:ghost"])
         assert len(warnings) == 1
-        assert "'ghost'" in warnings[0] or "deck_management:ghost" in warnings[0]
-        assert "not found" in warnings[0]
+        assert "'delete_decks:ghost'" in warnings[0]
+        assert "no longer supported" in warnings[0]
 
     def test_real_but_not_destructive_whole_tool_is_noop_warning(
         self, destructive_registry
@@ -530,46 +227,20 @@ class TestValidateEnabledDestructiveTools:
         assert "no-op" in warnings[0]
         assert "'sync'" in warnings[0]
 
-    def test_real_but_not_destructive_action_is_noop_warning(
-        self, destructive_registry
-    ):
-        """safe_a is a real action but not destructive -> no-op."""
-        warnings = validate_enabled_destructive_tools(["deck_management:safe_a"])
-        assert len(warnings) == 1
-        assert "no-op" in warnings[0]
-        assert "deck_management:safe_a" in warnings[0]
-
-    def test_correct_destructive_whole_tool_no_warning(self, destructive_registry):
+    def test_correct_destructive_tool_no_warning(self, destructive_registry):
+        """delete_decks is hidden from tools/list by default, yet validation
+        must still recognize it (it reads the registry, not tools/list)."""
         assert validate_enabled_destructive_tools(["delete_decks"]) == []
-
-    def test_correct_destructive_action_no_warning(self, destructive_registry):
-        """deck_management:wipe is a real destructive action -> no warning,
-        and crucially NOT flagged as nonexistent even though it is hidden by
-        default (validation reads the unfiltered union)."""
-        assert validate_enabled_destructive_tools(["deck_management:wipe"]) == []
-
-    def test_hidden_by_default_destructive_action_not_flagged_nonexistent(
-        self, destructive_registry
-    ):
-        """Regression guard for the 'reads unfiltered union' requirement.
-
-        'wipe' never reaches tools/list unless opted in, yet validation must
-        still recognize it as a known action (no 'not found' warning)."""
-        warnings = validate_enabled_destructive_tools(["deck_management:wipe"])
-        assert not any("not found" in w for w in warnings)
 
     def test_mixed_entries_accumulate_warnings(self, destructive_registry):
         warnings = validate_enabled_destructive_tools(
             [
-                "delete_decks",            # valid destructive -> no warning
-                "deck_management:wipe",    # valid destructive action -> no warning
-                "sync",                    # no-op (not destructive)
-                "nope",                    # typo
-                "deck_management:safe_a",  # no-op action
+                "delete_decks",  # valid destructive -> no warning
+                "sync",          # no-op (not destructive)
+                "nope",          # typo
             ]
         )
-        # Expect exactly: sync no-op, nope typo, safe_a no-op = 3 warnings.
-        assert len(warnings) == 3
+        assert len(warnings) == 2
 
 
 # ===========================================================================
@@ -606,55 +277,28 @@ class TestDestructiveWriteGuard:
 
 
 # ===========================================================================
-# Regression: disabled_tools behavior unchanged by the config_key refactor
+# disabled_tools validation is unaffected by the destructive flag
 # ===========================================================================
 
 
 class TestDisabledToolsRegression:
-    """The config_key parameter must not alter default disabled_tools output.
-
-    _validate_disabled_entries gained `config_key: str = "disabled_tools"`.
-    These tests pin that the default-path messages are byte-for-byte what the
-    disabled_tools suite expects, and that validate_disabled_tools (which does
-    not pass config_key) still emits the "disabled_tools" prefix.
-    """
+    """validate_disabled_tools emits the "disabled_tools" prefix and accepts
+    a destructive tool like any other registered tool."""
 
     @pytest.fixture
     def reg(self, patch_registry):
         patch_registry(
             {
                 "sync": _single_meta("sync", destructive=False),
-                "multi_tool": _multi_meta("multi_tool", AllSafeUnion),
+                "delete_decks": _single_meta("delete_decks", destructive=True),
             }
         )
 
-    def test_default_config_key_is_disabled_tools(self, reg):
-        warnings = _validate_disabled_entries({"nonexistent"}, {})
+    def test_unknown_entry_message(self, reg):
+        warnings = validate_disabled_tools(["nonexistent"])
         assert len(warnings) == 1
         assert warnings[0].startswith("disabled_tools: 'nonexistent'")
         assert "typo" in warnings[0]
 
-    def test_explicit_config_key_changes_prefix_only(self, reg):
-        default = _validate_disabled_entries({"nonexistent"}, {})
-        custom = _validate_disabled_entries(
-            {"nonexistent"}, {}, config_key="enabled_destructive_tools"
-        )
-        # Same shape, only the prefix differs.
-        assert default[0].replace("disabled_tools", "enabled_destructive_tools") == custom[0]
-
-    def test_validate_disabled_tools_unknown_action_message(self, reg):
-        warnings = validate_disabled_tools(["multi_tool:ghost"])
-        assert len(warnings) == 1
-        assert warnings[0].startswith("disabled_tools:")
-        assert "not found" in warnings[0]
-        assert "safe_a" in warnings[0]
-        assert "safe_b" in warnings[0]
-
-    def test_validate_disabled_tools_action_on_simple_tool(self, reg):
-        warnings = validate_disabled_tools(["sync:whatever"])
-        assert len(warnings) == 1
-        assert warnings[0].startswith("disabled_tools:")
-        assert "not a multi-action tool" in warnings[0]
-
     def test_validate_disabled_tools_valid_entries_no_warnings(self, reg):
-        assert validate_disabled_tools(["sync", "multi_tool:safe_a"]) == []
+        assert validate_disabled_tools(["sync", "delete_decks"]) == []

@@ -459,16 +459,11 @@ async def _noop_call_main_thread(*args, **kwargs) -> dict:
     return {}
 
 
-def _all_whole_tool_gated(meta_key: str) -> list[str]:
-    """Every registered tool whose WHOLE-TOOL gate flag (``meta_key``, one of
+def _all_gated(meta_key: str) -> list[str]:
+    """Every registered tool whose gate flag (``meta_key``, one of
     ``"destructive"``/``"opt_in"``) is set -- derived from ``_registry`` so
     ``real_mcp`` can't silently stop covering a tool's schema just because a
     new gated primitive was added and nobody remembered to hand-list it.
-
-    Per-action gated entries (e.g. model_fields:remove) are deliberately NOT
-    included: opting in a single action of a multi-action tool wouldn't
-    change anything observed here, since the tool still exposes one
-    top-level "params" property regardless of which actions are enabled.
     """
     from anki_mcp_server.tool_decorator import _registry
 
@@ -485,17 +480,10 @@ def real_mcp():
         mcp,
         _noop_call_main_thread,
         disabled_tools=None,
-        # Opt in every whole-tool-destructive / whole-tool-opt-in primitive
-        # (see CLAUDE.md "Tool Filtering") so their schemas are covered too --
-        # see _all_whole_tool_gated's docstring for why per-action entries
-        # aren't derived. model_fields:remove is named explicitly so its
-        # per-action description is on the wire for description scans; it
-        # doesn't change the tool count.
-        enabled_destructive_tools=[
-            *_all_whole_tool_gated("destructive"),
-            "model_fields:remove",
-        ],
-        enabled_opt_in_tools=_all_whole_tool_gated("opt_in"),
+        # Opt in every destructive / opt-in primitive (see CLAUDE.md "Tool
+        # Filtering") so their schemas are covered too.
+        enabled_destructive_tools=_all_gated("destructive"),
+        enabled_opt_in_tools=_all_gated("opt_in"),
     )
     return mcp
 

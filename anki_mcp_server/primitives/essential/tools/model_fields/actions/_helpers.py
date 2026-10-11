@@ -1,4 +1,4 @@
-"""Shared field-lookup and result-shaping helpers for the model_fields tool.
+"""Shared field-lookup and result-shaping helpers for the model_field_* tools.
 
 These helpers centralize two concerns shared by every action:
 
@@ -22,6 +22,13 @@ FULL_SYNC_WARNING = (
     "This is a schema change. Anki will require a one-way full sync on the next "
     "sync, which overwrites the collection on AnkiWeb (and other devices) with "
     "this one. Sync your other devices first if they hold unsynced changes."
+)
+
+# Tool-description counterpart of FULL_SYNC_WARNING, shared by the add / remove /
+# reposition tool descriptions.
+SCHEMA_SENTENCE = (
+    "This changes the note type schema, which forces a one-way full sync on the "
+    "next sync -- it overwrites the collection on AnkiWeb and your other devices."
 )
 
 # rename is the exception: pylib's rename_field only rewrites field["name"] and

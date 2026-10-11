@@ -1,21 +1,52 @@
-"""Tests for card_management multi-action tool."""
+"""Tests for the card_* tool family: registration, card_reposition, card_change_deck."""
 from __future__ import annotations
 
 from .conftest import unique_id
 from .helpers import call_tool, list_tools
 
+CARD_TOOLS = (
+    "card_reposition",
+    "card_change_deck",
+    "card_bury",
+    "card_unbury",
+    "card_suspend",
+    "card_unsuspend",
+    "card_set_flag",
+    "card_set_due_date",
+    "card_forget",
+)
 
-class TestCardManagement:
-    """Tests for card_management multi-action tool."""
 
-    def test_card_management_tool_exists(self):
-        """card_management tool should be registered."""
+def _create_card(uid: str, deck_name: str) -> int:
+    """Create a deck, add a Basic note to it, and return the card ID."""
+    call_tool("create_deck", {"deck_name": deck_name})
+    note_result = call_tool("add_note", {
+        "deck_name": deck_name,
+        "model_name": "Basic",
+        "fields": {"Front": f"Q {uid}", "Back": f"A {uid}"}
+    })
+    note_id = note_result["note_id"]
+    notes_info = call_tool("notes_info", {"notes": [note_id]})
+    return notes_info["notes"][0]["cards"][0]
+
+
+class TestCardTools:
+    """Registration of the card_* tools."""
+
+    def test_card_tools_registered(self):
+        """Every card_* tool should be registered and the old dispatcher gone."""
         tools = list_tools()
-        tool_names = [t["name"] for t in tools]
-        assert "card_management" in tool_names
+        tool_names = {t["name"] for t in tools}
+        for name in CARD_TOOLS:
+            assert name in tool_names, f"{name} should be registered"
+        assert "card_management" not in tool_names
 
-    def test_reposition_action_basic(self):
-        """reposition action should reposition new cards."""
+
+class TestCardReposition:
+    """Tests for the card_reposition tool."""
+
+    def test_reposition_basic(self):
+        """card_reposition should reposition new cards."""
         uid = unique_id()
         deck_name = f"E2E::Reposition{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
@@ -43,13 +74,10 @@ class TestCardManagement:
         assert len(card_ids) == 3
 
         # Reposition cards starting at position 100
-        result = call_tool("card_management", {
-            "params": {
-                "action": "reposition",
-                "card_ids": card_ids,
-                "starting_from": 100,
-                "step_size": 1
-            }
+        result = call_tool("card_reposition", {
+            "card_ids": card_ids,
+            "starting_from": 100,
+            "step_size": 1
         })
 
         # Should not error
@@ -61,8 +89,8 @@ class TestCardManagement:
         assert "message" in result
         assert "100" in result["message"]
 
-    def test_reposition_action_with_randomize(self):
-        """reposition action should handle randomize parameter."""
+    def test_reposition_with_randomize(self):
+        """card_reposition should handle the randomize parameter."""
         uid = unique_id()
         deck_name = f"E2E::RepositionRand{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
@@ -86,88 +114,54 @@ class TestCardManagement:
                     card_ids.append(cards[0])
 
         # Reposition with randomize
-        result = call_tool("card_management", {
-            "params": {
-                "action": "reposition",
-                "card_ids": card_ids,
-                "starting_from": 50,
-                "randomize": True
-            }
+        result = call_tool("card_reposition", {
+            "card_ids": card_ids,
+            "starting_from": 50,
+            "randomize": True
         })
 
         assert result.get("isError") is not True
         assert result["repositioned"] == 2
 
     def test_reposition_empty_card_ids(self):
-        """reposition action should error with empty card_ids."""
-        result = call_tool("card_management", {
-            "params": {
-                "action": "reposition",
-                "card_ids": []
-            }
-        })
+        """card_reposition should error with empty card_ids."""
+        result = call_tool("card_reposition", {"card_ids": []})
 
         assert result.get("isError") is True
         assert "cannot be empty" in str(result)
 
     def test_reposition_invalid_starting_from(self):
-        """reposition action should error with negative starting_from."""
+        """card_reposition should error with negative starting_from."""
         uid = unique_id()
-        deck_name = f"E2E::RepositionInvalid{uid}"
-        call_tool("create_deck", {"deck_name": deck_name})
+        card_id = _create_card(uid, f"E2E::RepositionInvalid{uid}")
 
-        # Add one note
-        note_result = call_tool("add_note", {
-            "deck_name": deck_name,
-            "model_name": "Basic",
-            "fields": {"Front": f"Q {uid}", "Back": f"A {uid}"}
-        })
-        note_id = note_result["note_id"]
-        notes_info = call_tool("notes_info", {"notes": [note_id]})
-        card_id = notes_info["notes"][0]["cards"][0]
-
-        # Try reposition with negative starting_from
-        result = call_tool("card_management", {
-            "params": {
-                "action": "reposition",
-                "card_ids": [card_id],
-                "starting_from": -1
-            }
+        result = call_tool("card_reposition", {
+            "card_ids": [card_id],
+            "starting_from": -1
         })
 
         assert result.get("isError") is True
         assert "starting_from must be >= 0" in str(result)
 
     def test_reposition_invalid_step_size(self):
-        """reposition action should error with invalid step_size."""
+        """card_reposition should error with invalid step_size."""
         uid = unique_id()
-        deck_name = f"E2E::RepositionStep{uid}"
-        call_tool("create_deck", {"deck_name": deck_name})
+        card_id = _create_card(uid, f"E2E::RepositionStep{uid}")
 
-        # Add one note
-        note_result = call_tool("add_note", {
-            "deck_name": deck_name,
-            "model_name": "Basic",
-            "fields": {"Front": f"Q {uid}", "Back": f"A {uid}"}
-        })
-        note_id = note_result["note_id"]
-        notes_info = call_tool("notes_info", {"notes": [note_id]})
-        card_id = notes_info["notes"][0]["cards"][0]
-
-        # Try reposition with step_size = 0
-        result = call_tool("card_management", {
-            "params": {
-                "action": "reposition",
-                "card_ids": [card_id],
-                "step_size": 0
-            }
+        result = call_tool("card_reposition", {
+            "card_ids": [card_id],
+            "step_size": 0
         })
 
         assert result.get("isError") is True
         assert "step_size must be >= 1" in str(result)
 
+
+class TestCardChangeDeck:
+    """Tests for the card_change_deck tool."""
+
     def test_change_deck_basic(self):
-        """change_deck action should move cards to target deck."""
+        """card_change_deck should move cards to the target deck."""
         uid = unique_id()
         source_deck = f"E2E::Source{uid}"
         target_deck = f"E2E::Target{uid}"
@@ -196,12 +190,9 @@ class TestCardManagement:
         assert len(card_ids) == 2
 
         # Move cards to target deck (will be created)
-        result = call_tool("card_management", {
-            "params": {
-                "action": "change_deck",
-                "card_ids": card_ids,
-                "deck": target_deck
-            }
+        result = call_tool("card_change_deck", {
+            "card_ids": card_ids,
+            "deck": target_deck
         })
 
         # Should not error
@@ -221,30 +212,15 @@ class TestCardManagement:
         assert target_deck in deck_names
 
     def test_change_deck_nested(self):
-        """change_deck action should handle nested deck names."""
+        """card_change_deck should handle nested deck names."""
         uid = unique_id()
-        source_deck = f"E2E::NestedSource{uid}"
         target_deck = f"E2E::Parent{uid}::Child{uid}"
-
-        call_tool("create_deck", {"deck_name": source_deck})
-
-        # Add one note
-        result = call_tool("add_note", {
-            "deck_name": source_deck,
-            "model_name": "Basic",
-            "fields": {"Front": f"Q {uid}", "Back": f"A {uid}"}
-        })
-        note_id = result["note_id"]
-        notes_info = call_tool("notes_info", {"notes": [note_id]})
-        card_id = notes_info["notes"][0]["cards"][0]
+        card_id = _create_card(uid, f"E2E::NestedSource{uid}")
 
         # Move to nested deck
-        result = call_tool("card_management", {
-            "params": {
-                "action": "change_deck",
-                "card_ids": [card_id],
-                "deck": target_deck
-            }
+        result = call_tool("card_change_deck", {
+            "card_ids": [card_id],
+            "deck": target_deck
         })
 
         assert result.get("isError") is not True
@@ -256,333 +232,35 @@ class TestCardManagement:
         assert target_deck in deck_names
 
     def test_change_deck_empty_card_ids(self):
-        """change_deck action should error with empty card_ids."""
-        result = call_tool("card_management", {
-            "params": {
-                "action": "change_deck",
-                "card_ids": [],
-                "deck": "SomeDeck"
-            }
+        """card_change_deck should error with empty card_ids."""
+        result = call_tool("card_change_deck", {
+            "card_ids": [],
+            "deck": "SomeDeck"
         })
 
         assert result.get("isError") is True
         assert "cannot be empty" in str(result)
 
     def test_change_deck_missing_deck_param(self):
-        """change_deck action should error without deck parameter."""
+        """card_change_deck should error without the deck parameter."""
         uid = unique_id()
-        deck_name = f"E2E::NoDeck{uid}"
-        call_tool("create_deck", {"deck_name": deck_name})
+        card_id = _create_card(uid, f"E2E::NoDeck{uid}")
 
-        # Add one note
-        note_result = call_tool("add_note", {
-            "deck_name": deck_name,
-            "model_name": "Basic",
-            "fields": {"Front": f"Q {uid}", "Back": f"A {uid}"}
-        })
-        note_id = note_result["note_id"]
-        notes_info = call_tool("notes_info", {"notes": [note_id]})
-        card_id = notes_info["notes"][0]["cards"][0]
-
-        # Try change_deck without deck param - Pydantic validates this
-        result = call_tool("card_management", {
-            "params": {
-                "action": "change_deck",
-                "card_ids": [card_id]
-                # deck is missing - should fail validation
-            }
-        })
+        # deck is missing - Pydantic validates this
+        result = call_tool("card_change_deck", {"card_ids": [card_id]})
 
         assert result.get("isError") is True
         # Pydantic validation error for missing required field
         assert "deck" in str(result).lower() or "required" in str(result).lower()
 
     def test_change_deck_empty_deck_name(self):
-        """change_deck action should error with empty deck name."""
+        """card_change_deck should error with an empty deck name."""
         uid = unique_id()
-        deck_name = f"E2E::EmptyDeck{uid}"
-        call_tool("create_deck", {"deck_name": deck_name})
+        card_id = _create_card(uid, f"E2E::EmptyDeck{uid}")
 
-        # Add one note
-        note_result = call_tool("add_note", {
-            "deck_name": deck_name,
-            "model_name": "Basic",
-            "fields": {"Front": f"Q {uid}", "Back": f"A {uid}"}
-        })
-        note_id = note_result["note_id"]
-        notes_info = call_tool("notes_info", {"notes": [note_id]})
-        card_id = notes_info["notes"][0]["cards"][0]
-
-        # Try change_deck with whitespace-only string
-        result = call_tool("card_management", {
-            "params": {
-                "action": "change_deck",
-                "card_ids": [card_id],
-                "deck": "   "  # Whitespace only
-            }
-        })
-
-        assert result.get("isError") is True
-        assert "cannot be empty" in str(result)
-
-
-class TestBuryUnbury:
-    """Tests for bury/unbury actions in card_management tool."""
-
-    def test_bury_cards(self):
-        """bury action should bury cards and remove them from queue."""
-        uid = unique_id()
-        deck_name = f"E2E::Bury{uid}"
-        call_tool("create_deck", {"deck_name": deck_name})
-
-        # Add a note
-        call_tool("add_note", {
-            "deck_name": deck_name,
-            "model_name": "Basic",
-            "fields": {
-                "Front": f"Question {uid}",
-                "Back": f"Answer {uid}"
-            }
-        })
-
-        # Get the card via get_due_cards
-        get_result = call_tool("get_due_cards", {"deck_name": deck_name})
-        assert get_result.get("isError") is not True
-        assert len(get_result["cards"]) == 1
-        card_id = get_result["cards"][0]["cardId"]
-
-        # Bury the card
-        result = call_tool("card_management", {
-            "params": {
-                "action": "bury",
-                "card_ids": [card_id]
-            }
-        })
-
-        # Should succeed
-        assert result.get("isError") is not True
-        assert "buried_count" in result
-        assert result["buried_count"] == 1
-        assert "message" in result
-
-        # Card should not appear in get_due_cards now
-        get_result2 = call_tool("get_due_cards", {"deck_name": deck_name})
-        assert get_result2.get("isError") is not True
-        assert len(get_result2["cards"]) == 0  # Card is buried
-
-    def test_bury_empty_card_ids_fails(self):
-        """bury action should error with empty card_ids."""
-        result = call_tool("card_management", {
-            "params": {
-                "action": "bury",
-                "card_ids": []
-            }
-        })
-
-        assert result.get("isError") is True
-        assert "cannot be empty" in str(result)
-
-    def test_unbury_deck(self):
-        """unbury action should restore buried cards to queue."""
-        uid = unique_id()
-        deck_name = f"E2E::Unbury{uid}"
-        call_tool("create_deck", {"deck_name": deck_name})
-
-        # Add a note
-        call_tool("add_note", {
-            "deck_name": deck_name,
-            "model_name": "Basic",
-            "fields": {
-                "Front": f"Question {uid}",
-                "Back": f"Answer {uid}"
-            }
-        })
-
-        # Get the card
-        get_result = call_tool("get_due_cards", {"deck_name": deck_name})
-        assert get_result.get("isError") is not True
-        card_id = get_result["cards"][0]["cardId"]
-
-        # Bury the card
-        bury_result = call_tool("card_management", {
-            "params": {
-                "action": "bury",
-                "card_ids": [card_id]
-            }
-        })
-        assert bury_result.get("isError") is not True
-
-        # Verify card is gone
-        get_result2 = call_tool("get_due_cards", {"deck_name": deck_name})
-        assert len(get_result2["cards"]) == 0
-
-        # Unbury the deck
-        unbury_result = call_tool("card_management", {
-            "params": {
-                "action": "unbury",
-                "deck_name": deck_name
-            }
-        })
-
-        # Should succeed
-        assert unbury_result.get("isError") is not True
-        assert "message" in unbury_result
-
-        # Card should be back in queue
-        get_result3 = call_tool("get_due_cards", {"deck_name": deck_name})
-        assert get_result3.get("isError") is not True
-        assert len(get_result3["cards"]) == 1
-
-    def test_unbury_invalid_deck_fails(self):
-        """unbury action should error with invalid deck name."""
-        result = call_tool("card_management", {
-            "params": {
-                "action": "unbury",
-                "deck_name": "NonExistentDeck123XYZ"
-            }
-        })
-
-        assert result.get("isError") is True
-        # Should mention deck not found or similar
-        assert "deck" in str(result).lower() or "not found" in str(result).lower()
-
-    def test_unbury_deck_with_no_buried_cards(self):
-        """unbury action should succeed gracefully when no cards are buried."""
-        uid = unique_id()
-        deck_name = f"E2E::UnburyEmpty{uid}"
-        call_tool("create_deck", {"deck_name": deck_name})
-
-        # Add a note (not buried)
-        call_tool("add_note", {
-            "deck_name": deck_name,
-            "model_name": "Basic",
-            "fields": {
-                "Front": f"Question {uid}",
-                "Back": f"Answer {uid}"
-            }
-        })
-
-        # Call unbury on deck with no buried cards
-        result = call_tool("card_management", {
-            "params": {
-                "action": "unbury",
-                "deck_name": deck_name
-            }
-        })
-
-        # Should succeed without error (no-op)
-        assert result.get("isError") is not True
-        assert "message" in result
-
-
-class TestSetFlag:
-    """Tests for set_flag action in card_management tool."""
-
-    def _create_card(self, uid: str, deck_name: str) -> int:
-        """Helper to create a deck, add a note, and return the card ID."""
-        call_tool("create_deck", {"deck_name": deck_name})
-        note_result = call_tool("add_note", {
-            "deck_name": deck_name,
-            "model_name": "Basic",
-            "fields": {
-                "Front": f"Question {uid}",
-                "Back": f"Answer {uid}",
-            }
-        })
-        note_id = note_result["note_id"]
-        notes_info = call_tool("notes_info", {"notes": [note_id]})
-        return notes_info["notes"][0]["cards"][0]
-
-    def test_set_flag_basic(self):
-        """set_flag action should set a red flag on a card."""
-        uid = unique_id()
-        deck_name = f"E2E::SetFlag{uid}"
-        card_id = self._create_card(uid, deck_name)
-
-        result = call_tool("card_management", {
-            "params": {
-                "action": "set_flag",
-                "card_ids": [card_id],
-                "flag": 1,
-            }
-        })
-
-        assert result.get("isError") is not True
-        assert result["flagged_count"] == 1
-        assert result["flag"] == 1
-        assert card_id in result["card_ids"]
-        assert "message" in result
-
-    def test_remove_flag(self):
-        """set_flag with flag=0 should remove an existing flag."""
-        uid = unique_id()
-        deck_name = f"E2E::RemoveFlag{uid}"
-        card_id = self._create_card(uid, deck_name)
-
-        # First set a flag
-        set_result = call_tool("card_management", {
-            "params": {
-                "action": "set_flag",
-                "card_ids": [card_id],
-                "flag": 2,
-            }
-        })
-        assert set_result.get("isError") is not True
-
-        # Now remove the flag
-        result = call_tool("card_management", {
-            "params": {
-                "action": "set_flag",
-                "card_ids": [card_id],
-                "flag": 0,
-            }
-        })
-
-        assert result.get("isError") is not True
-        assert result["flagged_count"] == 1
-        assert result["flag"] == 0
-        assert "message" in result
-
-    def test_set_flag_invalid_value(self):
-        """set_flag should error when flag value is out of range."""
-        uid = unique_id()
-        deck_name = f"E2E::FlagInvalid{uid}"
-        card_id = self._create_card(uid, deck_name)
-
-        result = call_tool("card_management", {
-            "params": {
-                "action": "set_flag",
-                "card_ids": [card_id],
-                "flag": 8,
-            }
-        })
-
-        assert result.get("isError") is True
-        assert "invalid flag" in str(result).lower() or "flag" in str(result).lower()
-
-    def test_set_flag_negative_value(self):
-        """set_flag should error when flag value is negative."""
-        uid = unique_id()
-        deck_name = f"E2E::FlagNeg{uid}"
-        card_id = self._create_card(uid, deck_name)
-
-        result = call_tool("card_management", {
-            "params": {
-                "action": "set_flag",
-                "card_ids": [card_id],
-                "flag": -1,
-            }
-        })
-        assert result.get("isError") is True
-
-    def test_set_flag_empty_card_ids(self):
-        """set_flag should error with empty card_ids."""
-        result = call_tool("card_management", {
-            "params": {
-                "action": "set_flag",
-                "card_ids": [],
-                "flag": 1,
-            }
+        result = call_tool("card_change_deck", {
+            "card_ids": [card_id],
+            "deck": "   "  # Whitespace only
         })
 
         assert result.get("isError") is True

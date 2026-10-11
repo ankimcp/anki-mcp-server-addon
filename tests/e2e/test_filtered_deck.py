@@ -1,4 +1,4 @@
-"""Tests for filtered_deck multi-action tool."""
+"""Tests for the filtered_deck_* tools (upsert, rebuild, empty, delete)."""
 from __future__ import annotations
 
 from .conftest import unique_id
@@ -42,13 +42,20 @@ def _find_deck(name: str) -> dict | None:
 # -- TestFilteredDeckCreateOrUpdate -------------------------------------------
 
 class TestFilteredDeckCreateOrUpdate:
-    """Tests for the create_or_update action."""
+    """Tests for the filtered_deck_upsert tool."""
 
     def test_tool_exists(self):
-        """filtered_deck tool should be registered."""
+        """All five filtered_deck_* tools should be registered."""
         tools = list_tools()
         tool_names = [t["name"] for t in tools]
-        assert "filtered_deck" in tool_names
+        for name in (
+            "filtered_deck_upsert",
+            "filtered_deck_rebuild",
+            "filtered_deck_empty",
+            "filtered_deck_delete",
+            "filtered_deck_get_info",
+        ):
+            assert name in tool_names
 
     def test_create_with_one_search_term(self):
         """Create a filtered deck with a single search term."""
@@ -57,14 +64,11 @@ class TestFilteredDeckCreateOrUpdate:
         _create_notes_in_deck(source_deck, 3, uid)
 
         fd_name = f"E2E::FD1_{uid}"
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "name": fd_name,
-                "search_terms": [
-                    {"search": f"deck:\"{source_deck}\"", "limit": 100, "order": "random"},
-                ],
-            },
+        result = call_tool("filtered_deck_upsert", {
+            "name": fd_name,
+            "search_terms": [
+                {"search": f"deck:\"{source_deck}\"", "limit": 100, "order": "random"},
+            ],
         })
 
         assert result.get("isError") is not True
@@ -81,15 +85,12 @@ class TestFilteredDeckCreateOrUpdate:
         _create_notes_in_deck(source_deck, 5, uid)
 
         fd_name = f"E2E::FD2_{uid}"
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "name": fd_name,
-                "search_terms": [
-                    {"search": f"deck:\"{source_deck}\"", "limit": 3, "order": "due"},
-                    {"search": f"deck:\"{source_deck}\"", "limit": 2, "order": "added"},
-                ],
-            },
+        result = call_tool("filtered_deck_upsert", {
+            "name": fd_name,
+            "search_terms": [
+                {"search": f"deck:\"{source_deck}\"", "limit": 3, "order": "due"},
+                {"search": f"deck:\"{source_deck}\"", "limit": 2, "order": "added"},
+            ],
         })
 
         assert result.get("isError") is not True
@@ -107,15 +108,12 @@ class TestFilteredDeckCreateOrUpdate:
         uid = unique_id()
         fd_name = f"E2E::FDEmpty_{uid}"
 
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "name": fd_name,
-                "search_terms": [
-                    {"search": f"deck:\"NonExistentDeck_{uid}\"", "limit": 100},
-                ],
-                "allow_empty": True,
-            },
+        result = call_tool("filtered_deck_upsert", {
+            "name": fd_name,
+            "search_terms": [
+                {"search": f"deck:\"NonExistentDeck_{uid}\"", "limit": 100},
+            ],
+            "allow_empty": True,
         })
 
         assert result.get("isError") is not True
@@ -138,15 +136,12 @@ class TestFilteredDeckCreateOrUpdate:
 
         try:
             # Now create a filtered deck with the same name
-            result = call_tool("filtered_deck", {
-                "params": {
-                    "action": "create_or_update",
-                    "name": existing_deck,
-                    "search_terms": [
-                        {"search": "deck:*", "limit": 1},
-                    ],
-                    "allow_empty": True,
-                },
+            result = call_tool("filtered_deck_upsert", {
+                "name": existing_deck,
+                "search_terms": [
+                    {"search": "deck:*", "limit": 1},
+                ],
+                "allow_empty": True,
             })
             filtered_deck_id = result.get("deck_id")
 
@@ -171,14 +166,11 @@ class TestFilteredDeckCreateOrUpdate:
         fd_name = f"E2E::FDUpd_{uid}"
 
         # Create filtered deck pulling from source A
-        create_result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "name": fd_name,
-                "search_terms": [
-                    {"search": f"deck:\"{source_deck_a}\"", "limit": 100},
-                ],
-            },
+        create_result = call_tool("filtered_deck_upsert", {
+            "name": fd_name,
+            "search_terms": [
+                {"search": f"deck:\"{source_deck_a}\"", "limit": 100},
+            ],
         })
 
         assert create_result.get("isError") is not True
@@ -186,15 +178,12 @@ class TestFilteredDeckCreateOrUpdate:
         deck_id = create_result["deck_id"]
 
         # Update: switch to pulling from source B
-        update_result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "deck_id": deck_id,
-                "name": fd_name,
-                "search_terms": [
-                    {"search": f"deck:\"{source_deck_b}\"", "limit": 100},
-                ],
-            },
+        update_result = call_tool("filtered_deck_upsert", {
+            "deck_id": deck_id,
+            "name": fd_name,
+            "search_terms": [
+                {"search": f"deck:\"{source_deck_b}\"", "limit": 100},
+            ],
         })
 
         assert update_result.get("isError") is not True
@@ -207,7 +196,7 @@ class TestFilteredDeckCreateOrUpdate:
 # -- TestFilteredDeckRebuild --------------------------------------------------
 
 class TestFilteredDeckRebuild:
-    """Tests for the rebuild action."""
+    """Tests for the filtered_deck_rebuild tool."""
 
     def test_rebuild_returns_card_count(self):
         """Rebuild should return updated card_count."""
@@ -218,26 +207,18 @@ class TestFilteredDeckRebuild:
         fd_name = f"E2E::FDReb_{uid}"
 
         # Create filtered deck
-        create_result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "name": fd_name,
-                "search_terms": [
-                    {"search": f"deck:\"{source_deck}\"", "limit": 100},
-                ],
-            },
+        create_result = call_tool("filtered_deck_upsert", {
+            "name": fd_name,
+            "search_terms": [
+                {"search": f"deck:\"{source_deck}\"", "limit": 100},
+            ],
         })
         assert create_result.get("isError") is not True
         deck_id = create_result["deck_id"]
         assert create_result["card_count"] == 3
 
         # Rebuild (should re-pull the same 3 cards)
-        rebuild_result = call_tool("filtered_deck", {
-            "params": {
-                "action": "rebuild",
-                "deck_id": deck_id,
-            },
-        })
+        rebuild_result = call_tool("filtered_deck_rebuild", {"deck_id": deck_id})
 
         assert rebuild_result.get("isError") is not True
         assert rebuild_result["deck_id"] == deck_id
@@ -253,14 +234,11 @@ class TestFilteredDeckRebuild:
         fd_name = f"E2E::FDRebNewFD_{uid}"
 
         # Create filtered deck with 2 cards
-        create_result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "name": fd_name,
-                "search_terms": [
-                    {"search": f"deck:\"{source_deck}\"", "limit": 100},
-                ],
-            },
+        create_result = call_tool("filtered_deck_upsert", {
+            "name": fd_name,
+            "search_terms": [
+                {"search": f"deck:\"{source_deck}\"", "limit": 100},
+            ],
         })
         assert create_result.get("isError") is not True
         deck_id = create_result["deck_id"]
@@ -270,12 +248,7 @@ class TestFilteredDeckRebuild:
         _create_notes_in_deck(source_deck, 3, uid + "extra")
 
         # Rebuild -- should now have 5 cards
-        rebuild_result = call_tool("filtered_deck", {
-            "params": {
-                "action": "rebuild",
-                "deck_id": deck_id,
-            },
-        })
+        rebuild_result = call_tool("filtered_deck_rebuild", {"deck_id": deck_id})
 
         assert rebuild_result.get("isError") is not True
         assert rebuild_result["card_count"] == 5
@@ -284,7 +257,7 @@ class TestFilteredDeckRebuild:
 # -- TestFilteredDeckEmpty ----------------------------------------------------
 
 class TestFilteredDeckEmpty:
-    """Tests for the empty action."""
+    """Tests for the filtered_deck_empty tool."""
 
     def test_empty_returns_cards_to_home_decks(self):
         """Empty should return cards to their original decks."""
@@ -295,14 +268,11 @@ class TestFilteredDeckEmpty:
         fd_name = f"E2E::FDEmptyFD_{uid}"
 
         # Create filtered deck
-        create_result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "name": fd_name,
-                "search_terms": [
-                    {"search": f"deck:\"{source_deck}\"", "limit": 100},
-                ],
-            },
+        create_result = call_tool("filtered_deck_upsert", {
+            "name": fd_name,
+            "search_terms": [
+                {"search": f"deck:\"{source_deck}\"", "limit": 100},
+            ],
         })
         assert create_result.get("isError") is not True
         deck_id = create_result["deck_id"]
@@ -317,12 +287,7 @@ class TestFilteredDeckEmpty:
         assert source_before["stats"]["total_in_deck"] == 0
 
         # Empty the filtered deck
-        empty_result = call_tool("filtered_deck", {
-            "params": {
-                "action": "empty",
-                "deck_id": deck_id,
-            },
-        })
+        empty_result = call_tool("filtered_deck_empty", {"deck_id": deck_id})
 
         assert empty_result.get("isError") is not True
         assert empty_result["deck_id"] == deck_id
@@ -339,7 +304,7 @@ class TestFilteredDeckEmpty:
 # -- TestFilteredDeckDelete ---------------------------------------------------
 
 class TestFilteredDeckDelete:
-    """Tests for the delete action."""
+    """Tests for the filtered_deck_delete tool."""
 
     def test_delete_removes_deck_preserves_cards(self):
         """Delete should remove the filtered deck but preserve cards
@@ -351,25 +316,17 @@ class TestFilteredDeckDelete:
         fd_name = f"E2E::FDDelFD_{uid}"
 
         # Create filtered deck
-        create_result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "name": fd_name,
-                "search_terms": [
-                    {"search": f"deck:\"{source_deck}\"", "limit": 100},
-                ],
-            },
+        create_result = call_tool("filtered_deck_upsert", {
+            "name": fd_name,
+            "search_terms": [
+                {"search": f"deck:\"{source_deck}\"", "limit": 100},
+            ],
         })
         assert create_result.get("isError") is not True
         deck_id = create_result["deck_id"]
 
         # Delete the filtered deck
-        delete_result = call_tool("filtered_deck", {
-            "params": {
-                "action": "delete",
-                "deck_id": deck_id,
-            },
-        })
+        delete_result = call_tool("filtered_deck_delete", {"deck_id": deck_id})
 
         assert delete_result.get("isError") is not True
         assert delete_result["deck_id"] == deck_id
@@ -394,35 +351,20 @@ class TestFilteredDeckErrors:
 
     def test_rebuild_invalid_deck_id(self):
         """Rebuild with a non-existent deck_id should error."""
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "rebuild",
-                "deck_id": 9999999999,
-            },
-        })
+        result = call_tool("filtered_deck_rebuild", {"deck_id": 9999999999})
 
         assert result.get("isError") is True
         assert "not found" in str(result).lower() or "deck" in str(result).lower()
 
     def test_empty_invalid_deck_id(self):
         """Empty with a non-existent deck_id should error."""
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "empty",
-                "deck_id": 9999999999,
-            },
-        })
+        result = call_tool("filtered_deck_empty", {"deck_id": 9999999999})
 
         assert result.get("isError") is True
 
     def test_delete_invalid_deck_id(self):
         """Delete with a non-existent deck_id should error."""
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "delete",
-                "deck_id": 9999999999,
-            },
-        })
+        result = call_tool("filtered_deck_delete", {"deck_id": 9999999999})
 
         assert result.get("isError") is True
 
@@ -433,12 +375,7 @@ class TestFilteredDeckErrors:
         create_result = call_tool("create_deck", {"deck_name": deck_name})
         deck_id = create_result["deckId"]
 
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "rebuild",
-                "deck_id": deck_id,
-            },
-        })
+        result = call_tool("filtered_deck_rebuild", {"deck_id": deck_id})
 
         assert result.get("isError") is True
         assert "not a filtered deck" in str(result).lower() or "filtered" in str(result).lower()
@@ -450,12 +387,7 @@ class TestFilteredDeckErrors:
         create_result = call_tool("create_deck", {"deck_name": deck_name})
         deck_id = create_result["deckId"]
 
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "empty",
-                "deck_id": deck_id,
-            },
-        })
+        result = call_tool("filtered_deck_empty", {"deck_id": deck_id})
 
         assert result.get("isError") is True
         assert "not a filtered deck" in str(result).lower() or "filtered" in str(result).lower()
@@ -465,15 +397,12 @@ class TestFilteredDeckErrors:
         uid = unique_id()
         fd_name = f"E2E::FDBadSearch_{uid}"
 
-        result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "name": fd_name,
-                "search_terms": [
-                    {"search": "invalid::(((syntax", "limit": 100},
-                ],
-                "allow_empty": True,
-            },
+        result = call_tool("filtered_deck_upsert", {
+            "name": fd_name,
+            "search_terms": [
+                {"search": "invalid::(((syntax", "limit": 100},
+            ],
+            "allow_empty": True,
         })
 
         assert result.get("isError") is True
@@ -507,14 +436,11 @@ class TestListDecksFiltered:
         _create_notes_in_deck(source_deck, 1, uid)
 
         fd_name = f"E2E::FDListFilt_{uid}"
-        create_result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "name": fd_name,
-                "search_terms": [
-                    {"search": f"deck:\"{source_deck}\"", "limit": 100},
-                ],
-            },
+        create_result = call_tool("filtered_deck_upsert", {
+            "name": fd_name,
+            "search_terms": [
+                {"search": f"deck:\"{source_deck}\"", "limit": 100},
+            ],
         })
         assert create_result.get("isError") is not True
 
@@ -541,14 +467,11 @@ class TestListDecksFiltered:
         _create_notes_in_deck(source_deck, 1, uid)
 
         fd_name = f"E2E::FDListStatFilt_{uid}"
-        create_result = call_tool("filtered_deck", {
-            "params": {
-                "action": "create_or_update",
-                "name": fd_name,
-                "search_terms": [
-                    {"search": f"deck:\"{source_deck}\"", "limit": 100},
-                ],
-            },
+        create_result = call_tool("filtered_deck_upsert", {
+            "name": fd_name,
+            "search_terms": [
+                {"search": f"deck:\"{source_deck}\"", "limit": 100},
+            ],
         })
         assert create_result.get("isError") is not True
 

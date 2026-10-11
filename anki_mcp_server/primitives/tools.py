@@ -20,13 +20,11 @@ def register_all_tools(
     Args:
         mcp: FastMCP server instance
         call_main_thread: Async function to bridge calls to Anki's main thread
-        disabled_tools: List of tool names or "tool:action" entries to skip
-        enabled_destructive_tools: Allow-list of destructive tool names or
-            "tool:action" entries to expose (destructive tools/actions are
-            hidden unless listed here)
-        enabled_opt_in_tools: Allow-list of opt-in tool names or "tool:action"
-            entries to expose (opt-in tools/actions are hidden unless listed
-            here)
+        disabled_tools: List of tool names to skip
+        enabled_destructive_tools: Allow-list of destructive tool names to
+            expose (destructive tools are hidden unless listed here)
+        enabled_opt_in_tools: Allow-list of opt-in tool names to expose
+            (opt-in tools are hidden unless listed here)
     """
     register_tools(
         mcp,

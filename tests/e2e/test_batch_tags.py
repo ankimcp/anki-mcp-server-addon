@@ -1,4 +1,4 @@
-"""Tests for batch_tags action in tag_management tool."""
+"""Tests for the tag_batch tool."""
 from __future__ import annotations
 
 from .conftest import unique_id
@@ -6,10 +6,10 @@ from .helpers import call_tool
 
 
 class TestBatchTags:
-    """Tests for batch_tags action in tag_management tool."""
+    """Tests for the tag_batch tool."""
 
     def test_batch_add_and_remove(self):
-        """batch_tags should handle mixed add/remove operations."""
+        """tag_batch should handle mixed add/remove operations."""
         uid = unique_id()
         deck_name = f"E2E::BatchTags{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
@@ -31,14 +31,11 @@ class TestBatchTags:
         nid2 = note2["note_id"]
 
         # Batch: add a new tag to both, remove initial-tag from note1
-        result = call_tool("tag_management", {
-            "params": {
-                "action": "batch_tags",
-                "operations": [
-                    {"type": "add", "note_ids": [nid1, nid2], "tags": "new-tag"},
-                    {"type": "remove", "note_ids": [nid1], "tags": "initial-tag"},
-                ],
-            }
+        result = call_tool("tag_batch", {
+            "operations": [
+                {"type": "add", "note_ids": [nid1, nid2], "tags": "new-tag"},
+                {"type": "remove", "note_ids": [nid1], "tags": "initial-tag"},
+            ],
         })
 
         assert result.get("isError") is not True
@@ -60,7 +57,7 @@ class TestBatchTags:
         assert "initial-tag" in tags2
 
     def test_batch_partial_success(self):
-        """batch_tags should continue after individual operation failures."""
+        """tag_batch should continue after individual operation failures."""
         uid = unique_id()
         deck_name = f"E2E::BatchPartial{uid}"
         call_tool("create_deck", {"deck_name": deck_name})
@@ -73,15 +70,12 @@ class TestBatchTags:
         nid = note["note_id"]
 
         # Middle operation has empty tags (should fail), others should succeed
-        result = call_tool("tag_management", {
-            "params": {
-                "action": "batch_tags",
-                "operations": [
-                    {"type": "add", "note_ids": [nid], "tags": "good-tag-1"},
-                    {"type": "add", "note_ids": [nid], "tags": "  "},
-                    {"type": "add", "note_ids": [nid], "tags": "good-tag-2"},
-                ],
-            }
+        result = call_tool("tag_batch", {
+            "operations": [
+                {"type": "add", "note_ids": [nid], "tags": "good-tag-1"},
+                {"type": "add", "note_ids": [nid], "tags": "  "},
+                {"type": "add", "note_ids": [nid], "tags": "good-tag-2"},
+            ],
         })
 
         assert result.get("isError") is not True
@@ -101,12 +95,9 @@ class TestBatchTags:
         assert "good-tag-2" in tags
 
     def test_batch_empty_operations(self):
-        """batch_tags should error with empty operations list."""
-        result = call_tool("tag_management", {
-            "params": {
-                "action": "batch_tags",
-                "operations": [],
-            }
+        """tag_batch should error with empty operations list."""
+        result = call_tool("tag_batch", {
+            "operations": [],
         })
 
         assert result.get("isError") is True
@@ -125,14 +116,11 @@ class TestBatchTags:
         nid = note["note_id"]
 
         # Add a tag then remove it in the same batch -- net result: no tag
-        result = call_tool("tag_management", {
-            "params": {
-                "action": "batch_tags",
-                "operations": [
-                    {"type": "add", "note_ids": [nid], "tags": "ephemeral"},
-                    {"type": "remove", "note_ids": [nid], "tags": "ephemeral"},
-                ],
-            }
+        result = call_tool("tag_batch", {
+            "operations": [
+                {"type": "add", "note_ids": [nid], "tags": "ephemeral"},
+                {"type": "remove", "note_ids": [nid], "tags": "ephemeral"},
+            ],
         })
 
         assert result.get("isError") is not True
@@ -156,14 +144,11 @@ class TestBatchTags:
         })
         nid = note["note_id"]
 
-        result = call_tool("tag_management", {
-            "params": {
-                "action": "batch_tags",
-                "operations": [
-                    {"type": "add", "note_ids": [nid], "tags": "good-tag"},
-                    {"type": "add", "note_ids": [], "tags": "wont-apply"},
-                ],
-            }
+        result = call_tool("tag_batch", {
+            "operations": [
+                {"type": "add", "note_ids": [nid], "tags": "good-tag"},
+                {"type": "add", "note_ids": [], "tags": "wont-apply"},
+            ],
         })
 
         assert result.get("isError") is not True
@@ -173,18 +158,15 @@ class TestBatchTags:
         assert "note_ids" in result["results"][1]["error"]
 
     def test_batch_over_limit(self):
-        """batch_tags should reject more than 50 operations."""
-        # Limit check happens in dispatcher before impl runs — no setup needed
+        """tag_batch should reject more than 50 operations."""
+        # Limit check happens in the tool before impl runs — no setup needed
         operations = [
             {"type": "add", "note_ids": [1], "tags": f"tag-{i}"}
             for i in range(51)
         ]
 
-        result = call_tool("tag_management", {
-            "params": {
-                "action": "batch_tags",
-                "operations": operations,
-            }
+        result = call_tool("tag_batch", {
+            "operations": operations,
         })
 
         assert result.get("isError") is True

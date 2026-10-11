@@ -249,6 +249,9 @@ def test_every_real_tool_has_complete_annotations(tools_list):
         ("sync", False, True, True),
         ("store_media_file", False, False, True),
         ("gui_undo", False, True, False),
+        ("tag_list", True, False, False),
+        ("filtered_deck_get_info", True, False, False),
+        ("tag_add", False, False, False),
     ],
 )
 def test_real_tool_spot_checks(tools_list, name, read_only, destructive, open_world):
@@ -264,7 +267,23 @@ _IDEMPOTENT_TOOLS_DESTRUCTIVE_HINT = {
     "delete_notes": True,
     "delete_media_file": True,
     "set_fsrs_params": True,
-    "tag_management": True,
+    "card_change_deck": True,
+    "card_bury": True,
+    "card_unbury": True,
+    "card_suspend": True,
+    "card_unsuspend": True,
+    "card_set_flag": True,
+    "tag_add": False,
+    "tag_remove": True,
+    "tag_replace": True,
+    "tag_clear_unused": True,
+    "tag_batch": True,
+    "filtered_deck_empty": True,
+    "filtered_deck_delete": True,
+    "model_field_add": True,
+    "model_field_rename": True,
+    "model_field_reposition": True,
+    "model_field_remove": True,
 }
 
 
@@ -294,6 +313,12 @@ def test_idempotent_tools_wire_shape(tools_list, name, destructive):
         "update_note_fields",
         "update_model_styling",
         "update_model_templates",
+        # Random order / range / position: a repeat call can differ.
+        "card_reposition",
+        "card_set_due_date",
+        "card_forget",
+        "filtered_deck_upsert",
+        "filtered_deck_rebuild",
     ],
 )
 def test_idempotent_hint_absent(tools_list, name):

@@ -114,18 +114,22 @@ anki_mcp_server/
     ├── essential/
     │   ├── tools/           # Core tools: sync, notes, decks, models, media, FSRS, cards
     │   │   ├── *_tool.py         # Single-file tools (auto-discovered)
-    │   │   ├── _fsrs_helpers.py  # _ prefix = helper, not auto-discovered
-    │   │   ├── card_management/  # Multi-action tool (subpackage)
-    │   │   │   ├── __init__.py          # Must import tool to trigger @Tool registration
-    │   │   │   ├── card_management_tool.py  # Dispatcher with Pydantic discriminated union
-    │   │   │   └── actions/             # One file per action
-    │   │   ├── tag_management/  # Multi-action tool (subpackage)
+    │   │   ├── _fsrs_helpers.py  # _ prefix = helper (imported, registers no tool)
+    │   │   ├── card_management/  # Domain folder: card_* tools (card_bury, card_forget, ...)
+    │   │   │   ├── __init__.py          # Imports every card_*_tool module
+    │   │   │   ├── card_bury_tool.py    # One @Tool per file, flat params
+    │   │   │   └── actions/             # Shared impls (bury_impl, ...)
+    │   │   ├── tag_management/  # Domain folder: tag_* tools
     │   │   │   ├── __init__.py
-    │   │   │   ├── tag_management_tool.py
+    │   │   │   ├── tag_add_tool.py ...
     │   │   │   └── actions/
-    │   │   └── filtered_deck/   # Multi-action tool (subpackage)
+    │   │   ├── filtered_deck/   # Domain folder: filtered_deck_* tools
+    │   │   │   ├── __init__.py
+    │   │   │   ├── filtered_deck_upsert_tool.py ...
+    │   │   │   └── actions/
+    │   │   └── model_fields/    # Domain folder: model_field_* tools
     │   │       ├── __init__.py
-    │   │       ├── filtered_deck_tool.py
+    │   │       ├── model_field_add_tool.py ...
     │   │       └── actions/
     │   ├── resources/       # system_info, query_syntax, schema, stats, fsrs_config
     │   └── prompts/         # review_session, twenty_rules
@@ -171,13 +175,13 @@ Options:
 - `write=True`: Marks the tool as mutating the collection. Drives the MCP `readOnlyHint` (`readOnlyHint = not write`) — so a tool that mutates the collection must be `write=True`; if an immediate `mw.reset()` would be wrong (it refreshes the UI itself, like `gui_undo`/`gui_answer_card`, or only starts a background job, like `sync`), add `refresh_ui=False`. It is also the `destructive` precondition, and gates `_write_lock`, which — when `refresh_ui` is also true — calls `mw.reset()` after the handler runs, on success or error, so open deck browser/overview/reviewer screens refresh (`maybeReset` is an obsolete no-op in current Anki; `requireReset` prints a deprecation notice plus a full stack trace before calling `mw.reset()` anyway, so neither is used here)
 - `refresh_ui=True` (default): Only meaningful when `write=True`. Set `False` for a tool that already refreshes Anki's UI itself (e.g. `gui_answer_card`, whose reviewer op is its own async `CollectionOp`) — an extra `mw.reset()` there would race it.
 - `require_col=True` (default): Checks collection is open before running
-- `destructive=True`: Hides the tool from MCP clients unless the operator opts in via `enabled_destructive_tools` config (see "Tool Filtering"). Requires `write=True` — `ValueError` at import time otherwise. For multi-action tools, mark individual actions with `_destructive: ClassVar[bool] = True` on the action's Params model instead.
+- `destructive=True`: Hides the tool from MCP clients unless the operator opts in via `enabled_destructive_tools` config (see "Tool Filtering"). Requires `write=True` — `ValueError` at import time otherwise.
 - `opt_in=True`: Hides the tool from MCP clients unless the operator opts in via `enabled_opt_in_tools` config (see "Tool Filtering"). Does not require `write=True` — unlike `destructive`, this is for tools that are opt-in for reasons other than being dangerous.
-- `destructive_hint=None` (default): The MCP `destructiveHint`. For `write=True` tools `None` resolves to `True` — conservative, since `destructiveHint=False` promises *only additive* updates. Set `False` only on purely additive tools (`add_note`, `add_notes`, `create_deck`, `create_model`, `store_media_file`). Passing any value on a `write=False` tool is a `ValueError`; read-only tools always send `destructiveHint: false` on the wire (the registry still stores `None` for them), so every tool carries explicit boolean `readOnlyHint`, `destructiveHint` and `openWorldHint` — plugin-directory scanners (e.g. OpenAI's) flag tools missing any of the three.
-- `idempotent_hint=None` (default): The MCP `idempotentHint`. `None` omits it on the wire (MCP then assumes `False`). Set `True` only on write tools where repeating the same call with the same arguments has no further effect (`create_deck`, `delete_notes`, `delete_media_file`, `set_fsrs_params`, `tag_management`). Not on the `old_str`/`new_str` patch-mode tools (`update_note_fields`, `update_model_styling`, `update_model_templates`): a repeat patch call can re-apply the edit. Passing any value on a `write=False` tool is a `ValueError`; read-only tools omit `idempotentHint` on the wire.
+- `destructive_hint=None` (default): The MCP `destructiveHint`. For `write=True` tools `None` resolves to `True` — conservative, since `destructiveHint=False` promises *only additive* updates. Set `False` only on purely additive tools (`add_note`, `add_notes`, `create_deck`, `create_model`, `store_media_file`, `tag_add`). Passing any value on a `write=False` tool is a `ValueError`; read-only tools always send `destructiveHint: false` on the wire (the registry still stores `None` for them), so every tool carries explicit boolean `readOnlyHint`, `destructiveHint` and `openWorldHint` — plugin-directory scanners (e.g. OpenAI's) flag tools missing any of the three.
+- `idempotent_hint=None` (default): The MCP `idempotentHint`. `None` omits it on the wire (MCP then assumes `False`). Set `True` only on write tools where repeating the same call with the same arguments has no further effect (`create_deck`, `delete_notes`, `delete_media_file`, `set_fsrs_params`, `card_change_deck`, `card_bury`, `card_unbury`, `card_suspend`, `card_unsuspend`, `card_set_flag`, `tag_add`, `tag_remove`, `tag_replace`, `tag_clear_unused`, `tag_batch`, `filtered_deck_empty`, `filtered_deck_delete`, and the four `model_field_*` tools). A repeat call that fails with no state change (e.g. `filtered_deck_delete` on a deck that's already gone) still counts as idempotent. Not on tools with a random or position-dependent result (`card_reposition`, `card_set_due_date`, `card_forget`, `filtered_deck_upsert`, `filtered_deck_rebuild`), nor on the `old_str`/`new_str` patch-mode tools (`update_note_fields`, `update_model_styling`, `update_model_templates`): a repeat patch call can re-apply the edit. Passing any value on a `write=False` tool is a `ValueError`; read-only tools omit `idempotentHint` on the wire.
 - `open_world_hint=False` (default): The MCP `openWorldHint`. MCP's own default is `True`, which is wrong for a local-collection server, so it's always sent explicitly. Only `sync` (AnkiWeb) and `store_media_file` (URL fetches) set `True`.
 
-**`destructive` vs `destructive_hint`** — separate concepts, don't conflate them. `destructive=True` is an operator-facing visibility gate (hidden unless opted in via `enabled_destructive_tools`) reserved for a few high-risk primitives. `destructive_hint` is the client-facing MCP annotation covering anything not purely additive — most write tools. `destructive=True` with `destructive_hint=False` is a contradiction → `ValueError`. Multi-action tools get one static annotation set for the whole tool (the union over their actions), not per-action hints.
+**`destructive` vs `destructive_hint`** — separate concepts, don't conflate them. `destructive=True` is an operator-facing visibility gate (hidden unless opted in via `enabled_destructive_tools`) reserved for a few high-risk primitives. `destructive_hint` is the client-facing MCP annotation covering anything not purely additive — most write tools. `destructive=True` with `destructive_hint=False` is a contradiction → `ValueError`.
 
 #### @Resource Decorator
 
@@ -212,29 +216,25 @@ def review_tips(deck_name: str = "Default") -> str:
 
 Prompts don't access `mw.col` - they just generate text templates.
 
-#### Multi-Action Tools (Subpackage Pattern)
+#### Tool Groups (Domain Subpackages)
 
-When a tool has multiple actions (like `card_management`, `tag_management`, or `filtered_deck`), use a subpackage instead of a single file:
+Every tool is one `@Tool` with flat, `Annotated[..., Field(description=...)]` params — there are no multi-action dispatchers (no `params` wrapper, no discriminated union). Related tools share a `<domain>_` name prefix so they sort together in a client's tool list (`card_*`, `tag_*`, `filtered_deck_*`, `model_field_*`, like the existing `gui_*`), and live in a domain subpackage:
 
 ```
-primitives/essential/tools/my_multi_tool/
-├── __init__.py              # MUST import the tool: `from .my_tool import my_tool`
-├── my_tool.py               # Dispatcher with Pydantic discriminated union
+primitives/essential/tools/card_management/
+├── __init__.py              # Imports every *_tool module and lists them in __all__
+├── card_bury_tool.py        # @Tool("card_bury", ...) -- validation + impl call
+├── card_unbury_tool.py
 └── actions/
-    ├── _validate.py         # Shared helpers (_ prefix = not a tool)
-    ├── action_one.py        # action_one_impl()
-    └── action_two.py        # action_two_impl()
+    ├── bury.py              # bury_impl()
+    └── unbury.py            # unbury_impl()
 ```
 
-The dispatcher uses Pydantic `Annotated[Union[...], Field(discriminator="action")]` so MCP clients get a proper JSON schema with all action variants. Each action lives in its own file under `actions/` and exports an `_impl()` function. The dispatcher uses `match`/`case` to route.
+Each tool file owns its own description, annotations and input validation, and calls the shared `_impl()` in `actions/`. The directory names (`card_management/`, `tag_management/`, `filtered_deck/`, `model_fields/`) are historical; they are domain folders now, not tools.
 
-**Description metadata**: Each Params model has a `_tool_description: ClassVar[str]` with the action's description line, and each tool module has a `_BASE_DESCRIPTION` constant. Descriptions are **always** built dynamically from these — the static string in `@Tool()` is dead code for multi-action tools. This ensures a single source of truth.
+**Retired names / config aliases**: `card_management`, `tag_management`, `filtered_deck` and `model_fields` used to be multi-action dispatchers; 0.40.0 split them into one tool per action. `TOOL_ALIASES` in `tool_decorator.py` keeps old config entries working with a deprecation warning (startup dialog on every profile open, console once per process): `"card_management:bury"` behaves exactly like `"card_bury"` in every list, and a bare `"card_management"` in `disabled_tools` disables the whole group. In `enabled_destructive_tools` / `enabled_opt_in_tools` a bare old name opts in nothing (a whole-tool entry never opted in gated actions — expanding `"model_fields"` would silently reveal `model_field_remove`). The alias table is the only meaning a `"tool:action"` entry still has; any other one warns and matches nothing.
 
-**Tool filtering**: The `disabled_tools` config can hide entire tools or specific actions. Per-action filtering rebuilds the Pydantic discriminated union at registration time, removing disabled actions from the JSON schema entirely. See `tool_decorator.py` for the filtering helpers.
-
-**Destructive actions**: An action can be marked destructive by adding `_destructive: ClassVar[bool] = True` to its Params model (in the dispatcher module, alongside `_tool_description`). Destructive actions are hidden from the schema unless the operator opts in via `enabled_destructive_tools` (e.g., `"my_tool:delete"`). Hiding reuses the same union-rebuild machinery as `disabled_tools`.
-
-**Critical**: The `__init__.py` must import the tool module — `pkgutil.walk_packages` discovers subpackages but only triggers `@Tool` registration if the decorated function is actually imported.
+**Imports**: `pkgutil.walk_packages` in `primitives/essential/tools/__init__.py` imports every submodule (including `_`-prefixed helpers, which simply register nothing), so the subpackage `__init__.py` import list is belt-and-braces — keep it in sync anyway.
 
 ### Error Handling
 
@@ -346,9 +346,9 @@ Follow the existing module patterns:
 2. Use `@Tool` decorator with name, description, required `title=`, and optional `write=True` / `destructive_hint` / `open_world_hint`
 3. Rebuild: `./package.sh` — auto-discovered via `pkgutil.walk_packages`
 
-**Multi-action tool:** Create a subpackage (see "Multi-Action Tools" pattern above)
+**Tool in a group:** Add a `<domain>_<verb>_tool.py` to the domain subpackage and import it in its `__init__.py` (see "Tool Groups" above). Don't build a multi-action dispatcher — one tool per action.
 
-**Helper files:** Prefix with `_` (e.g., `_fsrs_helpers.py`) — they won't be treated as tool modules
+**Helper files:** Prefix with `_` (e.g., `_fsrs_helpers.py`) to mark them as helpers. `walk_packages` still imports them; they just register no tool.
 
 ### Adding a Resource
 
@@ -493,16 +493,16 @@ Both share one `Server` object and run on the same asyncio loop (see "Tunnel Arc
 
 ### Tool Filtering
 
-`disabled_tools` config hides tools/actions from AI clients. Supports whole-tool (`"sync"`) and per-action (`"card_management:bury"`) granularity. Typos produce `print()` warnings visible in Anki's console. See `tool_decorator.py` for implementation.
+`disabled_tools` config hides tools from AI clients by exact tool name (`"sync"`, `"card_bury"`). The retired multi-action names are accepted as deprecated aliases (see "Tool Groups"); any other `"tool:action"` entry matches nothing and warns. Typos produce `print()` warnings visible in Anki's console. See `tool_decorator.py` for implementation.
 
-**Destructive tools (opt-in)**: Tools declared with `@Tool(..., destructive=True)` — or actions whose Params model sets `_destructive: ClassVar[bool] = True` — are **hidden from `tools/list` by default**. The operator must opt in via the `enabled_destructive_tools` config allow-list (server-side enforcement, not just an advisory hint). Semantics:
-- Exact match, same syntax as `disabled_tools`: `"tool"` opts in a whole-tool-destructive tool; `"tool:action"` opts in a destructive action. A whole-tool entry does NOT implicitly opt in destructive sub-actions.
-- Composes with `disabled_tools`: destructive-not-opted-in is always hidden; `disabled_tools` applies on top (an opted-in tool/action can still be disabled).
+**Destructive tools (opt-in)**: Tools declared with `@Tool(..., destructive=True)` are **hidden from `tools/list` by default**. The operator must opt in via the `enabled_destructive_tools` config allow-list (server-side enforcement, not just an advisory hint). Semantics:
+- Exact match on the tool name, same syntax as `disabled_tools` (aliases included: `"model_fields:remove"` opts in `model_field_remove`; a bare `"model_fields"` opts in nothing).
+- Composes with `disabled_tools`: destructive-not-opted-in is always hidden; `disabled_tools` applies on top (an opted-in tool can still be disabled).
 - `destructive=True` requires `write=True` (`ValueError` at import time otherwise).
-- Startup validation (`validate_enabled_destructive_tools`) warns on typos and on no-op entries that name a real but non-destructive tool/action.
-- Shipped destructive primitives: `change_note_type` is the first whole-tool destructive tool (`@Tool(..., destructive=True)`), and `model_fields:remove` is the first destructive action (`_destructive: ClassVar[bool] = True` on its Params model). Both stay hidden until named in `enabled_destructive_tools`.
+- Startup validation (`validate_enabled_destructive_tools`) warns on typos and on no-op entries that name a real but non-destructive tool.
+- Shipped destructive primitives: `change_note_type` and `model_field_remove`. Both stay hidden until named in `enabled_destructive_tools`.
 
-**Opt-in tools**: Tools declared with `@Tool(..., opt_in=True)` — or actions whose Params model sets `_opt_in: ClassVar[bool] = True` — are **hidden from `tools/list` by default**, the same mechanism as `destructive` but for tools/actions that are opt-in for reasons other than being dangerous (new/experimental surface area). The operator opts in via the `enabled_opt_in_tools` config allow-list, exact `"tool"` / `"tool:action"` match, composing with `disabled_tools` and independent of the destructive gate. Unlike `destructive`, `opt_in=True` does NOT require `write=True`. Startup validation (`validate_enabled_opt_in_tools`) mirrors `validate_enabled_destructive_tools`. Shipped opt-in primitives: `gui_deck_review` and `gui_answer_card` (the GUI hands-free review-session tools), both stay hidden until named in `enabled_opt_in_tools`.
+**Opt-in tools**: Tools declared with `@Tool(..., opt_in=True)` are **hidden from `tools/list` by default**, the same mechanism as `destructive` but for tools that are opt-in for reasons other than being dangerous (new/experimental surface area). The operator opts in via the `enabled_opt_in_tools` config allow-list, exact-name match, composing with `disabled_tools` and independent of the destructive gate. Unlike `destructive`, `opt_in=True` does NOT require `write=True`. Startup validation (`validate_enabled_opt_in_tools`) mirrors `validate_enabled_destructive_tools`. Shipped opt-in primitives: `gui_deck_review` and `gui_answer_card` (the GUI hands-free review-session tools), both stay hidden until named in `enabled_opt_in_tools`.
 
 ### Pending Full-Sync Flag (`schema_state.py`)
 
@@ -512,7 +512,7 @@ Every model-mutating tool's success payload carries `will_force_full_sync` (`RES
 - The flag is **collection-wide and sticky**: once anything marks the schema modified it stays `True` until a full sync clears it. So a tool that changed nothing schema-wise can still legitimately report `True`, and no tool may claim `False` on its own authority.
 - Reads are **fail-safe**: an unexpected failure logs and resolves to `True` (an unnecessary precautionary sync beats an overwritten device).
 - Attach at **one site per tool — the dispatch point** — so a new success path can't silently omit the key.
-- Which operations dirty the schema: field ordinal changes (`add` / `remove` / `reposition`), `change_note_type`. A pure **`rename` does NOT** — rslib's `schemachange.rs` only calls `set_schema_modified` when ordinals move. Adding a new notetype doesn't either.
+- Which operations dirty the schema: field ordinal changes (`model_field_add` / `_remove` / `_reposition`), `change_note_type`. A pure **`rename` does NOT** — rslib's `schemachange.rs` only calls `set_schema_modified` when ordinals move. Adding a new notetype doesn't either.
 - `FULL_SYNC_FLAG_DOC` is the single shared description snippet; append it rather than paraphrasing the caveat per tool.
 
 ### Patch Mode (`_patch_helpers.py`)
@@ -546,9 +546,9 @@ make e2e-test                   # Run pytest (excludes tool filtering tests and 
 make e2e-down                   # Stop container
 ```
 
-**Two test suites**: `make e2e` runs both the regular suite (port 3141, all tools enabled) and the filtered suite (port 3142, `docker-compose.filtered.yml`, which sets `disabled_tools`, `enabled_destructive_tools`, and `enabled_opt_in_tools`). `make e2e-filtered-test` runs `test_tool_filtering_e2e.py`, `test_model_fields_remove.py`, **and `test_gui_review_session.py`** — the latter two are not filtering tests themselves, they just need the filtered container's config to see their tools at all: `test_model_fields_remove.py` needs `enabled_destructive_tools: ["model_fields:remove"]`, and `test_gui_review_session.py` needs `enabled_opt_in_tools: ["gui_deck_review", "gui_answer_card"]` since those two tools are opt-in and absent from the default (port 3141) schema. The three differ in HOW they self-skip, though: `test_model_fields_remove.py` skips based on tool absence (its `_require_remove_action` fixture checks whether `remove` is in the schema) and so is safe to leave in `make e2e-test`'s collection without an explicit `--ignore`. `test_gui_review_session.py` instead self-skips unless pointed at port 3142 (keyed on the server URL, not tool absence, precisely so a reveal regression on port 3142 fails loudly instead of quietly skipping) -- it's still excluded via `--ignore` too, matching `test_tool_filtering_e2e.py` (which has no self-skip at all and would otherwise fail outright against the default server).
+**Two test suites**: `make e2e` runs both the regular suite (port 3141, all tools except the three gated ones: `model_field_remove`, `gui_deck_review`, `gui_answer_card` — `change_note_type` is opted in by `.docker/config.json`) and the filtered suite (port 3142, `docker-compose.filtered.yml`, which sets `disabled_tools`, `enabled_destructive_tools`, and `enabled_opt_in_tools`). `make e2e-filtered-test` runs `test_tool_filtering_e2e.py`, `test_model_fields_remove.py`, **and `test_gui_review_session.py`** — the latter two are not filtering tests themselves, they just need the filtered container's config to see their tools at all: `test_model_fields_remove.py` needs `enabled_destructive_tools: ["model_field_remove"]`, and `test_gui_review_session.py` needs `enabled_opt_in_tools: ["gui_deck_review", "gui_answer_card"]` since those two tools are opt-in and absent from the default (port 3141) schema. The three differ in HOW they self-skip, though: `test_model_fields_remove.py` skips based on tool absence (its `_require_remove_tool` fixture checks whether `model_field_remove` is in tools/list) and so is safe to leave in `make e2e-test`'s collection without an explicit `--ignore`. `test_gui_review_session.py` instead self-skips unless pointed at port 3142 (keyed on the server URL, not tool absence, precisely so a reveal regression on port 3142 fails loudly instead of quietly skipping) -- it's still excluded via `--ignore` too, matching `test_tool_filtering_e2e.py` (which has no self-skip at all and would otherwise fail outright against the default server).
 
-**MCP Inspector pin**: the test client is pinned to an exact npm version, in **three literals that must stay in sync** — `INSPECTOR_DEFAULT_VERSION` in `tests/e2e/helpers.py` (used by the suite), and in the `Makefile` both `INSPECTOR_VERSION ?=` and the `override INSPECTOR_VERSION :=` empty-env fallback (used by the readiness probes). `tests/unit/test_version_consistency.py` asserts all three agree. Both files honour an `INSPECTOR_VERSION` environment variable, and `make` exports it, so `make e2e INSPECTOR_VERSION=latest` moves both at once. The pin buys reproducibility; the cost — finding upstream breakage late — is paid by `.github/workflows/e2e-inspector-latest.yml`, a nightly that reuses `e2e.yml` via `workflow_call` with `latest`. A breaking Inspector release therefore shows up as a red canary, not as a blocked release. The suite needs Inspector **2.x** specifically: a tool error must exit non-zero, write a `{"error":{"code":...}}` envelope to stderr, and still write the result envelope to stdout.
+**MCP Inspector pin**: the test client is pinned to an exact npm version, in **three literals that must stay in sync** — `INSPECTOR_DEFAULT_VERSION` in `tests/e2e/helpers.py` (used by the suite), and in the `Makefile` both `INSPECTOR_VERSION ?=` and the `override INSPECTOR_VERSION :=` empty-env fallback (used by the readiness probes). `tests/unit/test_version_consistency.py` asserts all three agree. Both files honour an `INSPECTOR_VERSION` environment variable, and `make` exports it, so `make e2e INSPECTOR_VERSION=latest` moves both at once. The pin buys reproducibility; the cost — finding upstream breakage late — is paid by `.github/workflows/e2e-inspector-latest.yml`, a nightly that reuses `e2e.yml` via `workflow_call` with `latest`. A breaking Inspector release therefore shows up as a red canary, not as a blocked release. The suite needs Inspector **2.x** specifically: a tool error must exit non-zero, write a `{"error":{"code":...}}` envelope to stderr, and still write the result envelope to stdout. It also needs `--tool-args-json` (present in the pinned 2.1.0), which `call_tool` uses for every tool call.
 
 **Environment variables:**
 - `MCP_SERVER_URL` — override server URL (default: `http://localhost:3141`)
@@ -590,7 +590,7 @@ prompt = get_prompt("review_session", {"review_style": "quick"})
 Test conventions:
 - One test file per feature area (e.g., `test_note_tools.py`, `test_fsrs_tools.py`)
 - Group related tests in classes (e.g., `class TestNoteTools`)
-- Pass tool args as native Python values: `call_tool` JSON-encodes dicts/lists and `str()`-formats everything else into `--tool-arg key=value` for the Inspector CLI
+- Pass tool args as native Python values: `call_tool` sends the whole dict as one JSON object via the Inspector CLI's `--tool-args-json`, so every value keeps its JSON type. Don't switch back to `--tool-arg key=value`: the CLI `JSON.parse`s each such value, so a `str` param given `"0"`/`"true"`/`"null"` arrives as a number/bool/null, and an empty value is refused outright
 - Check `result.get("isError") is True` for expected error responses
 
 ### Manual Testing

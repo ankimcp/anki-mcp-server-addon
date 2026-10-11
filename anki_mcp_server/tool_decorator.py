@@ -1,11 +1,9 @@
-from typing import Annotated, Any, Callable, Optional, Union, get_args, get_origin
+from typing import Any, Callable, NamedTuple, Optional
 from functools import wraps
 import inspect
 import logging
 
 from mcp.types import ToolAnnotations
-from pydantic import Field
-from pydantic.fields import FieldInfo
 
 from .handler_registry import register_handler
 from .handler_wrappers import (
@@ -65,15 +63,12 @@ _registry: dict[str, dict[str, Any]] = {}
 #   - destructive: If True, the tool is hidden from MCP clients unless the
 #     operator opts in via the enabled_destructive_tools config allow-list.
 #     Requires write=True (a destructive tool that doesn't modify the
-#     collection is a definition error). For multi-action tools, mark
-#     individual actions instead with `_destructive: ClassVar[bool] = True`
-#     on the action's Params model in the dispatcher module.
+#     collection is a definition error).
 #   - opt_in: If True, the tool is hidden from MCP clients unless the
 #     operator opts in via the enabled_opt_in_tools config allow-list. Unlike
 #     destructive, this does not require write=True -- it's for tools that
 #     are opt-in for reasons other than being dangerous (e.g. new/experimental
-#     surface area). Same "tool" / "tool:action" allow-list syntax as
-#     enabled_destructive_tools.
+#     surface area). Same allow-list syntax as enabled_destructive_tools.
 #
 # destructive vs destructive_hint: these are separate concepts and must not
 # be conflated. destructive=True is an operator-facing visibility gate (hidden
@@ -82,9 +77,6 @@ _registry: dict[str, dict[str, Any]] = {}
 # destructiveHint annotation, a much wider client-facing notion covering
 # anything that isn't purely additive (most write tools). destructive=True
 # with destructive_hint=False is a contradiction and raises ValueError.
-#
-# Multi-action tools carry one static set of annotations for the whole tool
-# (the union over their actions), not per-action hints.
 #
 # What happens at import time:
 #   1. Wraps with _write_lock if write=True (Anki UI refresh, unless
@@ -260,309 +252,188 @@ def _write_lock(func: Callable[..., Any], refresh_ui: bool = True) -> Callable[.
 
 
 # ------------------------------------------------------------------------------
+# Config aliases for the retired multi-action tools
+# ------------------------------------------------------------------------------
+# card_management, tag_management, filtered_deck and model_fields were split
+# into one tool per action. Existing disabled_tools / enabled_destructive_tools
+# / enabled_opt_in_tools entries keep working through this table:
+#   - "old_tool:action" behaves exactly like the new tool's name.
+#   - "old_tool" in disabled_tools behaves like listing every tool it was split
+#     into.
+#   - "old_tool" in an allow-list opts in nothing, as before: a whole-tool entry
+#     never opted in a multi-action tool's gated actions.
+# Each distinct alias gets a one-time deprecation warning naming its
+# replacement. TOOL_ALIASES is the single source of truth; the whole-tool
+# groups are derived from it. It is also the only meaning a "tool:action"
+# entry still has -- any other one matches nothing.
+# ------------------------------------------------------------------------------
+TOOL_ALIASES: dict[str, str] = {
+    "card_management:reposition": "card_reposition",
+    "card_management:change_deck": "card_change_deck",
+    "card_management:bury": "card_bury",
+    "card_management:unbury": "card_unbury",
+    "card_management:suspend": "card_suspend",
+    "card_management:unsuspend": "card_unsuspend",
+    "card_management:set_flag": "card_set_flag",
+    "card_management:set_due_date": "card_set_due_date",
+    "card_management:forget_cards": "card_forget",
+    "tag_management:add_tags": "tag_add",
+    "tag_management:remove_tags": "tag_remove",
+    "tag_management:replace_tags": "tag_replace",
+    "tag_management:get_tags": "tag_list",
+    "tag_management:clear_unused_tags": "tag_clear_unused",
+    "tag_management:batch_tags": "tag_batch",
+    "filtered_deck:create_or_update": "filtered_deck_upsert",
+    "filtered_deck:rebuild": "filtered_deck_rebuild",
+    "filtered_deck:empty": "filtered_deck_empty",
+    "filtered_deck:delete": "filtered_deck_delete",
+    "filtered_deck:get_info": "filtered_deck_get_info",
+    "model_fields:add": "model_field_add",
+    "model_fields:rename": "model_field_rename",
+    "model_fields:reposition": "model_field_reposition",
+    "model_fields:remove": "model_field_remove",
+}
+
+_GROUP_ALIASES: dict[str, tuple[str, ...]] = {
+    group: tuple(
+        new for old, new in TOOL_ALIASES.items() if old.split(":", 1)[0] == group
+    )
+    for group in dict.fromkeys(old.split(":", 1)[0] for old in TOOL_ALIASES)
+}
+
+# Deprecation warnings already printed in this process (one per distinct alias
+# per config key).
+_reported_alias_warnings: set[str] = set()
+
+
+class _AliasResolution(NamedTuple):
+    plain: list[str]  # entries that are not aliases, in config order
+    replacements: list[str]  # new tool names the alias entries stand for
+    deprecations: list[str]  # one warning per distinct alias entry
+
+
+def _resolve_aliases(
+    entries: list[str],
+    config_key: str,
+    *,
+    gate_key: str | None = None,
+) -> _AliasResolution:
+    """Map retired multi-action tool names in a config list to the new tools.
+
+    No side effects -- printing is left to ``_report_deprecated_aliases``.
+
+    Args:
+        entries: Raw config entries.
+        config_key: Config field name used as the warning prefix.
+        gate_key: None for disabled_tools, where a whole-tool alias stands
+            for every tool of its group. For an allow-list, the registry meta
+            key of its gate (``"destructive"`` or ``"opt_in"``): a whole-tool
+            alias there stands for nothing, and its warning names only the
+            group's tools that gate actually hides.
+    """
+    plain: list[str] = []
+    replacements: list[str] = []
+    deprecations: list[str] = []
+    seen: set[str] = set()
+    for entry in entries:
+        if entry in TOOL_ALIASES:
+            targets: tuple[str, ...] = (TOOL_ALIASES[entry],)
+        elif entry in _GROUP_ALIASES:
+            targets = _GROUP_ALIASES[entry] if gate_key is None else ()
+        else:
+            plain.append(entry)
+            continue
+        if entry in seen:
+            continue
+        seen.add(entry)
+        replacements.extend(t for t in targets if t not in replacements)
+        if targets:
+            names = ", ".join(f"'{t}'" for t in targets)
+            deprecations.append(
+                f"{config_key}: '{entry}' is deprecated -- use {names} instead"
+            )
+        else:
+            gated = [
+                t for t in _GROUP_ALIASES[entry]
+                if t in _registry and _registry[t][gate_key]
+            ]
+            if gated:
+                names = ", ".join(f"'{t}'" for t in gated)
+                deprecations.append(
+                    f"{config_key}: '{entry}' is deprecated and has no effect "
+                    f"(a whole-tool entry never opted in its actions) -- list "
+                    f"{names} instead"
+                )
+            else:
+                label = gate_key.replace("_", "-")
+                deprecations.append(
+                    f"{config_key}: '{entry}' is deprecated and has no effect "
+                    f"(none of its tools are {label}) -- remove the entry"
+                )
+    return _AliasResolution(plain, replacements, deprecations)
+
+
+def _report_deprecated_aliases(resolution: _AliasResolution) -> None:
+    """Print each alias deprecation warning once per process."""
+    for msg in resolution.deprecations:
+        if msg not in _reported_alias_warnings:
+            _reported_alias_warnings.add(msg)
+            print(f"AnkiMCP: {msg}")
+
+
+def _effective_entries(resolution: _AliasResolution) -> list[str]:
+    """The tool names a config list stands for: its plain entries plus the
+    tools its alias entries resolve to. Alias entries themselves are valid by
+    construction, so this is also what gets checked for typos / no-ops.
+    """
+    return [*resolution.plain, *resolution.replacements]
+
+
+# ------------------------------------------------------------------------------
 # Tool filtering helpers
 # ------------------------------------------------------------------------------
-# These functions support the disabled_tools config feature, which allows
-# users to hide entire tools or specific actions from multi-action tools
-# to reduce token consumption for AI clients.
+# These functions support the disabled_tools config feature, which lets users
+# hide whole tools to reduce token consumption for AI clients, and the
+# enabled_destructive_tools / enabled_opt_in_tools allow-lists.
 # ------------------------------------------------------------------------------
 
 
-def _parse_disabled(
-    disabled_list: list[str],
-) -> tuple[set[str], dict[str, set[str]]]:
-    """Parse disabled_tools config into whole-tool and per-action sets.
-
-    Entries without ':' disable the entire tool. Entries with ':' disable
-    a specific action within a multi-action tool.
-
-    Args:
-        disabled_list: Config entries like ["sync", "card_management:bury"]
-
-    Returns:
-        Tuple of (whole_tool_names, {tool_name: {action_names}})
-    """
-    whole_tools: set[str] = set()
-    action_map: dict[str, set[str]] = {}
-    for entry in disabled_list:
-        if ":" in entry:
-            tool, action = entry.split(":", 1)
-            action_map.setdefault(tool, set()).add(action)
-        else:
-            whole_tools.add(entry)
-    return whole_tools, action_map
-
-
-def _get_action_literal(model_cls: type) -> str | None:
-    """Extract the Literal value from a Params model's ``action`` field.
-
-    Args:
-        model_cls: A Pydantic BaseModel subclass with a ``Literal["..."]`` action field.
-
-    Returns:
-        The literal string value, or None if not found.
-    """
-    action_field = model_cls.model_fields.get("action")
-    if action_field and hasattr(action_field.annotation, "__args__"):
-        return action_field.annotation.__args__[0]
-    return None
-
-
-def _filter_union_type(
-    original_annotation: Any,
-    disabled_actions: set[str],
-) -> tuple[Any | None, list[type]]:
-    """Rebuild Annotated[Union[...], Field(discriminator=...)] excluding disabled actions.
-
-    Args:
-        original_annotation: The Annotated[Union[Model1, Model2, ...], Field(...)] type.
-        disabled_actions: Set of action literal values to remove.
-
-    Returns:
-        Tuple of (new_annotation_or_None, list_of_enabled_models).
-        Returns (None, []) when all actions are disabled.
-    """
-    args = get_args(original_annotation)  # (Union[A, B, C], FieldInfo(...))
-    union_type = args[0]
-    union_members = get_args(union_type)
-    original_field_info = next(
-        (m for m in args[1:] if isinstance(m, FieldInfo)), None
-    )
-    original_description = (
-        original_field_info.description if original_field_info else None
-    )
-
-    enabled = [
-        m for m in union_members
-        if _get_action_literal(m) not in disabled_actions
-    ]
-
-    if not enabled:
-        return None, []
-
-    if len(enabled) == len(union_members):
-        # Nothing was filtered, return original unchanged
-        return original_annotation, list(enabled)
-
-    if len(enabled) == 1:
-        # Single member: Union[tuple([X])] collapses to X in Python's type
-        # system, so Annotated[X, Field(discriminator="action")] would apply a
-        # discriminator to a non-union type and break Pydantic schema generation.
-        return Annotated[enabled[0], Field(description=original_description)], enabled
-
-    new_union = Union[tuple(enabled)]
-    return (
-        Annotated[
-            new_union,
-            Field(discriminator="action", description=original_description),
-        ],
-        enabled,
-    )
-
-
-def _build_dynamic_description(
-    base_description: str,
-    enabled_models: list[type],
-) -> str:
-    """Build tool description from a base header and enabled action models.
-
-    Each model is expected to have a ``_tool_description: ClassVar[str]``
-    attribute containing the action's description line.
-
-    Args:
-        base_description: Short tool-level header (e.g., "Manage card organization").
-        enabled_models: List of Pydantic model classes that are still enabled.
-
-    Returns:
-        Assembled description string with action count and bullet list.
-    """
-    action_lines = []
-    for model in enabled_models:
-        desc = getattr(model, "_tool_description", None)
-        if not desc:
-            raise ValueError(
-                f"Params model '{model.__name__}' is missing _tool_description ClassVar. "
-                f"Add: _tool_description: ClassVar[str] = \"action_name: Description.\""
-            )
-        action_lines.append(f"    - {desc}")
-
-    count = len(action_lines)
-    header = f"{base_description} with {count} action{'s' if count != 1 else ''}:"
-    return header + "\n\n" + "\n\n".join(action_lines)
-
-
-def _is_annotated_union(annotation: Any) -> bool:
-    """Check if an annotation is Annotated[Union[...], Field(discriminator=...)].
-
-    Used to detect multi-action tool parameters that support per-action filtering.
-    Requires an actual discriminated union (a FieldInfo with a non-None
-    discriminator) -- a plain Annotated[str | None, Field(description=...)]
-    optional param has a Union inner type too, but is not a multi-action param.
-    """
-    if get_origin(annotation) is not Annotated:
-        return False
-    args = get_args(annotation)
-    if not args:
-        return False
-    inner = args[0]
-    if get_origin(inner) is not Union:
-        return False
-    return any(
-        isinstance(metadata, FieldInfo) and metadata.discriminator is not None
-        for metadata in args[1:]
-    )
-
-
-def _get_base_description(original: Any) -> str | None:
-    """Try to find _BASE_DESCRIPTION in the module where the tool function was defined."""
-    module = inspect.getmodule(original)
-    if module is not None:
-        return getattr(module, "_BASE_DESCRIPTION", None)
-    return None
-
-
-def _get_marked_actions(original: Any, attr: str) -> set[str]:
-    """Collect action names whose Params model sets ``attr`` truthy.
-
-    Shared machinery behind ``_get_destructive_actions`` (``attr =
-    "_destructive"``) and ``_get_opt_in_actions`` (``attr = "_opt_in"``):
-    both gates mark individual actions of a multi-action tool the same way,
-    via a ``ClassVar[bool] = True`` on the action's Params model (in the
-    dispatcher module, alongside ``_tool_description``).
-
-    Args:
-        original: The unwrapped tool function from the registry.
-        attr: The ClassVar name to check on each union member model.
-
-    Returns:
-        Set of action literal values whose Params model has ``attr`` set
-        truthy. Empty set for single-action tools or when no action is
-        marked.
-    """
-    annotations = getattr(original, "__annotations__", {})
-    for ann in annotations.values():
-        if _is_annotated_union(ann):
-            args = get_args(ann)
-            union_members = get_args(args[0])
-            return {
-                action
-                for m in union_members
-                if getattr(m, attr, False)
-                and (action := _get_action_literal(m)) is not None
-            }
-    return set()
-
-
-def _get_destructive_actions(original: Any) -> set[str]:
-    """Collect action names marked destructive in a multi-action tool.
-
-    Actions opt in to the destructive gate by declaring
-    ``_destructive: ClassVar[bool] = True`` on their Params model
-    (in the dispatcher module, alongside ``_tool_description``).
-
-    Args:
-        original: The unwrapped tool function from the registry.
-
-    Returns:
-        Set of action literal values whose Params model is marked
-        destructive. Empty set for single-action tools or when no
-        action is marked.
-    """
-    return _get_marked_actions(original, "_destructive")
-
-
-def _get_opt_in_actions(original: Any) -> set[str]:
-    """Collect action names marked opt-in in a multi-action tool.
-
-    Actions opt in to the opt-in gate by declaring
-    ``_opt_in: ClassVar[bool] = True`` on their Params model (in the
-    dispatcher module, alongside ``_tool_description``). Mirrors
-    ``_get_destructive_actions`` -- see ``_get_marked_actions``.
-
-    Args:
-        original: The unwrapped tool function from the registry.
-
-    Returns:
-        Set of action literal values whose Params model is marked opt-in.
-        Empty set for single-action tools or when no action is marked.
-    """
-    return _get_marked_actions(original, "_opt_in")
-
-
-def _validate_disabled_entries(
-    disabled_whole: set[str],
-    disabled_actions: dict[str, set[str]],
+def _validate_tool_entries(
+    entries: list[str],
     config_key: str = "disabled_tools",
 ) -> list[str]:
-    """Validate tool/action names against the registry.
+    """Validate config entries against the registry.
 
-    Returns list of warning messages for entries that don't match any
-    registered tool or action. Pure logic -- no side effects.
+    Returns one warning per distinct entry that matches no registered tool.
+    Pure logic -- no side effects. Alias entries must already have been
+    resolved (see ``_effective_entries``): a "tool:action" entry that reaches
+    this point is not an alias, so it matches nothing.
 
     Args:
-        disabled_whole: Whole-tool entries to check.
-        disabled_actions: Per-action entries to check ({tool: {actions}}).
+        entries: Tool names to check.
         config_key: Config field name used as the warning prefix
             (e.g., "disabled_tools" or "enabled_destructive_tools").
     """
     warnings: list[str] = []
-    registered = set(_registry.keys())
-
-    for name in sorted(disabled_whole):
-        if name not in registered:
+    for name in sorted(set(entries)):
+        if name in _registry:
+            continue
+        if ":" in name:
+            warnings.append(
+                f"{config_key}: '{name}' does not match any registered tool "
+                f"(typo?) -- 'tool:action' entries are no longer supported; "
+                f"every action is its own tool now"
+            )
+        else:
             warnings.append(
                 f"{config_key}: '{name}' does not match any registered tool (typo?)"
             )
-
-    for tool_name in sorted(disabled_actions):
-        actions = disabled_actions[tool_name]
-        if tool_name not in registered:
-            warnings.append(
-                f"{config_key}: '{tool_name}' (from action filter) "
-                f"does not match any registered tool (typo?)"
-            )
-            continue
-        # Check if the tool actually has a union-type param (multi-action)
-        meta = _registry[tool_name]
-        original = meta["original"]
-        annotations = getattr(original, "__annotations__", {})
-        # Find the union param annotation (usually the first one named 'params')
-        union_ann = None
-        for ann in annotations.values():
-            if _is_annotated_union(ann):
-                union_ann = ann
-                break
-        if union_ann is None:
-            for action in sorted(actions):
-                warnings.append(
-                    f"{config_key}: '{tool_name}:{action}' "
-                    f"-- tool '{tool_name}' is not a multi-action tool"
-                )
-            continue
-        # Check action names against actual union members
-        args = get_args(union_ann)
-        union_members = get_args(args[0])
-        known_actions = {
-            _get_action_literal(m) for m in union_members
-        }
-        for action in sorted(actions):
-            if action not in known_actions:
-                available = ", ".join(sorted(a for a in known_actions if a))
-                warnings.append(
-                    f"{config_key}: '{tool_name}:{action}' "
-                    f"-- action '{action}' not found in tool '{tool_name}' "
-                    f"(available: {available})"
-                )
-
     return warnings
 
 
-def _warn_unknown_disabled(
-    disabled_whole: set[str],
-    disabled_actions: dict[str, set[str]],
-) -> None:
-    """Log warnings for disabled tool/action names that don't match any registered tool."""
-    for msg in _validate_disabled_entries(disabled_whole, disabled_actions):
+def _warn_unknown_disabled(entries: list[str]) -> None:
+    """Print warnings for disabled_tools entries that match no registered tool."""
+    for msg in _validate_tool_entries(entries):
         print(f"AnkiMCP: {msg}")
 
 
@@ -572,12 +443,12 @@ def validate_disabled_tools(disabled_list: list[str]) -> list[str]:
     Parses the raw config list and checks each entry against the tool
     registry. Returns warning messages for unrecognized entries.
 
-    This is meant to be called from the main thread at startup, before
-    the MCP server starts, so users get immediate feedback about typos.
+    Called on the main thread at startup before the MCP server starts; the
+    resulting warning dialog is deferred until after start, so it never blocks it.
 
     Args:
         disabled_list: Raw ``disabled_tools`` config entries
-            (e.g., ``["sync", "card_management:bury"]``).
+            (e.g., ``["sync", "card_bury"]``).
 
     Returns:
         List of warning messages for unrecognized entries.
@@ -585,8 +456,11 @@ def validate_disabled_tools(disabled_list: list[str]) -> list[str]:
     """
     if not disabled_list:
         return []
-    disabled_whole, disabled_actions = _parse_disabled(disabled_list)
-    return _validate_disabled_entries(disabled_whole, disabled_actions)
+    resolution = _resolve_aliases(disabled_list, "disabled_tools")
+    return [
+        *resolution.deprecations,
+        *_validate_tool_entries(_effective_entries(resolution)),
+    ]
 
 
 def _validate_enabled_gate_tools(
@@ -595,65 +469,42 @@ def _validate_enabled_gate_tools(
     config_key: str,
     meta_key: str,
     article_label: str,
-    get_marked_actions: Callable[[Any], set[str]],
 ) -> list[str]:
     """Shared logic behind validate_enabled_destructive_tools and
     validate_enabled_opt_in_tools -- both allow-lists have the identical
     two-problem-class shape (typo, and no-op opt-in of something not gated).
 
     Args:
-        enabled_list: Raw config entries (e.g. ``["delete_decks", "tool:action"]``).
+        enabled_list: Raw config entries (e.g. ``["change_note_type"]``).
         config_key: Config field name used as the warning prefix.
-        meta_key: Registry meta key for the WHOLE-TOOL gate flag
+        meta_key: Registry meta key for the gate flag
             (``"destructive"`` or ``"opt_in"``).
         article_label: Human-readable adjective for the warning text, WITH its
             article (``"a destructive"`` or ``"an opt-in"``) -- kept separate
             from meta_key so the message reads naturally (and grammatically)
             regardless of the registry key's exact spelling.
-        get_marked_actions: Function returning the set of gated action
-            literals for a tool's unwrapped original function.
 
     Returns:
         List of warning messages. Empty list if everything is valid.
     """
     if not enabled_list:
         return []
-    opted_whole, opted_actions = _parse_disabled(enabled_list)
+    resolution = _resolve_aliases(enabled_list, config_key, gate_key=meta_key)
+    entries = _effective_entries(resolution)
 
-    # Class 1: unknown tool/action names (typos)
-    warnings = _validate_disabled_entries(
-        opted_whole, opted_actions, config_key=config_key
-    )
+    # Class 1: unknown tool names (typos)
+    warnings = [
+        *resolution.deprecations,
+        *_validate_tool_entries(entries, config_key=config_key),
+    ]
 
-    # Class 2: real tools/actions that aren't marked for this gate (no-ops)
-    for name in sorted(opted_whole):
+    # Class 2: real tools that aren't marked for this gate (no-ops)
+    for name in sorted(set(entries)):
         meta = _registry.get(name)
         if meta is not None and not meta[meta_key]:
             warnings.append(
                 f"{config_key}: no-op: '{name}' is not {article_label} tool"
             )
-
-    for tool_name in sorted(opted_actions):
-        meta = _registry.get(tool_name)
-        if meta is None:
-            continue  # Already warned as unknown above
-        marked_actions = get_marked_actions(meta["original"])
-        annotations = getattr(meta["original"], "__annotations__", {})
-        union_ann = next(
-            (ann for ann in annotations.values() if _is_annotated_union(ann)),
-            None,
-        )
-        if union_ann is None:
-            continue  # Already warned as "not a multi-action tool" above
-        known_actions = {
-            _get_action_literal(m) for m in get_args(get_args(union_ann)[0])
-        }
-        for action in sorted(opted_actions[tool_name]):
-            if action in known_actions and action not in marked_actions:
-                warnings.append(
-                    f"{config_key}: no-op: '{tool_name}:{action}' "
-                    f"is not {article_label} action"
-                )
 
     return warnings
 
@@ -662,16 +513,16 @@ def validate_enabled_destructive_tools(enabled_list: list[str]) -> list[str]:
     """Validate enabled_destructive_tools config entries against registered tools.
 
     Checks each entry for two problem classes:
-    1. The entry matches no registered tool/action (typo).
-    2. The entry matches a real tool/action that is NOT marked destructive --
+    1. The entry matches no registered tool (typo).
+    2. The entry matches a real tool that is NOT marked destructive --
        the entry is a no-op (nothing to opt in to).
 
-    This is meant to be called from the main thread at startup, before
-    the MCP server starts, so users get immediate feedback.
+    Called on the main thread at startup before the MCP server starts; the
+    resulting warning dialog is deferred until after start, so it never blocks it.
 
     Args:
         enabled_list: Raw ``enabled_destructive_tools`` config entries
-            (e.g., ``["delete_decks", "deck_management:rename"]``).
+            (e.g., ``["change_note_type", "model_field_remove"]``).
 
     Returns:
         List of warning messages. Empty list if everything is valid.
@@ -681,7 +532,6 @@ def validate_enabled_destructive_tools(enabled_list: list[str]) -> list[str]:
         config_key="enabled_destructive_tools",
         meta_key="destructive",
         article_label="a destructive",
-        get_marked_actions=_get_destructive_actions,
     )
 
 
@@ -689,8 +539,7 @@ def validate_enabled_opt_in_tools(enabled_list: list[str]) -> list[str]:
     """Validate enabled_opt_in_tools config entries against registered tools.
 
     Mirrors validate_enabled_destructive_tools -- same two problem classes
-    (typo, no-op opt-in of a tool/action that isn't gated by opt_in=True /
-    ``_opt_in: ClassVar[bool] = True``).
+    (typo, no-op opt-in of a tool that isn't gated by opt_in=True).
 
     Args:
         enabled_list: Raw ``enabled_opt_in_tools`` config entries
@@ -704,7 +553,6 @@ def validate_enabled_opt_in_tools(enabled_list: list[str]) -> list[str]:
         config_key="enabled_opt_in_tools",
         meta_key="opt_in",
         article_label="an opt-in",
-        get_marked_actions=_get_opt_in_actions,
     )
 
 
@@ -713,12 +561,12 @@ def validate_enabled_opt_in_tools(enabled_list: list[str]) -> list[str]:
 # ------------------------------------------------------------------------------
 # Called once at server startup. Iterates through all registered tools
 # and creates async MCP wrappers that bridge to main thread via queue.
-# Applies disabled_tools filtering to skip whole tools or remove actions.
-# Applies the enabled_destructive_tools allow-list: destructive tools/actions
-# are hidden unless explicitly opted in (exact match, same "tool" /
-# "tool:action" syntax as disabled_tools; a whole-tool entry does NOT
-# implicitly opt in destructive sub-actions). Applies the enabled_opt_in_tools
-# allow-list the same way, independently of the destructive gate.
+# Applies disabled_tools filtering to skip tools. Applies the
+# enabled_destructive_tools allow-list: destructive tools are hidden unless
+# explicitly opted in (exact match on the tool name). Applies the
+# enabled_opt_in_tools allow-list the same way, independently of the
+# destructive gate. Alias entries (TOOL_ALIASES) are resolved to the tools
+# they stand for first.
 # ------------------------------------------------------------------------------
 def register_tools(
     mcp: Any,
@@ -727,47 +575,46 @@ def register_tools(
     enabled_destructive_tools: list[str] | None = None,
     enabled_opt_in_tools: list[str] | None = None,
 ) -> None:
-    disabled_whole, disabled_actions = _parse_disabled(disabled_tools or [])
-    opted_whole, opted_actions = _parse_disabled(enabled_destructive_tools or [])
-    opted_in_whole, opted_in_actions = _parse_disabled(enabled_opt_in_tools or [])
+    disabled_list = disabled_tools or []
+    destructive_list = enabled_destructive_tools or []
+    opt_in_list = enabled_opt_in_tools or []
+    disabled_res = _resolve_aliases(disabled_list, "disabled_tools")
+    destructive_res = _resolve_aliases(
+        destructive_list, "enabled_destructive_tools", gate_key="destructive"
+    )
+    opt_in_res = _resolve_aliases(
+        opt_in_list, "enabled_opt_in_tools", gate_key="opt_in"
+    )
+    for resolution in (disabled_res, destructive_res, opt_in_res):
+        _report_deprecated_aliases(resolution)
+
+    disabled = set(_effective_entries(disabled_res))
+    opted_destructive = set(_effective_entries(destructive_res))
+    opted_in = set(_effective_entries(opt_in_res))
 
     for name, meta in _registry.items():
-        if name in disabled_whole:
+        if name in disabled:
             logger.info("Tool disabled by config: %s", name)
             continue
-        # Whole-tool destructive gate: hidden unless opted in by the operator
-        if meta["destructive"] and name not in opted_whole:
+        # Destructive gate: hidden unless opted in by the operator
+        if meta["destructive"] and name not in opted_destructive:
             logger.info(
                 "Tool hidden (destructive, not opted in via "
                 "enabled_destructive_tools): %s", name,
             )
             continue
-        # Whole-tool opt-in gate: hidden unless opted in by the operator
-        if meta["opt_in"] and name not in opted_in_whole:
+        # Opt-in gate: hidden unless opted in by the operator
+        if meta["opt_in"] and name not in opted_in:
             logger.info(
                 "Tool hidden (opt-in, not opted in via "
                 "enabled_opt_in_tools): %s", name,
             )
             continue
-        # Per-action destructive/opt-in gates: gated actions not opted in are
-        # hidden; disabled_tools actions union on top (precedence: gated
-        # -not-opted-in always hidden, disabled always wins over opted-in).
-        hidden_destructive = (
-            _get_destructive_actions(meta["original"])
-            - opted_actions.get(name, set())
-        )
-        hidden_opt_in = (
-            _get_opt_in_actions(meta["original"])
-            - opted_in_actions.get(name, set())
-        )
-        effective_disabled = (
-            disabled_actions.get(name, set()) | hidden_destructive | hidden_opt_in
-        )
-        _make_mcp_tool(mcp, call_main_thread, name, meta, effective_disabled)
+        _make_mcp_tool(mcp, call_main_thread, name, meta)
 
     # Warn about typos / unknown names after registration
-    if disabled_whole or disabled_actions:
-        _warn_unknown_disabled(disabled_whole, disabled_actions)
+    if disabled:
+        _warn_unknown_disabled(_effective_entries(disabled_res))
 
 
 # ------------------------------------------------------------------------------
@@ -801,9 +648,6 @@ def _build_tool_annotations(meta: dict[str, Any]) -> ToolAnnotations:
 # The wrapper copies the original function's signature so MCP can
 # generate the correct JSON schema for tool parameters.
 #
-# For multi-action tools with disabled actions, rebuilds the Pydantic
-# discriminated union and description to exclude filtered actions.
-#
 # Registers with the title at top level (2025-06-18 spec) AND inside
 # ToolAnnotations.title (the older location) so either reader sees it.
 # ------------------------------------------------------------------------------
@@ -812,74 +656,21 @@ def _make_mcp_tool(
     call_main_thread: Callable[..., Any],
     name: str,
     meta: dict[str, Any],
-    disabled_actions: set[str] | None = None,
 ) -> None:
     original = meta["original"]
-    sig = inspect.signature(original)
-    description = meta["description"]
-    annotations = getattr(original, "__annotations__", {}).copy()
     tool_name = name  # Capture in closure for async wrapper
-
-    # Detect multi-action tools (union param) and optionally filter actions
-    for param_name, ann in annotations.items():
-        if _is_annotated_union(ann):
-            # Apply per-action filtering if any actions are disabled
-            if disabled_actions:
-                filtered_ann, enabled_models = _filter_union_type(ann, disabled_actions)
-
-                if filtered_ann is None:
-                    # All actions disabled -- skip entire tool
-                    logger.info(
-                        "Tool '%s' skipped: all actions disabled by config", name
-                    )
-                    return
-
-                # Rebuild annotation and signature
-                annotations[param_name] = filtered_ann
-
-                # Build parameter list with updated annotation
-                params = []
-                for p in sig.parameters.values():
-                    if p.name == param_name:
-                        params.append(p.replace(annotation=filtered_ann))
-                    else:
-                        params.append(p)
-                sig = sig.replace(parameters=params)
-
-                disabled_names = ", ".join(sorted(disabled_actions))
-                logger.info(
-                    "Tool '%s': disabled actions [%s], %d action(s) remaining",
-                    name, disabled_names, len(enabled_models),
-                )
-            else:
-                # No filtering -- all union members are enabled
-                union_args = get_args(ann)
-                enabled_models = list(get_args(union_args[0]))
-
-            # Always rebuild description from _BASE_DESCRIPTION + enabled models
-            base_desc = _get_base_description(original)
-            if base_desc is None:
-                raise ValueError(
-                    f"Multi-action tool '{name}' is missing _BASE_DESCRIPTION "
-                    f"in its module. Add a module-level _BASE_DESCRIPTION constant."
-                )
-            description = _build_dynamic_description(
-                base_desc, enabled_models,
-            )
-
-            break  # Only one union param per tool
 
     async def wrapper(**kwargs: Any) -> Any:
         return await call_main_thread(tool_name, kwargs)
 
     # Copy metadata for MCP introspection
     wrapper.__name__ = name
-    wrapper.__signature__ = sig  # type: ignore[attr-defined]
-    wrapper.__annotations__ = annotations
+    wrapper.__signature__ = inspect.signature(original)  # type: ignore[attr-defined]
+    wrapper.__annotations__ = getattr(original, "__annotations__", {}).copy()
 
     # Register with FastMCP
     mcp.tool(
         title=meta["title"],
-        description=description,
+        description=meta["description"],
         annotations=_build_tool_annotations(meta),
     )(wrapper)

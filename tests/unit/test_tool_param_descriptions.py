@@ -77,11 +77,15 @@ EXPECTED_DESCRIPTIONS: dict[str, dict[str, str]] = {
     "create_deck": {
         "deck_name": 'Deck name, optionally "Parent::Child" (max 2 levels)',
     },
-    "tag_management": {
-        "params": "The tag operation to perform and its arguments",
+    "tag_add": {
+        "note_ids": "Note IDs to add tags to",
+        "tags": "Space-separated tag names to add (e.g., 'vocab grammar')",
     },
-    "card_management": {
-        "params": "The card operation to perform and its arguments",
+    "card_bury": {
+        "card_ids": "Card IDs to bury",
+    },
+    "card_unbury": {
+        "deck_name": "Deck name to unbury all cards from",
     },
 }
 

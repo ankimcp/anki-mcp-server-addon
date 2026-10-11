@@ -91,3 +91,19 @@ class TestAnnotationSpotChecks:
 
     def test_add_note_has_no_idempotent_hint(self, tools_by_name):
         assert "idempotentHint" not in self._ann(tools_by_name, "add_note")
+
+    def test_tag_list_is_read_only(self, tools_by_name):
+        ann = self._ann(tools_by_name, "tag_list")
+        assert ann["readOnlyHint"] is True
+        assert ann["destructiveHint"] is False
+
+    def test_tag_add_is_additive_idempotent_write(self, tools_by_name):
+        ann = self._ann(tools_by_name, "tag_add")
+        assert ann["readOnlyHint"] is False
+        assert ann["destructiveHint"] is False
+        assert ann["idempotentHint"] is True
+
+    def test_model_field_add_is_destructive_write(self, tools_by_name):
+        ann = self._ann(tools_by_name, "model_field_add")
+        assert ann["readOnlyHint"] is False
+        assert ann["destructiveHint"] is True

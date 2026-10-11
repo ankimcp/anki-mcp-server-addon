@@ -1,4 +1,4 @@
-"""Tests for the deck-scoped get_tags action of the tag_management tool."""
+"""Tests for the deck scope of the tag_list tool."""
 from __future__ import annotations
 
 from .conftest import unique_id
@@ -20,15 +20,15 @@ def _add_note(deck_name: str, front: str, back: str, tags=None) -> int:
 
 
 def _get_tags(deck: str | None = None) -> dict:
-    """Call tag_management's get_tags action, optionally scoped to a deck."""
-    params = {"action": "get_tags"}
+    """Call tag_list, optionally scoped to a deck."""
+    args = {}
     if deck is not None:
-        params["deck"] = deck
-    return call_tool("tag_management", {"params": params})
+        args["deck"] = deck
+    return call_tool("tag_list", args)
 
 
 class TestGetTagsDeckScope:
-    """Tests for the optional `deck` param on tag_management's get_tags action."""
+    """Tests for the optional `deck` param on the tag_list tool."""
 
     def test_get_tags_deck_scope_dedupes_and_excludes_other_decks(self):
         """get_tags(deck=...) returns the sorted, deduped tags for that deck only.

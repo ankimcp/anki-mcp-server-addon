@@ -1,29 +1,28 @@
-"""Tests for the ``remove`` action of the model_fields multi-action tool.
+"""Tests for the model_field_remove tool.
 
-IMPORTANT -- DESTRUCTIVE ACTION, HIDDEN BY DEFAULT
---------------------------------------------------
-The ``remove`` action is flagged destructive (its Params model sets
-``_destructive = True``). Destructive actions are HIDDEN from the tool schema --
-the discriminated union is rebuilt without them -- UNLESS the operator opts in
-via the ``enabled_destructive_tools`` config containing ``"model_fields:remove"``.
+IMPORTANT -- DESTRUCTIVE TOOL, HIDDEN BY DEFAULT
+------------------------------------------------
+``model_field_remove`` is declared ``@Tool(..., destructive=True)``. Destructive
+tools are HIDDEN from tools/list UNLESS the operator opts in via the
+``enabled_destructive_tools`` config containing ``"model_field_remove"`` (or the
+deprecated alias ``"model_fields:remove"``).
 
 The DEFAULT e2e suite (port 3141, ``.docker/config.json``) opts in only
 ``change_note_type``; ``enabled_destructive_tools`` requires an EXACT match per
-tool/action, so ``remove`` is still absent from the union there and these tests
+tool, so ``model_field_remove`` is absent from tools/list there and these tests
 are SKIPPED.
 
 They actually run in the FILTERED suite (port 3142, ``.docker/config-filtered.json``,
-``make e2e-filtered``), whose config includes::
-
-    "enabled_destructive_tools": ["model_fields:remove"]
+``make e2e-filtered``), whose config opts the tool in through
+``enabled_destructive_tools``.
 
 That is also why the ``e2e-filtered-test`` target runs this file alongside
 ``test_tool_filtering_e2e.py``: it needs that container's config, not because it
 tests filtering.
 
-The ``_require_remove_action`` autouse fixture inspects the live model_fields
-schema and skips at runtime when ``remove`` is not exposed (same runtime-skip
-style as test_update_notes.py).
+The ``_require_remove_tool`` autouse fixture checks the live tools/list and skips
+at runtime when ``model_field_remove`` is not exposed (same runtime-skip style as
+test_update_notes.py).
 
 Each test creates a DISPOSABLE, uniquely-named model via create_model so the
 shared "Basic" model is never dirtied. Uniquely-named models that no other test
@@ -35,29 +34,16 @@ from __future__ import annotations
 import pytest
 
 from .conftest import unique_id
-from .helpers import call_tool, list_tools, schema_action_names
-
-
-def _model_fields_actions() -> set[str]:
-    """Return the action names currently exposed by the model_fields schema.
-
-    Destructive actions absent from the rebuilt discriminated union (because they
-    are not opted in via enabled_destructive_tools) will not appear here.
-    """
-    tools = list_tools()
-    tool = next((t for t in tools if t["name"] == "model_fields"), None)
-    if tool is None:
-        return set()
-    return schema_action_names(tool)
+from .helpers import call_tool, list_tools
 
 
 @pytest.fixture(autouse=True)
-def _require_remove_action():
-    """Skip when the destructive remove action is not opted in on this server."""
-    if "remove" not in _model_fields_actions():
+def _require_remove_tool():
+    """Skip when the destructive model_field_remove tool is not opted in on this server."""
+    if "model_field_remove" not in {t["name"] for t in list_tools()}:
         pytest.skip(
-            "model_fields:remove is destructive and hidden from the schema unless "
-            "enabled_destructive_tools includes 'model_fields:remove' (the default "
+            "model_field_remove is destructive and hidden from tools/list unless "
+            "enabled_destructive_tools includes 'model_field_remove' (the default "
             "e2e suite does not opt it in)"
         )
 
@@ -95,18 +81,15 @@ def _field_names(model_name: str) -> list[str]:
 
 
 class TestModelFieldsRemove:
-    """Tests for the remove action in the model_fields tool."""
+    """Tests for the model_field_remove tool."""
 
     def test_remove_field(self):
         """Removing a field drops it and persists the shortened field list."""
         model_name = _create_model(["Front", "Back", "Extra"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "remove",
-                "model_name": model_name,
-                "field_name": "Extra",
-            }
+        result = call_tool("model_field_remove", {
+            "model_name": model_name,
+            "field_name": "Extra",
         })
 
         assert result.get("isError") is not True, f"Unexpected error: {result}"
@@ -122,12 +105,9 @@ class TestModelFieldsRemove:
         """Removing a field that does not exist is rejected."""
         model_name = _create_model(["Front", "Back"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "remove",
-                "model_name": model_name,
-                "field_name": "Nope",
-            }
+        result = call_tool("model_field_remove", {
+            "model_name": model_name,
+            "field_name": "Nope",
         })
 
         assert result.get("isError") is True
@@ -137,12 +117,9 @@ class TestModelFieldsRemove:
         """Removing the only remaining field is rejected."""
         model_name = _create_model(["Only"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "remove",
-                "model_name": model_name,
-                "field_name": "Only",
-            }
+        result = call_tool("model_field_remove", {
+            "model_name": model_name,
+            "field_name": "Only",
         })
 
         assert result.get("isError") is True

@@ -1,4 +1,4 @@
-"""Tests for the ``add`` action of the model_fields multi-action tool.
+"""Tests for the model_field_add tool.
 
 Each test creates a DISPOSABLE, uniquely-named model via create_model so the
 shared "Basic" model is never dirtied. Uniquely-named models that no other test
@@ -39,23 +39,20 @@ def _field_names(model_name: str) -> list[str]:
 
 
 class TestModelFieldsAdd:
-    """Tests for the add action in the model_fields tool."""
+    """Tests for the model_field_add tool."""
 
     def test_tool_appears_in_tools_list(self):
-        """The model_fields tool should be registered and visible."""
+        """The model_field_add tool should be registered and visible."""
         tool_names = [t["name"] for t in list_tools()]
-        assert "model_fields" in tool_names
+        assert "model_field_add" in tool_names
 
     def test_append_field_at_end(self):
         """Without an index the new field is appended at the end."""
         model_name = _create_model(["Front", "Back"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "add",
-                "model_name": model_name,
-                "field_name": "Hint",
-            }
+        result = call_tool("model_field_add", {
+            "model_name": model_name,
+            "field_name": "Hint",
         })
 
         assert result.get("isError") is not True, f"Unexpected error: {result}"
@@ -71,13 +68,10 @@ class TestModelFieldsAdd:
         """A 0-based index inserts the field at that position."""
         model_name = _create_model(["Front", "Back", "Extra"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "add",
-                "model_name": model_name,
-                "field_name": "Hint",
-                "index": 1,
-            }
+        result = call_tool("model_field_add", {
+            "model_name": model_name,
+            "field_name": "Hint",
+            "index": 1,
         })
 
         assert result.get("isError") is not True, f"Unexpected error: {result}"
@@ -90,13 +84,10 @@ class TestModelFieldsAdd:
         """An index equal to the current field count appends at the end."""
         model_name = _create_model(["Front", "Back"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "add",
-                "model_name": model_name,
-                "field_name": "Hint",
-                "index": 2,
-            }
+        result = call_tool("model_field_add", {
+            "model_name": model_name,
+            "field_name": "Hint",
+            "index": 2,
         })
 
         assert result.get("isError") is not True, f"Unexpected error: {result}"
@@ -109,12 +100,9 @@ class TestModelFieldsAdd:
         """Adding a field whose name already exists is rejected."""
         model_name = _create_model(["Front", "Back"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "add",
-                "model_name": model_name,
-                "field_name": "Front",
-            }
+        result = call_tool("model_field_add", {
+            "model_name": model_name,
+            "field_name": "Front",
         })
 
         assert result.get("isError") is True
@@ -124,12 +112,9 @@ class TestModelFieldsAdd:
         """Adding a name that collides case-insensitively is rejected."""
         model_name = _create_model(["Front", "Back"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "add",
-                "model_name": model_name,
-                "field_name": "front",
-            }
+        result = call_tool("model_field_add", {
+            "model_name": model_name,
+            "field_name": "front",
         })
 
         assert result.get("isError") is True
@@ -139,13 +124,10 @@ class TestModelFieldsAdd:
         """An index beyond field_count is rejected."""
         model_name = _create_model(["Front", "Back"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "add",
-                "model_name": model_name,
-                "field_name": "Hint",
-                "index": 99,
-            }
+        result = call_tool("model_field_add", {
+            "model_name": model_name,
+            "field_name": "Hint",
+            "index": 99,
         })
 
         assert result.get("isError") is True
@@ -155,13 +137,10 @@ class TestModelFieldsAdd:
         """A negative index is rejected (lower bound of the range guard)."""
         model_name = _create_model(["Front", "Back"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "add",
-                "model_name": model_name,
-                "field_name": "Hint",
-                "index": -1,
-            }
+        result = call_tool("model_field_add", {
+            "model_name": model_name,
+            "field_name": "Hint",
+            "index": -1,
         })
 
         assert result.get("isError") is True
@@ -171,14 +150,11 @@ class TestModelFieldsAdd:
         """A blank (whitespace-only) field name is rejected."""
         model_name = _create_model(["Front", "Back"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "add",
-                "model_name": model_name,
-                # Whitespace-only proves the server-side .strip()-then-reject
-                # path is exercised (a stronger assertion than a bare-empty value).
-                "field_name": " ",
-            }
+        result = call_tool("model_field_add", {
+            "model_name": model_name,
+            # Whitespace-only proves the server-side .strip()-then-reject
+            # path is exercised (a stronger assertion than a bare-empty value).
+            "field_name": " ",
         })
 
         assert result.get("isError") is True

@@ -48,17 +48,18 @@ class Config:
         default_factory=lambda: ["mcp-protocol-version"]
     )
 
-    # Tool filtering (list of tool names or "tool:action" to disable)
-    # Example: ["get_fsrs_params", "card_management:bury", "card_management:unbury"]
+    # Tool filtering (list of tool names to disable). The retired
+    # multi-action names ("card_management:bury", ...) still work as
+    # deprecated aliases -- see TOOL_ALIASES in tool_decorator.py.
+    # Example: ["get_fsrs_params", "card_bury", "card_unbury"]
     disabled_tools: List[str] = field(default_factory=list)
 
-    # Opt-in allow-list for destructive tools/actions (hidden by default).
-    # Exact match: "tool" opts in a destructive tool, "tool:action" opts in
-    # a destructive action. disabled_tools still applies on top.
+    # Opt-in allow-list for destructive tools (hidden by default).
+    # Exact match on the tool name. disabled_tools still applies on top.
     enabled_destructive_tools: List[str] = field(default_factory=list)
 
-    # Opt-in allow-list for opt-in tools/actions (hidden by default, same
-    # exact-match "tool" / "tool:action" syntax as enabled_destructive_tools).
+    # Opt-in allow-list for opt-in tools (hidden by default, same
+    # exact-match syntax as enabled_destructive_tools).
     # Unlike destructive, opt-in tools aren't necessarily dangerous -- this is
     # for new/experimental surface area the operator must explicitly enable.
     # Example: ["gui_answer_card", "gui_deck_review"]

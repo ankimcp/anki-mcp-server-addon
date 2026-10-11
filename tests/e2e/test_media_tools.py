@@ -1,8 +1,6 @@
 """E2E tests for media tools — store, list, delete."""
 from __future__ import annotations
 
-import pytest
-
 from .conftest import unique_id
 from .helpers import call_tool
 
@@ -36,7 +34,6 @@ class TestStoreMediaFile:
         assert result["size"] > 0
         assert "message" in result
 
-    @pytest.mark.skip(reason="MCP Inspector CLI rejects empty --tool-arg values before they reach the server")
     def test_store_empty_filename_fails(self):
         """Empty filename should be rejected."""
         result = call_tool("store_media_file", {
@@ -118,7 +115,6 @@ class TestDeleteMediaFile:
         })
         assert result.get("isError") is True
 
-    @pytest.mark.skip(reason="MCP Inspector CLI rejects empty --tool-arg values before they reach the server")
     def test_delete_empty_filename_fails(self):
         """Empty filename should be rejected."""
         result = call_tool("delete_media_file", {"filename": ""})

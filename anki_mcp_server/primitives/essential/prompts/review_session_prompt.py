@@ -127,8 +127,8 @@ VOICE REVIEW MODE:
   * Hard (2): Struggled but got it eventually
   * Good (3): Correct with reasonable effort
   * Easy (4): Instant, effortless recall
-- Cards skipped for media stay buried until the next day unless card_management with
-  action="unbury" and deck_name restores them; the session ends with that unbury call"""
+- Cards skipped for media stay buried until the next day unless card_unbury with
+  deck_name restores them; the session ends with that unbury call"""
     elif review_style == "quick":
         style_instructions = """
 QUICK REVIEW MODE:
@@ -181,9 +181,9 @@ SESSION RULES:
 - If the user wants to stop early, that's fine - offer to sync before ending
 - Track progress: "Card X of Y completed"
 - At the end, summarize the session (cards reviewed, performance distribution){'''
-- Cards skipped for media stay buried until the next day unless card_management with
-  action="unbury" and deck_name="''' + deck_name + '''" restores them; the session ends with
-  that unbury call''' if review_style == 'voice' else ''}
+- Cards skipped for media stay buried until the next day unless card_unbury with
+  deck_name="''' + deck_name + '''" restores them; the session ends with that
+  unbury call''' if review_style == 'voice' else ''}
 
 RATING GUIDE:
 - Use the rating that best reflects the user's actual recall

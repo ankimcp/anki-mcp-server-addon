@@ -1,4 +1,4 @@
-"""Unbury action implementation for card_management tool."""
+"""Implementation for the card_unbury tool."""
 from typing import Any
 
 from ......handler_wrappers import HandlerError, get_col

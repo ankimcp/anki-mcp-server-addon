@@ -8,11 +8,11 @@ Contract under test:
   * ``answer`` is only included when ``show_answer=true``.
 
 The filtered-deck half of this is fully exercisable headlessly: the
-``filtered_deck`` tool moves cards at the collection level (setting
+``filtered_deck_*`` tools move cards at the collection level (setting
 ``card.did``/``card.odid``), which is independent of any GUI review state.
 
 Cleanup: notes are deleted and filtered decks are removed via
-``filtered_deck action=delete``. Regular decks are left behind -- the addon
+``filtered_deck_delete``. Regular decks are left behind -- the addon
 exposes no delete-deck tool -- but every deck name carries a uuid4 suffix, so
 leftovers never collide.
 """
@@ -169,14 +169,11 @@ class TestPresentCardFilteredDeck:
             assert before["filtered_deck_name"] is None
 
             fd_requested_name = f"E2E::PCFiltDeck_{uid}"
-            create = call_tool("filtered_deck", {
-                "params": {
-                    "action": "create_or_update",
-                    "name": fd_requested_name,
-                    "search_terms": [
-                        {"search": f'deck:"{home_deck}"', "limit": 100, "order": "due"},
-                    ],
-                },
+            create = call_tool("filtered_deck_upsert", {
+                "name": fd_requested_name,
+                "search_terms": [
+                    {"search": f'deck:"{home_deck}"', "limit": 100, "order": "due"},
+                ],
             })
             assert create.get("isError") is not True, create
             filtered_deck_id = create["deck_id"]
@@ -213,21 +210,18 @@ class TestPresentCardFilteredDeck:
             _delete_notes([note_id])
 
     def test_empty_returns_card_home(self):
-        """filtered_deck action=empty also clears filtered_deck_name, without
+        """filtered_deck_empty also clears filtered_deck_name, without
         removing the filtered deck itself."""
         uid = unique_id()
         home_deck, note_id, card_id = _create_card(uid, "Empty")
         filtered_deck_id: int | None = None
 
         try:
-            create = call_tool("filtered_deck", {
-                "params": {
-                    "action": "create_or_update",
-                    "name": f"E2E::PCEmptyDeck_{uid}",
-                    "search_terms": [
-                        {"search": f'deck:"{home_deck}"', "limit": 100, "order": "due"},
-                    ],
-                },
+            create = call_tool("filtered_deck_upsert", {
+                "name": f"E2E::PCEmptyDeck_{uid}",
+                "search_terms": [
+                    {"search": f'deck:"{home_deck}"', "limit": 100, "order": "due"},
+                ],
             })
             assert create.get("isError") is not True, create
             filtered_deck_id = create["deck_id"]
@@ -238,9 +232,7 @@ class TestPresentCardFilteredDeck:
 
             assert _present(card_id)["filtered_deck_name"] == create["name"]
 
-            empty = call_tool("filtered_deck", {
-                "params": {"action": "empty", "deck_id": filtered_deck_id},
-            })
+            empty = call_tool("filtered_deck_empty", {"deck_id": filtered_deck_id})
             assert empty.get("isError") is not True, empty
 
             after = _present(card_id)

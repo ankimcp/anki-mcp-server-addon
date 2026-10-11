@@ -1,6 +1,6 @@
-"""Pre-write conflict check for the replace_tags action.
+"""Pre-write conflict check for the tag_replace tool.
 
-replace_tags adds new_tag, then removes old_tag with ``col.tags.bulk_remove``.
+tag_replace adds new_tag, then removes old_tag with ``col.tags.bulk_remove``.
 rslib's TagMatcher (rslib/src/tags/matcher.rs) builds a case-insensitive regex
 that matches each space-separated tag exactly OR as a ``tag::`` prefix, so the
 remove also strips every child tag and any case variant. A new_tag that equals
@@ -13,7 +13,7 @@ ReplaceConflict = Literal["same_tag", "child_tag"]
 
 
 def find_replace_conflict(old_tag: str, new_tag: str) -> Optional[ReplaceConflict]:
-    """Return the conflict that would make replace_tags drop new_tag, or None.
+    """Return the conflict that would make tag_replace drop new_tag, or None.
 
     Both arguments are split on whitespace the way Anki splits them, so a
     multi-tag string is checked tag by tag.

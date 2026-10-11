@@ -28,7 +28,7 @@ def add_field_impl(model_name: str, field_name: str, index: Optional[int] = None
     if name in existing:
         raise HandlerError(
             f'Field "{name}" already exists in model "{model_name}"',
-            hint="Choose a different field name, or use the rename action to change an existing field",
+            hint="Choose a different field name, or use model_field_rename to change an existing field",
             model_name=model_name,
             field_name=name,
             available=existing,

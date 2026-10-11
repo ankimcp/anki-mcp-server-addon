@@ -1,4 +1,4 @@
-"""Bury action implementation for card_management tool."""
+"""Implementation for the card_bury tool."""
 from typing import Any
 
 from ......handler_wrappers import get_col

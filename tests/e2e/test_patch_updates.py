@@ -21,9 +21,6 @@ there.
 Models are DISPOSABLE and uniquely named (same rationale as
 test_update_model_styling.py) so the shared "Basic" model is never dirtied.
 Notes are created in a unique deck and deleted in a ``finally``.
-
-Strings used as ``old_str`` deliberately avoid '=' characters: the Inspector CLI
-passes tool args as ``key=value`` pairs, so an '=' in the value is needless risk.
 """
 from __future__ import annotations
 

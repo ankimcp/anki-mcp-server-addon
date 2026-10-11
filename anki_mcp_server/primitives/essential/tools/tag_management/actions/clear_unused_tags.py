@@ -1,4 +1,4 @@
-"""ClearUnusedTags action implementation for tag_management tool."""
+"""Implementation for the tag_clear_unused tool."""
 from typing import Any
 
 from ......handler_wrappers import get_col

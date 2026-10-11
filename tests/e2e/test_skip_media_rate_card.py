@@ -355,12 +355,7 @@ class TestSkipMediaFullWorkflow:
         )
 
         # Step 6: Unbury to restore image cards
-        unbury_result = call_tool("card_management", {
-            "params": {
-                "action": "unbury",
-                "deck_name": deck_name
-            }
-        })
+        unbury_result = call_tool("card_unbury", {"deck_name": deck_name})
         assert unbury_result.get("isError") is not True
 
         # Step 7: Image cards are back! (no skip flag now)

@@ -17,7 +17,7 @@ if sys.version_info < (3, 10):
 
 from pathlib import Path
 
-__version__ = "0.32.2"
+__version__ = "0.40.0"
 
 # Packages we vendor directly (we ship our own copy under vendor/shared). This
 # is the set used for the system-package FALLBACK check on source/Nix installs:
@@ -339,7 +339,6 @@ def _on_profile_opened() -> None:
     )
     warnings.extend(validate_http_allowlist(config))
     warnings.extend(validate_http_api_key(config))
-    _show_startup_warnings(warnings)
 
     _connection_manager = ConnectionManager(config)
 
@@ -350,6 +349,14 @@ def _on_profile_opened() -> None:
         print("AnkiMCP Server: Started")
     else:
         print(f"AnkiMCP Server: Start skipped - {error}")
+
+    # The warning dialog is modal (exec()), so it is shown only after start()
+    # and from a later event-loop turn: a config warning must never hold the
+    # server back, and on a headless Anki nobody is there to dismiss it.
+    if warnings:
+        mw.progress.single_shot(
+            0, lambda: _show_startup_warnings(warnings), False
+        )
 
 
 def _reset_sync_registry_on_close() -> None:

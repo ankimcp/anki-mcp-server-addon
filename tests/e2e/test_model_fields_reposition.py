@@ -1,4 +1,4 @@
-"""Tests for the ``reposition`` action of the model_fields multi-action tool.
+"""Tests for the model_field_reposition tool.
 
 Each test creates a DISPOSABLE, uniquely-named model via create_model so the
 shared "Basic" model is never dirtied. Uniquely-named models that no other test
@@ -39,19 +39,16 @@ def _field_names(model_name: str) -> list[str]:
 
 
 class TestModelFieldsReposition:
-    """Tests for the reposition action in the model_fields tool."""
+    """Tests for the model_field_reposition tool."""
 
     def test_move_field_to_new_index(self):
         """Repositioning reorders the fields and persists the new order."""
         model_name = _create_model(["Front", "Back", "Extra"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "reposition",
-                "model_name": model_name,
-                "field_name": "Extra",
-                "index": 0,
-            }
+        result = call_tool("model_field_reposition", {
+            "model_name": model_name,
+            "field_name": "Extra",
+            "index": 0,
         })
 
         assert result.get("isError") is not True, f"Unexpected error: {result}"
@@ -67,13 +64,10 @@ class TestModelFieldsReposition:
         """An index beyond the last valid position is rejected."""
         model_name = _create_model(["Front", "Back", "Extra"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "reposition",
-                "model_name": model_name,
-                "field_name": "Front",
-                "index": 99,
-            }
+        result = call_tool("model_field_reposition", {
+            "model_name": model_name,
+            "field_name": "Front",
+            "index": 99,
         })
 
         assert result.get("isError") is True
@@ -83,13 +77,10 @@ class TestModelFieldsReposition:
         """A negative index is rejected (lower bound of the range guard)."""
         model_name = _create_model(["Front", "Back", "Extra"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "reposition",
-                "model_name": model_name,
-                "field_name": "Front",
-                "index": -1,
-            }
+        result = call_tool("model_field_reposition", {
+            "model_name": model_name,
+            "field_name": "Front",
+            "index": -1,
         })
 
         assert result.get("isError") is True

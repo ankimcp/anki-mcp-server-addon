@@ -1,4 +1,4 @@
-"""Tests for the ``rename`` action of the model_fields multi-action tool.
+"""Tests for the model_field_rename tool.
 
 Each test creates a DISPOSABLE, uniquely-named model (and, where a note is
 needed, a uniquely-named deck) so shared collection state is never dirtied.
@@ -39,7 +39,7 @@ def _field_names(model_name: str) -> list[str]:
 
 
 class TestModelFieldsRename:
-    """Tests for the rename action in the model_fields tool."""
+    """Tests for the model_field_rename tool."""
 
     def test_rename_preserves_content_and_order(self):
         """Renaming keeps the field's content and overall order intact."""
@@ -60,13 +60,10 @@ class TestModelFieldsRename:
         assert note_result.get("isError") is not True, f"add_note failed: {note_result}"
         note_id = note_result["note_id"]
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "rename",
-                "model_name": model_name,
-                "field_name": "Extra",
-                "new_name": "Notes",
-            }
+        result = call_tool("model_field_rename", {
+            "model_name": model_name,
+            "field_name": "Extra",
+            "new_name": "Notes",
         })
 
         assert result.get("isError") is not True, f"Unexpected error: {result}"
@@ -91,13 +88,10 @@ class TestModelFieldsRename:
         """Renaming a field that does not exist is rejected."""
         model_name = _create_model(["Front", "Back"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "rename",
-                "model_name": model_name,
-                "field_name": "Nope",
-                "new_name": "Whatever",
-            }
+        result = call_tool("model_field_rename", {
+            "model_name": model_name,
+            "field_name": "Nope",
+            "new_name": "Whatever",
         })
 
         assert result.get("isError") is True
@@ -107,13 +101,10 @@ class TestModelFieldsRename:
         """Renaming onto a DIFFERENT existing field name is rejected."""
         model_name = _create_model(["Front", "Back"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "rename",
-                "model_name": model_name,
-                "field_name": "Back",
-                "new_name": "Front",
-            }
+        result = call_tool("model_field_rename", {
+            "model_name": model_name,
+            "field_name": "Back",
+            "new_name": "Front",
         })
 
         assert result.get("isError") is True
@@ -123,13 +114,10 @@ class TestModelFieldsRename:
         """A pure case-change of the SAME field is allowed."""
         model_name = _create_model(["Front", "Back"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "rename",
-                "model_name": model_name,
-                "field_name": "Front",
-                "new_name": "front",
-            }
+        result = call_tool("model_field_rename", {
+            "model_name": model_name,
+            "field_name": "Front",
+            "new_name": "front",
         })
 
         assert result.get("isError") is not True, f"Unexpected error: {result}"
@@ -140,15 +128,12 @@ class TestModelFieldsRename:
         """A blank (whitespace-only) new name is rejected."""
         model_name = _create_model(["Front", "Back"])
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "rename",
-                "model_name": model_name,
-                "field_name": "Front",
-                # Whitespace-only proves the server-side .strip()-then-reject
-                # path is exercised (a stronger assertion than a bare-empty value).
-                "new_name": " ",
-            }
+        result = call_tool("model_field_rename", {
+            "model_name": model_name,
+            "field_name": "Front",
+            # Whitespace-only proves the server-side .strip()-then-reject
+            # path is exercised (a stronger assertion than a bare-empty value).
+            "new_name": " ",
         })
 
         assert result.get("isError") is True

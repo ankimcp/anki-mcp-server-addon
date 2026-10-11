@@ -14,9 +14,10 @@ Two rules follow, and every test here obeys them:
 1. Always assert the key EXISTS and is a real ``bool`` on each tool's success
    result. That holds regardless of collection history.
 2. Only assert ``True`` where it is guaranteed by the call itself -- i.e.
-   immediately after a model_fields add / remove / reposition, each of which
-   changes field ordinals and so modifies the schema unconditionally.
-   model_fields RENAME is not in that set: it only rewrites a field's name,
+   immediately after model_field_add / model_field_remove /
+   model_field_reposition, each of which changes field ordinals and so
+   modifies the schema unconditionally.
+   model_field_rename is not in that set: it only rewrites a field's name,
    leaving ordinals and the sort field alone, so rslib never marks the schema
    modified and rename gets a rule-1 structural assertion instead.
 
@@ -149,7 +150,7 @@ class TestSchemaSyncFlagPresence:
     def test_rename_field_carries_flag(self):
         """rename is STRUCTURAL-ONLY -- it does not itself modify the schema.
 
-        It lives here rather than with the other model_fields actions below,
+        It lives here rather than with the other model_field_* tools below,
         and deliberately makes no ``is True`` assertion. rslib only calls ``set_schema_modified`` when field ORDINALS change
         (rslib/src/notetype/schemachange.rs, ``update_notes_for_changed_fields``
         -> ``ords_changed``) or when the sort field moves; pylib's
@@ -163,22 +164,19 @@ class TestSchemaSyncFlagPresence:
         model_name, create_result = _create_model("SyncFlagFieldsRename")
         assert create_result.get("isError") is not True, create_result
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "rename",
-                "model_name": model_name,
-                "field_name": "Back",
-                "new_name": "Reverse",
-            }
+        result = call_tool("model_field_rename", {
+            "model_name": model_name,
+            "field_name": "Back",
+            "new_name": "Reverse",
         })
 
-        _assert_flag_present(result, "model_fields rename")
+        _assert_flag_present(result, "model_field_rename")
 
 class TestSchemaSyncFlagTrueAfterSchemaChange:
-    """model_fields add / remove / reposition modify the schema unconditionally.
+    """model_field_add / _remove / _reposition modify the schema unconditionally.
 
     This is the only place a value assertion is sound (rule 2): each of these
-    actions changes field ordinals, which is what makes rslib mark the schema
+    tools changes field ordinals, which is what makes rslib mark the schema
     modified, so the assertion holds whatever the collection's prior state was.
     rename is deliberately NOT here -- see test_rename_field_carries_flag.
     """
@@ -188,15 +186,12 @@ class TestSchemaSyncFlagTrueAfterSchemaChange:
         model_name, create_result = _create_model("SyncFlagFieldsAdd")
         assert create_result.get("isError") is not True, create_result
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "add",
-                "model_name": model_name,
-                "field_name": "Hint",
-            }
+        result = call_tool("model_field_add", {
+            "model_name": model_name,
+            "field_name": "Hint",
         })
 
-        assert _assert_flag_present(result, "model_fields add") is True
+        assert _assert_flag_present(result, "model_field_add") is True
 
     def test_reposition_field_forces_full_sync(self):
         """reposition changes field ordinals."""
@@ -205,31 +200,25 @@ class TestSchemaSyncFlagTrueAfterSchemaChange:
         )
         assert create_result.get("isError") is not True, create_result
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "reposition",
-                "model_name": model_name,
-                "field_name": "Extra",
-                "index": 0,
-            }
+        result = call_tool("model_field_reposition", {
+            "model_name": model_name,
+            "field_name": "Extra",
+            "index": 0,
         })
 
-        assert _assert_flag_present(result, "model_fields reposition") is True
+        assert _assert_flag_present(result, "model_field_reposition") is True
 
     def test_prose_warning_still_accompanies_the_flag(self):
         """The pre-existing FULL_SYNC_WARNING prose must not be replaced by the flag."""
         model_name, create_result = _create_model("SyncFlagFieldsWarning")
         assert create_result.get("isError") is not True, create_result
 
-        result = call_tool("model_fields", {
-            "params": {
-                "action": "add",
-                "model_name": model_name,
-                "field_name": "Hint",
-            }
+        result = call_tool("model_field_add", {
+            "model_name": model_name,
+            "field_name": "Hint",
         })
 
-        assert _assert_flag_present(result, "model_fields add") is True
+        assert _assert_flag_present(result, "model_field_add") is True
         assert "warning" in result, f"prose warning was dropped: {result}"
         assert "full sync" in result["warning"].lower()
 
@@ -252,7 +241,9 @@ class TestSchemaSyncFlagDocumented:
             "create_model",
             "update_model_styling",
             "update_model_templates",
-            "model_fields",
+            "model_field_add",
+            "model_field_rename",
+            "model_field_reposition",
         ):
             assert name in descriptions, f"{name} is not registered"
             description = descriptions[name]

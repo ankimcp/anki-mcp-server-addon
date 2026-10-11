@@ -15,10 +15,6 @@ inconsistent casing), since a wrong key would silently read back as empty.
 Models are DISPOSABLE and uniquely named so the shared "Basic" model is never
 dirtied; originals are still captured and restored in a ``finally`` so a failed
 assertion mid-test cannot leave a half-written preamble behind.
-
-Strings passed as tool args deliberately avoid '=' characters -- the Inspector
-CLI passes tool args as ``key=value`` pairs (this rules out Anki's stock
-``\\special{papersize...}`` line, which is why the fixtures below are trimmed).
 """
 from __future__ import annotations
 

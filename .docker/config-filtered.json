@@ -5,10 +5,10 @@
   "disabled_tools": [
     "sync",
     "card_management:bury",
-    "card_management:unbury"
+    "card_unbury"
   ],
   "enabled_destructive_tools": [
-    "model_fields:remove"
+    "model_field_remove"
   ],
   "enabled_opt_in_tools": [
     "gui_deck_review",

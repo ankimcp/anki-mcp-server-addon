@@ -31,7 +31,7 @@ A second native dependency, `rpds` (from `rpds-py`), is handled the same way —
 - **Optional API key** - Require an `Authorization: Bearer` token on the HTTP transport via [`http_api_key`](#api-key-optional-http-auth) (AnkiConnect-style; empty = disabled)
 - **Toolbar indicator** - A `● AnkiMCP` item in the top toolbar shows tunnel connection state at a glance (opt out via `show_toolbar_indicator`)
 - **Diagnostic logging** - Opt-in [`log_to_file`](#diagnostic-file-logging) writes a rotating, secret-redacted log to `user_files/ankimcp.log`, with **Open log folder** / **Copy diagnostics** buttons in settings
-- **Field management** - Add, rename, and reposition note-type fields via the `model_fields` tool (with an opt-in [destructive](#destructive-tools-opt-in) remove)
+- **Field management** - Add, rename, and reposition note-type fields via the `model_field_*` tools (with an opt-in [destructive](#destructive-tools-opt-in) `model_field_remove`)
 - **Bulk card stats** - The read-only `cards_stats` tool returns compact per-card scheduling metrics (type/queue/interval/tags/`dueToday`) for a whole deck including subdecks, FSRS-independent — a lean bulk read for analytics
 - **GUI review sessions** - Hands-free review in Anki's own reviewer window: `gui_deck_review` opens a deck, `gui_answer_card` presses the answer button for you. [Opt-in](#opt-in-tools), hidden until named in `enabled_opt_in_tools`
 - **MCP tool annotations** - Every tool declares a `title`, `readOnlyHint`, `destructiveHint` and `openWorldHint` (plus `idempotentHint` on write tools that are safe to repeat), so clients can show readable names and confirm before data-changing calls
@@ -283,42 +283,50 @@ The settings dialog (*Tools → AnkiMCP Server Settings…*) has an **Open log f
 
 ### Disabling Tools
 
-Hide specific tools or actions from AI clients to reduce token usage:
+Hide specific tools from AI clients to reduce token usage:
 
 ```json
 {
   "disabled_tools": [
     "sync",
-    "card_management:bury",
-    "card_management:unbury"
+    "card_bury",
+    "card_unbury"
   ]
 }
 ```
 
-- `"tool_name"` — disables the entire tool
-- `"tool_name:action"` — disables a specific action within a multi-action tool
+Each entry is a tool name. Disabled tools are removed from the MCP schema entirely — AI clients never see them. Typos in tool names will produce console warnings.
 
-Disabled tools are removed from the MCP schema entirely — AI clients never see them. Typos in tool/action names will produce console warnings.
+#### Upgrading to 0.40.0
+
+0.40.0 split the four multi-action tools into one tool per action: `card_management` → `card_*`, `tag_management` → `tag_*`, `filtered_deck` → `filtered_deck_*`, `model_fields` → `model_field_*` (see [Available Tools](#available-tools)). Old config entries keep working, with a deprecation warning naming the replacement:
+
+- `"card_management:bury"` behaves exactly like `"card_bury"` — in `disabled_tools` and in both allow-lists below (`"model_fields:remove"` still opts in `model_field_remove`)
+- A bare `"card_management"` in `disabled_tools` disables every `card_*` tool
+- A bare old name in `enabled_destructive_tools` / `enabled_opt_in_tools` opts in nothing, as before
+
+Only these old names are accepted in `"tool:action"` form; any other `"tool:action"` entry matches nothing and produces a warning. The deprecation warning appears on every profile open (after the server has started — it never delays it) until you switch to the new names.
+
+The aliases cover config only. On the client side the old tools are gone: `tools/list` no longer has `card_management` & co., and the new tools take flat arguments — no `params` wrapper, no `action` field. If your AI client saved per-tool approvals, or you have scripts calling the old tools, re-approve the new tools and update the calls.
 
 ### Destructive Tools (Opt-In)
 
-Tools or actions classified as destructive (high-risk operations) are **hidden from AI clients by default**. To expose them, add them to the `enabled_destructive_tools` allow-list:
+Tools classified as destructive (high-risk operations) are **hidden from AI clients by default**. To expose them, add them to the `enabled_destructive_tools` allow-list:
 
 ```json
 {
   "enabled_destructive_tools": [
-    "some_destructive_tool",
-    "some_tool:destructive_action"
+    "change_note_type",
+    "model_field_remove"
   ]
 }
 ```
 
-- `"tool_name"` — opts in an entire destructive tool
-- `"tool_name:action"` — opts in a destructive action within a multi-action tool (a whole-tool entry does not implicitly opt in its destructive actions)
+- Each entry is the exact name of a destructive tool
 - `disabled_tools` still applies on top — an opted-in tool can still be disabled
-- Entries that don't match anything, or match a non-destructive tool/action, produce console warnings
+- Entries that don't match anything, or match a non-destructive tool, produce console warnings
 
-This is server-side enforcement: until opted in, destructive tools are absent from the MCP schema, so even a misbehaving client cannot call them. Currently shipped destructive entries: `change_note_type` (whole tool — rewrites every selected note's field layout) and `model_fields:remove` (action — permanently deletes a field and its content on every note of the type).
+This is server-side enforcement: until opted in, destructive tools are absent from the MCP schema, so even a misbehaving client cannot call them. Currently shipped destructive tools: `change_note_type` (rewrites every selected note's field layout) and `model_field_remove` (permanently deletes a field and its content on every note of the type).
 
 ### Opt-In Tools
 
@@ -333,10 +341,9 @@ Some tools ship **hidden from AI clients by default** for reasons other than "de
 }
 ```
 
-- `"tool_name"` — opts in an entire opt-in tool
-- `"tool_name:action"` — opts in an opt-in action within a multi-action tool (a whole-tool entry does not implicitly opt in its opt-in actions)
+- Each entry is the exact name of an opt-in tool
 - `disabled_tools` still applies on top — an opted-in tool can still be disabled
-- Entries that don't match anything, or match a non-opt-in tool/action, produce console warnings
+- Entries that don't match anything, or match a non-opt-in tool, produce console warnings
 
 Currently shipped opt-in entries: `gui_deck_review` and `gui_answer_card` — the GUI hands-free review-session tools.
 
@@ -472,9 +479,9 @@ Optional hardening via config:
 
 ## Available Tools
 
-Every tool parameter carries a short `description` in the MCP input schema (since 0.29.0), so clients that show or feed the schema to the model get argument shapes without trial and error. Nested action parameters of multi-action tools are described on their Pydantic models and appear under `$defs`.
+Every tool parameter carries a short `description` in the MCP input schema (since 0.29.0), so clients that show or feed the schema to the model get argument shapes without trial and error. Nested objects (e.g. `tag_batch` operations, `filtered_deck_upsert` search terms) are described on their Pydantic models and appear under `$defs`.
 
-Every tool also carries MCP annotations (since 0.31.0): a human-readable `title`, `readOnlyHint` (true for tools that never modify the collection), `destructiveHint` (false for read-only tools and for the purely additive `add_note`, `add_notes`, `create_deck`, `create_model` and `store_media_file`; true for every other write tool), `idempotentHint` (since 0.32.0; true only for write tools where repeating the same call has no further effect: `create_deck`, `delete_notes`, `delete_media_file`, `set_fsrs_params` and `tag_management`; omitted on every other tool), and `openWorldHint` (true only for `sync`, which talks to AnkiWeb, and `store_media_file`, which can fetch URLs).
+Every tool also carries MCP annotations (since 0.31.0): a human-readable `title`, `readOnlyHint` (true for tools that never modify the collection), `destructiveHint` (false for read-only tools and for the purely additive `add_note`, `add_notes`, `create_deck`, `create_model`, `store_media_file` and `tag_add`; true for every other write tool), `idempotentHint` (since 0.32.0; true only for write tools where repeating the same call has no further effect: `create_deck`, `delete_notes`, `delete_media_file`, `set_fsrs_params`, `card_change_deck`, `card_bury`, `card_unbury`, `card_suspend`, `card_unsuspend`, `card_set_flag`, every `tag_*` write tool, `filtered_deck_empty`, `filtered_deck_delete` and every `model_field_*` write tool; omitted on every other tool), and `openWorldHint` (true only for `sync`, which talks to AnkiWeb, and `store_media_file`, which can fetch URLs).
 
 **Upgrading from ≤ 0.27.x:** `get_due_cards` no longer returns `back` unless you pass `include_answer=true`, and `front` is now the rendered question HTML rather than the raw field. Clients that read `back` from this tool need the flag.
 
@@ -489,9 +496,23 @@ Every tool also carries MCP annotations (since 0.31.0): a human-readable `title`
 | `notes_info` | Get detailed information about notes. `excerpt_chars` caps every field value at that many characters, marking each with `truncated`/`fullLength` — a cheap way to survey many notes |
 | `add_note` | Add a new note to a deck |
 | `add_notes` | Batch-add up to `max_notes_per_batch` notes (default 100) sharing the same deck and model. Uses Anki's native batch API for atomic undo. Supports partial success — individual failures don't affect others |
-| `card_management` | Manage cards with 9 actions: `reposition` (set learning order), `change_deck` (move between decks), `bury`/`unbury` (hide until tomorrow), `suspend`/`unsuspend` (indefinitely exclude from review), `set_flag` (color flags 0-7), `set_due_date` (reschedule with days DSL), `forget_cards` (reset to new) |
-| `tag_management` | Manage tags with 6 actions: `add_tags`/`remove_tags` (bulk add/remove on notes), `replace_tags` (swap one tag for another), `get_tags` (list all, or scoped to a deck via the optional `deck` param — distinct tags on notes with a card in that deck, subdecks included), `clear_unused_tags` (remove orphans), `batch_tags` (apply multiple add/remove operations in one call, partial success) |
-| `filtered_deck` | Filtered deck lifecycle with 5 actions: `create_or_update` (create or modify a filtered deck from 1-2 search terms — Anki's hard limit), `rebuild` (repopulate), `empty` (return cards to home decks), `delete` (return cards, then remove the deck), `get_info` (read-only inspection of up to 50 deck IDs per call — returns search terms, limit, order, reschedule flag and card count; non-filtered decks come back with `is_filtered=false`, unknown IDs are skipped and counted in `not_found`) |
+| `card_reposition` | Set the learning order of new cards (only new cards are affected) |
+| `card_change_deck` | Move cards to another deck, creating it if needed |
+| `card_bury` / `card_unbury` | Hide cards until tomorrow / restore every buried card in a deck |
+| `card_suspend` / `card_unsuspend` | Exclude cards from review indefinitely / restore them |
+| `card_set_flag` | Set or remove a color flag (0-7) |
+| `card_set_due_date` | Reschedule cards with the days DSL (`0`, `5`, `5-7`, `5!`) |
+| `card_forget` | Reset cards to new |
+| `tag_add` / `tag_remove` | Bulk add/remove tags on notes |
+| `tag_replace` | Swap one tag for another on notes |
+| `tag_list` | List all tags, or scoped to a deck via the optional `deck` param — distinct tags on notes with a card in that deck, subdecks included |
+| `tag_clear_unused` | Remove orphan tags |
+| `tag_batch` | Apply multiple add/remove tag operations in one call, with partial success |
+| `filtered_deck_upsert` | Create or modify a filtered deck from 1-2 search terms (Anki's hard limit) |
+| `filtered_deck_rebuild` | Repopulate a filtered deck |
+| `filtered_deck_empty` | Return a filtered deck's cards to their home decks |
+| `filtered_deck_delete` | Return a filtered deck's cards, then remove the deck |
+| `filtered_deck_get_info` | Read-only inspection of up to 50 deck IDs per call — returns search terms, limit, order, reschedule flag and card count; non-filtered decks come back with `is_filtered=false`, unknown IDs are skipped and counted in `not_found` |
 | `update_note_fields` | Update fields of existing notes. Two modes: full replace, or patch via `old_str`/`new_str` (find-and-replace within a field; must match exactly once or nothing is written) |
 | `update_notes` | Batch-update fields of multiple notes in one atomic undo step (single backend call). Validates every entry first; supports partial success up to `max_notes_per_batch` |
 | `delete_notes` | Delete notes from the collection |
@@ -505,7 +526,8 @@ Every tool also carries MCP annotations (since 0.31.0): a human-readable `title`
 | `update_model_styling` | Update CSS styling for a note type — full replace, or patch via `old_str`/`new_str` (must match exactly once). Can also write the LaTeX preamble (`latex_pre`/`latex_post`/`latex_svg`) |
 | `model_templates` | Read the Front/Back HTML templates for each card type in a note type |
 | `update_model_templates` | Update Front/Back template HTML — full replace, or patch via `old_str`/`new_str` (must match exactly once). Rejects unrecognized keys (case-sensitive) and unknown template names up front, applying all edits atomically — a failed call leaves the model unchanged |
-| `model_fields` | Manage fields on an existing note type: `add` (optionally at a 0-based index), `rename` (preserves content; card templates are **not** auto-updated), `reposition` (reorder). A `remove` action also exists but is [destructive](#destructive-tools-opt-in) — hidden unless opted in via `enabled_destructive_tools`. `add`, `remove` and `reposition` change field ordinals and force a one-way full sync; a pure `rename` does not. Every result carries `will_force_full_sync`, the collection's actual (sticky, collection-wide) state after the write |
+| `model_field_add` / `model_field_rename` / `model_field_reposition` | Manage fields on an existing note type: add (optionally at a 0-based index), rename (preserves content; card templates are **not** auto-updated), reposition (reorder). Add and reposition change field ordinals and force a one-way full sync; a pure rename does not. Every result carries `will_force_full_sync`, the collection's actual (sticky, collection-wide) state after the write |
+| `model_field_remove` | Delete a field and its content from every note of the type. [Destructive](#destructive-tools-opt-in) — hidden unless opted in via `enabled_destructive_tools`. Forces a one-way full sync |
 | `create_model` | Create a new note type |
 | `change_note_type` | Move existing notes to a different note type, remapping fields by name (`{old field: new field or null}`). [Destructive](#destructive-tools-opt-in) — hidden unless opted in via `enabled_destructive_tools`. Two-step flow: `dry_run=true` returns the resolved plan (mapping, dropped fields, cards removed), then the same call with `dry_run=false` **and** `confirm=true` applies it. All notes must share one source note type |
 | `store_media_file` | Store a media file (image/audio) via base64, file path, or URL. File paths are validated against a media-type allowlist; URLs are checked for SSRF |

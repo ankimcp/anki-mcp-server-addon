@@ -1,6 +1,6 @@
-"""E2E tests for replace_tags inputs that Anki's tag removal would undo.
+"""E2E tests for tag_replace inputs that Anki's tag removal would undo.
 
-replace_tags adds new_tag, then removes old_tag. Anki's removal matches
+tag_replace adds new_tag, then removes old_tag. Anki's removal matches
 case-insensitively and also strips old_tag's children (old_tag::...), so a
 new_tag that is a case variant or a child of old_tag is rejected before any
 write -- the note's tags must be left exactly as they were.
@@ -42,13 +42,10 @@ def _tags(note_id: int) -> list[str]:
 
 
 def _replace(note_id: int, old_tag: str, new_tag: str) -> dict:
-    return call_tool("tag_management", {
-        "params": {
-            "action": "replace_tags",
-            "note_ids": [note_id],
-            "old_tag": old_tag,
-            "new_tag": new_tag,
-        }
+    return call_tool("tag_replace", {
+        "note_ids": [note_id],
+        "old_tag": old_tag,
+        "new_tag": new_tag,
     })
 
 

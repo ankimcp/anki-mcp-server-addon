@@ -44,7 +44,7 @@ def get_card_memory_state(
     if not card_ids:
         raise HandlerError(
             "No card IDs provided",
-            hint="Provide at least one card ID. Use find_notes or card_management to find card IDs.",
+            hint="Provide at least one card ID. Use find_notes then notes_info to find card IDs.",
         )
 
     fsrs_enabled = col.get_config("fsrs", False)

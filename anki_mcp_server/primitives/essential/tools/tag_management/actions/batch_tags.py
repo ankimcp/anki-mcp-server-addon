@@ -1,4 +1,4 @@
-"""BatchTags action implementation for tag_management tool."""
+"""Implementation for the tag_batch tool."""
 from typing import Any
 import logging
 

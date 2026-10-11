@@ -1,13 +1,11 @@
 """Unit tests for the opt-in-tools mechanism in tool_decorator.py (issue #74).
 
-Mirrors ``test_destructive_tools.py`` -- opt_in=True / ``_opt_in: ClassVar[bool]
-= True`` gates a tool/action behind the ``enabled_opt_in_tools`` config
-allow-list the same way destructive=True gates behind
-``enabled_destructive_tools``. The two mechanisms share their registration and
-validation machinery (``_get_marked_actions``, ``_validate_enabled_gate_tools``
-in tool_decorator.py), so this file exercises the same shapes through the
-opt_in-specific entry points (``_get_opt_in_actions``,
-``validate_enabled_opt_in_tools``, and ``register_tools``'s
+Mirrors ``test_destructive_tools.py`` -- opt_in=True gates a tool behind the
+``enabled_opt_in_tools`` config allow-list the same way destructive=True gates
+behind ``enabled_destructive_tools``. The two mechanisms share their
+validation machinery (``_validate_enabled_gate_tools`` in tool_decorator.py),
+so this file exercises the same shapes through the opt_in-specific entry
+points (``validate_enabled_opt_in_tools`` and ``register_tools``'s
 ``enabled_opt_in_tools`` parameter).
 
 Key difference from destructive: opt_in=True does NOT require write=True (no
@@ -20,63 +18,14 @@ both "destructive" and "opt_in" keys.
 """
 from __future__ import annotations
 
-from typing import Annotated, ClassVar, Literal, Union
-
 import pytest
-from pydantic import BaseModel, Field
 
 from anki_mcp_server.tool_decorator import (
     Tool,
-    _get_opt_in_actions,
     _registry,
     register_tools,
     validate_enabled_opt_in_tools,
 )
-
-
-# ---------------------------------------------------------------------------
-# Minimal test models (mirror test_destructive_tools.py's pattern)
-# ---------------------------------------------------------------------------
-
-
-class SafeAParams(BaseModel):
-    _tool_description: ClassVar[str] = "safe_a: A safe action."
-    action: Literal["safe_a"]
-    value: int = 0
-
-
-class SafeBParams(BaseModel):
-    _tool_description: ClassVar[str] = "safe_b: Another safe action."
-    action: Literal["safe_b"]
-    name: str = ""
-
-
-class OptInParams(BaseModel):
-    _tool_description: ClassVar[str] = "preview: Experimental action."
-    _opt_in: ClassVar[bool] = True
-    action: Literal["preview"]
-
-
-class OptInTwoParams(BaseModel):
-    _tool_description: ClassVar[str] = "beta: Another experimental action."
-    _opt_in: ClassVar[bool] = True
-    action: Literal["beta"]
-
-
-MixedUnion = Annotated[
-    Union[SafeAParams, SafeBParams, OptInParams],
-    Field(discriminator="action"),
-]
-
-AllSafeUnion = Annotated[
-    Union[SafeAParams, SafeBParams],
-    Field(discriminator="action"),
-]
-
-TwoOptInUnion = Annotated[
-    Union[SafeAParams, OptInParams, OptInTwoParams],
-    Field(discriminator="action"),
-]
 
 
 # ---------------------------------------------------------------------------
@@ -116,29 +65,6 @@ async def _call_main_thread(name, kwargs):  # pragma: no cover - never awaited
     return {}
 
 
-def _schema_actions(entry: dict) -> set[str]:
-    from typing import get_args
-
-    ann = entry["annotations"].get("params")
-    assert ann is not None, "expected a 'params' annotation on the wrapper"
-    union_args = get_args(ann)
-    inner = union_args[0]
-    members = get_args(inner)
-    if not members:
-        members = (inner,)
-    actions: set[str] = set()
-    for m in members:
-        field = m.model_fields.get("action")
-        if field and hasattr(field.annotation, "__args__"):
-            actions.add(field.annotation.__args__[0])
-    return actions
-
-
-def _set_union_annotation(func, union):
-    func.__annotations__ = {"params": union}
-    return func
-
-
 @pytest.fixture
 def patch_registry(monkeypatch):
     saved = dict(_registry)
@@ -172,64 +98,8 @@ def _single_meta(name: str, *, opt_in: bool) -> dict:
     }
 
 
-def _multi_meta(name: str, union) -> dict:
-    def handler(params):  # type: ignore[no-untyped-def]
-        return {}
-
-    _set_union_annotation(handler, union)
-    return {
-        "name": name,
-        "description": f"{name} description",
-        "title": name,
-        "original": handler,
-        "write": True,
-        "destructive": False,
-        "opt_in": False,  # whole-tool flag; per-action gating is via _opt_in
-        "destructive_hint": True,
-        "idempotent_hint": None,
-        "open_world_hint": False,
-    }
-
-
-_BASE_DESCRIPTION = "Manage test things"
-
-
 # ===========================================================================
-# _get_opt_in_actions
-# ===========================================================================
-
-
-class TestGetOptInActions:
-    def test_single_action_tool_returns_empty(self):
-        def handler() -> dict:
-            return {}
-
-        assert _get_opt_in_actions(handler) == set()
-
-    def test_multi_action_with_opt_in_returns_those_literals(self):
-        def handler(params):  # type: ignore[no-untyped-def]
-            return {}
-
-        _set_union_annotation(handler, MixedUnion)
-        assert _get_opt_in_actions(handler) == {"preview"}
-
-    def test_multi_action_with_two_opt_in(self):
-        def handler(params):  # type: ignore[no-untyped-def]
-            return {}
-
-        _set_union_annotation(handler, TwoOptInUnion)
-        assert _get_opt_in_actions(handler) == {"preview", "beta"}
-
-    def test_multi_action_all_safe_returns_empty(self):
-        def handler(params):  # type: ignore[no-untyped-def]
-            return {}
-
-        _set_union_annotation(handler, AllSafeUnion)
-        assert _get_opt_in_actions(handler) == set()
-
-
-# ===========================================================================
-# register_tools -- whole-tool opt-in gating
+# register_tools -- opt-in gating
 # ===========================================================================
 
 
@@ -330,99 +200,6 @@ class TestRegisterToolsWholeTool:
 
 
 # ===========================================================================
-# register_tools -- per-action opt-in gating
-# ===========================================================================
-
-
-class TestRegisterToolsPerAction:
-    def test_opt_in_action_removed_when_not_opted_in(self, patch_registry):
-        patch_registry({"deck_management": _multi_meta("deck_management", MixedUnion)})
-        mcp = _MockMCP()
-        register_tools(mcp, _call_main_thread, enabled_opt_in_tools=[])
-
-        entry = mcp.by_name("deck_management")
-        assert entry is not None, "tool should still register (safe actions remain)"
-        actions = _schema_actions(entry)
-        assert "preview" not in actions
-        assert {"safe_a", "safe_b"} <= actions
-
-    def test_opt_in_action_present_when_action_opted_in(self, patch_registry):
-        patch_registry({"deck_management": _multi_meta("deck_management", MixedUnion)})
-        mcp = _MockMCP()
-        register_tools(
-            mcp,
-            _call_main_thread,
-            enabled_opt_in_tools=["deck_management:preview"],
-        )
-        entry = mcp.by_name("deck_management")
-        assert entry is not None
-        actions = _schema_actions(entry)
-        assert "preview" in actions
-        assert {"safe_a", "safe_b"} <= actions
-
-    def test_whole_tool_opt_in_does_not_reveal_opt_in_action(self, patch_registry):
-        patch_registry({"deck_management": _multi_meta("deck_management", MixedUnion)})
-        mcp = _MockMCP()
-        register_tools(
-            mcp,
-            _call_main_thread,
-            enabled_opt_in_tools=["deck_management"],
-        )
-        entry = mcp.by_name("deck_management")
-        assert entry is not None
-        actions = _schema_actions(entry)
-        assert "preview" not in actions
-
-    def test_opting_in_one_of_two_opt_in_actions(self, patch_registry):
-        patch_registry(
-            {"deck_management": _multi_meta("deck_management", TwoOptInUnion)}
-        )
-        mcp = _MockMCP()
-        register_tools(
-            mcp,
-            _call_main_thread,
-            enabled_opt_in_tools=["deck_management:preview"],
-        )
-        entry = mcp.by_name("deck_management")
-        actions = _schema_actions(entry)
-        assert "preview" in actions
-        assert "beta" not in actions
-        assert "safe_a" in actions
-
-
-# ===========================================================================
-# register_tools -- precedence / composition with disabled_tools
-# ===========================================================================
-
-
-class TestRegisterToolsPrecedence:
-    def test_opted_in_action_also_disabled_is_hidden(self, patch_registry):
-        patch_registry({"deck_management": _multi_meta("deck_management", MixedUnion)})
-        mcp = _MockMCP()
-        register_tools(
-            mcp,
-            _call_main_thread,
-            disabled_tools=["deck_management:preview"],
-            enabled_opt_in_tools=["deck_management:preview"],
-        )
-        entry = mcp.by_name("deck_management")
-        assert entry is not None
-        actions = _schema_actions(entry)
-        assert "preview" not in actions
-
-    def test_all_actions_hidden_skips_whole_tool(self, patch_registry):
-        patch_registry({"deck_management": _multi_meta("deck_management", MixedUnion)})
-        mcp = _MockMCP()
-        register_tools(
-            mcp,
-            _call_main_thread,
-            disabled_tools=["deck_management:safe_a", "deck_management:safe_b"],
-            enabled_opt_in_tools=[],  # preview stays hidden
-        )
-        assert "deck_management" not in mcp.names()
-
-
-# ===========================================================================
 # validate_enabled_opt_in_tools
 # ===========================================================================
 
@@ -434,7 +211,6 @@ class TestValidateEnabledOptInTools:
             {
                 "gui_answer_card": _single_meta("gui_answer_card", opt_in=True),
                 "sync": _single_meta("sync", opt_in=False),
-                "deck_management": _multi_meta("deck_management", MixedUnion),
             }
         )
 
@@ -448,34 +224,19 @@ class TestValidateEnabledOptInTools:
         assert "enabled_opt_in_tools" in warnings[0]
         assert "typo" in warnings[0]
 
-    def test_nonexistent_action_warns(self, opt_in_registry):
-        warnings = validate_enabled_opt_in_tools(["deck_management:ghost"])
+    def test_tool_action_entry_warns(self, opt_in_registry):
+        warnings = validate_enabled_opt_in_tools(["gui_answer_card:ghost"])
         assert len(warnings) == 1
-        assert "not found" in warnings[0]
+        assert "no longer supported" in warnings[0]
 
-    def test_real_but_not_opt_in_whole_tool_is_noop_warning(self, opt_in_registry):
+    def test_real_but_not_opt_in_tool_is_noop_warning(self, opt_in_registry):
         warnings = validate_enabled_opt_in_tools(["sync"])
         assert len(warnings) == 1
         assert "no-op" in warnings[0]
         assert "'sync'" in warnings[0]
 
-    def test_real_but_not_opt_in_action_is_noop_warning(self, opt_in_registry):
-        warnings = validate_enabled_opt_in_tools(["deck_management:safe_a"])
-        assert len(warnings) == 1
-        assert "no-op" in warnings[0]
-        assert "deck_management:safe_a" in warnings[0]
-
-    def test_correct_opt_in_whole_tool_no_warning(self, opt_in_registry):
+    def test_correct_opt_in_tool_no_warning(self, opt_in_registry):
         assert validate_enabled_opt_in_tools(["gui_answer_card"]) == []
-
-    def test_correct_opt_in_action_no_warning(self, opt_in_registry):
-        assert validate_enabled_opt_in_tools(["deck_management:preview"]) == []
-
-    def test_hidden_by_default_opt_in_action_not_flagged_nonexistent(
-        self, opt_in_registry
-    ):
-        warnings = validate_enabled_opt_in_tools(["deck_management:preview"])
-        assert not any("not found" in w for w in warnings)
 
 
 # ===========================================================================

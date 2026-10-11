@@ -1,4 +1,4 @@
-"""Change deck action implementation for card_actions tool."""
+"""Implementation for the card_change_deck tool."""
 from typing import Any
 
 from ......handler_wrappers import HandlerError, get_col
