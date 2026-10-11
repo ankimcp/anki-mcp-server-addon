@@ -16,6 +16,7 @@ from .actions.set_flag import set_flag_impl
     "Returns flagged_count.",
     title="Set Card Flag",
     write=True,
+    destructive_hint=False,
     idempotent_hint=True,
 )
 def card_set_flag(

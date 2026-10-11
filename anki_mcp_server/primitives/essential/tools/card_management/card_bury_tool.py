@@ -16,6 +16,7 @@ from .actions.bury import bury_impl
     "Returns buried_count.",
     title="Bury Cards",
     write=True,
+    destructive_hint=False,
     idempotent_hint=True,
 )
 def card_bury(

@@ -252,6 +252,11 @@ def test_every_real_tool_has_complete_annotations(tools_list):
         ("tag_list", True, False, False),
         ("filtered_deck_get_info", True, False, False),
         ("tag_add", False, False, False),
+        ("filtered_deck_rebuild", False, False, False),
+        ("filtered_deck_upsert", False, True, False),
+        ("card_forget", False, True, False),
+        ("card_set_due_date", False, True, False),
+        ("card_reposition", False, True, False),
     ],
 )
 def test_real_tool_spot_checks(tools_list, name, read_only, destructive, open_world):
@@ -267,18 +272,18 @@ _IDEMPOTENT_TOOLS_DESTRUCTIVE_HINT = {
     "delete_notes": True,
     "delete_media_file": True,
     "set_fsrs_params": True,
-    "card_change_deck": True,
-    "card_bury": True,
-    "card_unbury": True,
-    "card_suspend": True,
-    "card_unsuspend": True,
-    "card_set_flag": True,
+    "card_change_deck": False,
+    "card_bury": False,
+    "card_unbury": False,
+    "card_suspend": False,
+    "card_unsuspend": False,
+    "card_set_flag": False,
     "tag_add": False,
     "tag_remove": True,
     "tag_replace": True,
     "tag_clear_unused": True,
     "tag_batch": True,
-    "filtered_deck_empty": True,
+    "filtered_deck_empty": False,
     "filtered_deck_delete": True,
     "model_field_add": True,
     "model_field_rename": True,
@@ -331,3 +336,31 @@ def test_only_the_declared_tools_are_idempotent(tools_list):
         t.name for t in tools_list if "idempotentHint" in _wire(t)["annotations"]
     }
     assert declared == set(_IDEMPOTENT_TOOLS_DESTRUCTIVE_HINT)
+
+
+# Must match the `destructive_hint` bullet in CLAUDE.md.
+_NON_DESTRUCTIVE_WRITE_TOOLS = {
+    "add_note",
+    "add_notes",
+    "create_deck",
+    "create_model",
+    "store_media_file",
+    "tag_add",
+    "card_bury",
+    "card_unbury",
+    "card_suspend",
+    "card_unsuspend",
+    "card_set_flag",
+    "card_change_deck",
+    "filtered_deck_empty",
+    "filtered_deck_rebuild",
+}
+
+
+def test_only_the_declared_write_tools_are_non_destructive(tools_list):
+    declared = set()
+    for t in tools_list:
+        ann = _wire(t)["annotations"]
+        if ann["readOnlyHint"] is False and ann["destructiveHint"] is False:
+            declared.add(t.name)
+    assert declared == _NON_DESTRUCTIVE_WRITE_TOOLS

@@ -52,8 +52,7 @@ def rename_field_impl(model_name: str, field_name: str, new_name: str) -> dict[s
         "fields": field_names(model),
         "message": f'Renamed field "{field_name}" to "{target}" in model "{model_name}"',
         "warning": (
-            f"Card templates that reference {{{{{field_name}}}}} were NOT updated and will "
-            f"break until you fix them. Update them to {{{{{target}}}}} with the "
-            "update_model_templates tool. " + RENAME_SYNC_NOTE
+            f"Card template references to {{{{{field_name}}}}} were rewritten to "
+            f"{{{{{target}}}}}. " + RENAME_SYNC_NOTE
         ),
     }

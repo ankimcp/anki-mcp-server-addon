@@ -15,6 +15,7 @@ from .actions.empty import empty_impl
     "Returns deck_id.",
     title="Empty Filtered Deck",
     write=True,
+    destructive_hint=False,
     idempotent_hint=True,
 )
 def filtered_deck_empty(

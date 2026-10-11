@@ -16,6 +16,7 @@ from .actions.unsuspend import unsuspend_impl
     "Returns unsuspended_count and card_ids.",
     title="Unsuspend Cards",
     write=True,
+    destructive_hint=False,
     idempotent_hint=True,
 )
 def card_unsuspend(

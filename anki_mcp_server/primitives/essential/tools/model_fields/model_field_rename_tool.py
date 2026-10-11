@@ -18,9 +18,9 @@ from .actions.rename import rename_field_impl
 
 @Tool(
     "model_field_rename",
-    "Rename a field of a note type, keeping its content. Card templates are not "
-    "updated -- a reference to {{OldFieldName}} renders blank until it is changed "
-    "with update_model_templates. Renaming does not itself modify the schema. "
+    "Rename a field of a note type, keeping its content. Anki rewrites references "
+    "to the field in the card templates to the new name. "
+    "Renaming does not itself modify the schema. "
     + FULL_SYNC_FLAG_DOC
     + " This tool reports true only if the collection was already dirty.",
     title="Rename Note Type Field",

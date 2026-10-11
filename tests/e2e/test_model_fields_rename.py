@@ -70,7 +70,7 @@ class TestModelFieldsRename:
         assert result["old_field_name"] == "Extra"
         assert result["new_field_name"] == "Notes"
         assert result["fields"] == ["Front", "Back", "Notes"]
-        # The rename warning must mention that template references are NOT updated.
+        # The rename warning must mention that template references were rewritten.
         assert "warning" in result
         assert "template" in result["warning"].lower()
 

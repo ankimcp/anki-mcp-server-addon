@@ -16,6 +16,7 @@ from .actions.suspend import suspend_impl
     "Returns suspended_count.",
     title="Suspend Cards",
     write=True,
+    destructive_hint=False,
     idempotent_hint=True,
 )
 def card_suspend(

@@ -15,6 +15,7 @@ from .actions.unbury import unbury_impl
     "Returns deck_name.",
     title="Unbury Deck Cards",
     write=True,
+    destructive_hint=False,
     idempotent_hint=True,
 )
 def card_unbury(

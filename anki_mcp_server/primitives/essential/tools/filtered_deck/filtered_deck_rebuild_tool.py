@@ -15,6 +15,7 @@ from .actions.rebuild import rebuild_impl
     "Returns card_count after the rebuild.",
     title="Rebuild Filtered Deck",
     write=True,
+    destructive_hint=False,
 )
 def filtered_deck_rebuild(
     deck_id: Annotated[int, Field(description="Filtered deck ID")],
