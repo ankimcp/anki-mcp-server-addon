@@ -6,7 +6,7 @@ import time
 import pytest
 
 from .conftest import unique_id
-from .helpers import call_tool
+from .helpers import call_tool, delete_filtered_deck
 
 
 @pytest.fixture
@@ -122,12 +122,15 @@ class TestDeckDescriptions:
             "allow_empty": True,
         })
         assert created.get("isError") is not True, created
-        args = {"deck_name": created["name"]}
-        if tool == "update_deck_description":
-            args["description"] = "Should not be written"
-        result = call_tool(tool, args)
-        assert result.get("isError") is True, result
-        assert "Filtered decks" in str(result)
+        try:
+            args = {"deck_name": created["name"]}
+            if tool == "update_deck_description":
+                args["description"] = "Should not be written"
+            result = call_tool(tool, args)
+            assert result.get("isError") is True, result
+            assert "Filtered decks" in str(result)
+        finally:
+            delete_filtered_deck(created["deck_id"])
 
     @pytest.mark.parametrize("tool", ["get_deck_description", "update_deck_description"])
     @pytest.mark.parametrize("name", ["", " \t\n "])
