@@ -244,6 +244,8 @@ def test_every_real_tool_has_complete_annotations(tools_list):
     [
         ("find_notes", True, False, False),
         ("list_decks", True, False, False),
+        ("get_deck_description", True, False, False),
+        ("update_deck_description", False, True, False),
         ("add_note", False, False, False),
         ("delete_notes", False, True, False),
         ("sync", False, True, True),
@@ -269,6 +271,7 @@ def test_real_tool_spot_checks(tools_list, name, read_only, destructive, open_wo
 
 _IDEMPOTENT_TOOLS_DESTRUCTIVE_HINT = {
     "create_deck": False,
+    "update_deck_description": True,
     "delete_notes": True,
     "delete_media_file": True,
     "set_fsrs_params": True,
