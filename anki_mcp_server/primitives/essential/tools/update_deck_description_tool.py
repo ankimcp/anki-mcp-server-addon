@@ -1,5 +1,4 @@
 """Replace a deck's description, optionally changing its Markdown setting."""
-from copy import deepcopy
 from typing import Annotated, Any
 
 from pydantic import Field
@@ -34,7 +33,9 @@ def update_deck_description(
     ] = None,
 ) -> dict[str, Any]:
     col = get_col()
-    deck = deepcopy(get_description_deck(col, deck_name))
+    # by_name() deserializes a fresh dict from the backend on every call, so
+    # mutating it in place aliases nothing (update_model_styling does the same).
+    deck = get_description_deck(col, deck_name)
     deck["desc"] = description
     if is_markdown is not None:
         deck["md"] = is_markdown
