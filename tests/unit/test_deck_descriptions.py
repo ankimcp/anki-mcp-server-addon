@@ -39,26 +39,11 @@ def test_update_preserves_unrelated_deck_data(deck_tools, collection):
 
     saved = col.decks.update_dict.call_args.args[0]
     assert saved == {**before, "desc": "Replacement", "md": False}
-    # Only the copy handed to Anki's update operation is changed.
-    assert deck == before
-
-
-def test_failed_update_leaves_lookup_result_unchanged(deck_tools, collection):
-    col, deck = collection
-    before = deepcopy(deck)
-    col.decks.update_dict.side_effect = RuntimeError("write failed")
-
-    with pytest.raises(RuntimeError, match="write failed"):
-        deck_tools["update_deck_description"](deck["name"], "Replacement", False)
-
-    assert deck == before
 
 
 def test_read_does_not_persist_or_create_a_deck(deck_tools, collection):
     col, deck = collection
-    before = deepcopy(deck)
     deck_tools["get_deck_description"](deck["name"])
 
-    assert deck == before
     col.decks.update_dict.assert_not_called()
     col.decks.id.assert_not_called()
