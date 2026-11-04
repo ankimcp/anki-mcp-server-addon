@@ -22,33 +22,9 @@ the un-cancelled health-check loop blocks for 30s and ``wait_for`` raises
 
 from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Module aliasing – must happen before TunnelClient (and the transport it
-# transitively touches) is imported.
-#
-# The transport uses *relative* imports (``from ..vendor.shared.mcp.types …``)
-# while the MCP Server internally uses *absolute* imports (``from mcp.types …``).
-# Python treats these as two distinct module objects, which breaks ``isinstance``
-# checks inside the transport's ``_read_responses`` reader.
-#
-# The fix: after ``anki_mcp_server.__init__`` adds ``vendor/shared`` to
-# ``sys.path`` (giving us ``mcp.*``), we create aliases so that
-# ``anki_mcp_server.vendor.shared.mcp.*`` points to the **same** module
-# objects.  This must run before the transport module is imported.
-# ---------------------------------------------------------------------------
-import sys
+# The package __init__ must run before the MCP SDK is imported.
+import anki_mcp_server  # noqa: F401
 
-import anki_mcp_server  # noqa: F401 – triggers vendor path setup
-
-for _key, _mod in list(sys.modules.items()):
-    if _key.startswith("mcp.") or _key == "mcp":
-        _alias = f"anki_mcp_server.vendor.shared.{_key}"
-        if _alias not in sys.modules:
-            sys.modules[_alias] = _mod
-
-# ---------------------------------------------------------------------------
-# Now safe to import the client and the rest of the MCP SDK.
-# ---------------------------------------------------------------------------
 import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock

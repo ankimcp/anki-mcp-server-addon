@@ -5,6 +5,7 @@ background task.  Incoming JSON-RPC strings are parsed, wrapped in
 SessionMessage, and pushed into the server's read stream.  Responses are
 collected from the server's write stream by a background reader and matched
 back to callers via asyncio.Future keyed by JSON-RPC request ``id``.
+Notifications and client-sent responses are forwarded without waiting.
 """
 
 from __future__ import annotations
@@ -158,11 +159,13 @@ class InMemoryTransport:
     # Public API
     # ------------------------------------------------------------------
 
-    async def handle_request(self, body: str) -> str:
+    async def handle_request(self, body: str) -> str | None:
         """Parse a JSON-RPC ``body``, feed it to the server, return the response.
 
-        For notifications (no ``id``), the message is sent fire-and-forget and
-        an empty string is returned immediately.
+        For a request, returns the serialized JSON-RPC response.  For a
+        notification or a client-sent response/error, the message is sent
+        fire-and-forget and ``None`` is returned immediately — the caller
+        maps that to "202 Accepted, no body" per the Streamable HTTP spec.
 
         Raises ``RuntimeError`` if the transport is not started.
         """
@@ -174,10 +177,11 @@ class InMemoryTransport:
         message = JSONRPCMessage.model_validate(raw)
         session_message = SessionMessage(message=message)
 
-        # Notifications have no id – fire and forget
-        if isinstance(message.root, JSONRPCNotification):
+        # Nothing comes back for these, and a response's id belongs to a
+        # server-initiated request, so it must never be registered in _pending.
+        if isinstance(message.root, (JSONRPCNotification, JSONRPCResponse, JSONRPCError)):
             await self._server_read_send.send(session_message)
-            return ""
+            return None
 
         # Requests must have an id
         request_id = message.root.id  # type: ignore[union-attr]

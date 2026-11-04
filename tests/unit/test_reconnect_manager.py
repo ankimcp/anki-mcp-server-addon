@@ -25,29 +25,9 @@ file's ``monkeypatch.setattr(client_module, "connect", ...)`` idiom.
 
 from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Module aliasing – must happen before reconnect.py (and the in-memory
-# transport it imports at module top) is imported. Copied verbatim from
-# test_tunnel_disconnect.py: the transport uses *relative* imports
-# (``from ..vendor.shared.mcp.types …``) while the MCP Server uses *absolute*
-# imports (``from mcp.types …``). Python treats these as distinct module
-# objects, which breaks ``isinstance`` checks inside the transport. After
-# ``anki_mcp_server.__init__`` adds ``vendor/shared`` to ``sys.path`` we alias
-# ``anki_mcp_server.vendor.shared.mcp.*`` onto the same objects.
-# ---------------------------------------------------------------------------
-import sys
+# The package __init__ must run before the MCP SDK is imported.
+import anki_mcp_server  # noqa: F401
 
-import anki_mcp_server  # noqa: F401 – triggers vendor path setup
-
-for _key, _mod in list(sys.modules.items()):
-    if _key.startswith("mcp.") or _key == "mcp":
-        _alias = f"anki_mcp_server.vendor.shared.{_key}"
-        if _alias not in sys.modules:
-            sys.modules[_alias] = _mod
-
-# ---------------------------------------------------------------------------
-# Now safe to import the manager and the rest of the MCP SDK.
-# ---------------------------------------------------------------------------
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 

@@ -276,7 +276,7 @@ Key details:
 - Uses raw `anyio.create_memory_object_stream[SessionMessage | Exception](1)` (not the SDK's context manager helper)
 - Runs `Server.run(stateless=True)` — skips MCP initialize handshake since the remote client drives initialization through the relay
 - Matches responses to requests by JSON-RPC `id` via `asyncio.Future`
-- Notifications (no `id`) are fire-and-forget
+- Notifications (no `id`) and client-sent responses/error-responses are forwarded fire-and-forget and never register a future: `handle_request` returns `None` and `client.py` replies `202` with `headers: {}` and no `body` (Streamable HTTP "Sending Messages to the Server"), as it does for an empty inbound body; requests return the serialized response string and get `200` + `application/json`
 - One fresh `InMemoryTransport` per connection attempt (clean session on reconnect)
 
 #### Threading

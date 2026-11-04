@@ -404,31 +404,44 @@ class TunnelClient:
         start = time.monotonic()
 
         try:
+            response_body: str | None
             if body:
                 response_body = await self._transport.handle_request(body)
             else:
-                response_body = ""
+                # No JSON-RPC message means nothing to answer, so never claim a JSON body.
+                response_body = None
 
-            tunnel_response: TunnelResponse = {
-                "type": "response",
-                "requestId": request_id,
-                "statusCode": 200,
-                "headers": {"content-type": "application/json"},
-            }
-            if response_body:
-                tunnel_response["body"] = response_body
+            # Notifications and client-sent responses: 202 Accepted with no
+            # body (Streamable HTTP "Sending Messages to the Server").
+            if response_body is None:
+                status_code = 202
+                tunnel_response: TunnelResponse = {
+                    "type": "response",
+                    "requestId": request_id,
+                    "statusCode": status_code,
+                    "headers": {},
+                }
+            else:
+                status_code = 200
+                tunnel_response = {
+                    "type": "response",
+                    "requestId": request_id,
+                    "statusCode": status_code,
+                    "headers": {"content-type": "application/json"},
+                    "body": response_body,
+                }
 
             await ws.send(json.dumps(tunnel_response))
 
             duration_ms = (time.monotonic() - start) * 1000
             logger.debug(
-                "Processed %s %s -> 200 (%.1fms)",
-                method, path, duration_ms,
+                "Processed %s %s -> %d (%.1fms)",
+                method, path, status_code, duration_ms,
             )
             self._fire_callback(
                 self._on_request_completed,
                 f"{method} {path}",
-                200,
+                status_code,
                 duration_ms,
             )
 

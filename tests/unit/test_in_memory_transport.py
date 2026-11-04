@@ -7,32 +7,9 @@ error responses, concurrency, and graceful shutdown.
 
 from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Module aliasing – must happen before InMemoryTransport is imported.
-#
-# The transport uses *relative* imports (``from ..vendor.shared.mcp.types …``)
-# while the MCP Server internally uses *absolute* imports (``from mcp.types …``).
-# Python treats these as two distinct module objects, which breaks ``isinstance``
-# checks inside the transport's ``_read_responses`` reader.
-#
-# The fix: after ``anki_mcp_server.__init__`` adds ``vendor/shared`` to
-# ``sys.path`` (giving us ``mcp.*``), we create aliases so that
-# ``anki_mcp_server.vendor.shared.mcp.*`` points to the **same** module
-# objects.  This must run before the transport module is imported.
-# ---------------------------------------------------------------------------
-import sys
+# The package __init__ must run before the MCP SDK is imported.
+import anki_mcp_server  # noqa: F401
 
-import anki_mcp_server  # noqa: F401 – triggers vendor path setup
-
-for _key, _mod in list(sys.modules.items()):
-    if _key.startswith("mcp.") or _key == "mcp":
-        _alias = f"anki_mcp_server.vendor.shared.{_key}"
-        if _alias not in sys.modules:
-            sys.modules[_alias] = _mod
-
-# ---------------------------------------------------------------------------
-# Now safe to import the transport and the rest of the MCP SDK.
-# ---------------------------------------------------------------------------
 import asyncio
 import json
 
@@ -159,11 +136,70 @@ class TestInMemoryTransport:
 
     @pytest.mark.asyncio
     async def test_handle_notification(self, transport: InMemoryTransport) -> None:
-        """Notifications return an empty string (fire-and-forget)."""
+        """Notifications return ``None`` (fire-and-forget, accepted with no body)."""
         result = await transport.handle_request(
             _make_notification("notifications/cancelled", {"requestId": "999", "reason": "test"})
         )
-        assert result == ""
+        assert result is None
+        assert transport._pending == {}
+
+    @pytest.mark.asyncio
+    async def test_handle_initialized_notification(self, transport: InMemoryTransport) -> None:
+        """``notifications/initialized`` -- the message Codex CLI tripped on -- returns ``None``."""
+        result = await transport.handle_request(_make_notification("notifications/initialized"))
+        assert result is None
+
+    # -- 4b. client-sent JSON-RPC response / error (fire-and-forget) -------
+
+    @pytest.mark.asyncio
+    async def test_handle_jsonrpc_response_returns_none_immediately(
+        self, transport: InMemoryTransport
+    ) -> None:
+        """A client-sent response returns ``None`` without waiting for the 25s timeout."""
+        body = json.dumps({"jsonrpc": "2.0", "id": 77, "result": {}})
+        result = await asyncio.wait_for(transport.handle_request(body), timeout=5)
+
+        assert result is None
+        assert transport._pending == {}
+
+    @pytest.mark.asyncio
+    async def test_handle_jsonrpc_error_returns_none_immediately(
+        self, transport: InMemoryTransport
+    ) -> None:
+        """A client-sent error response returns ``None`` without waiting for the timeout."""
+        body = json.dumps(
+            {"jsonrpc": "2.0", "id": 78, "error": {"code": -32601, "message": "nope"}}
+        )
+        result = await asyncio.wait_for(transport.handle_request(body), timeout=5)
+
+        assert result is None
+        assert transport._pending == {}
+
+    @pytest.mark.asyncio
+    async def test_jsonrpc_response_does_not_clobber_inflight_request(
+        self, transport: InMemoryTransport
+    ) -> None:
+        """A client response sharing an in-flight request's id leaves that request intact."""
+        sentinel: asyncio.Future = asyncio.get_running_loop().create_future()
+        transport._pending[5] = sentinel
+
+        result = await transport.handle_request(
+            json.dumps({"jsonrpc": "2.0", "id": 5, "result": {}})
+        )
+
+        assert result is None
+        assert transport._pending.get(5) is sentinel
+        assert not sentinel.done()
+        transport._pending.pop(5)
+
+    @pytest.mark.asyncio
+    async def test_request_still_returns_response_string(
+        self, transport: InMemoryTransport
+    ) -> None:
+        """Requests keep returning the serialized JSON-RPC response."""
+        raw = await transport.handle_request(_make_request("tools/list", request_id=21))
+        assert isinstance(raw, str)
+        assert json.loads(raw)["id"] == 21
 
     # -- 5. invalid JSON ---------------------------------------------------
 
