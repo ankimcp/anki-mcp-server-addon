@@ -11,8 +11,12 @@ websockets>=12.0
 packaging>=23.0
 # Anki imports its own typing_extensions before add-ons load; that copy shadows
 # the vendored one via sys.modules, so every vendored package must run on Anki's
-# copy — 4.14.0 on the oldest supported Anki (25.07), 4.15.0 on current.
-# This ceiling only makes pip reject *declared* floors above it (anyio 4.15.0
-# raised its floor to 4.16.0 and imports `sentinel`); it does not verify that a
-# package actually runs on 4.14.0.
+# copy — 4.14.0 on Anki 25.07–25.09, 4.15.0 on 26.05, 4.16.0 on 26.08+. The
+# vendored version itself is irrelevant at runtime (Anki's copy wins); the
+# ceiling stays so pip rejects packages that *declare* a floor above what the
+# oldest supported Anki has (anyio >=4.15.0 declares
+# `typing_extensions>=4.16.0; python_version < "3.15"` and imports `sentinel`). It does not verify that a package actually runs on 4.14.0. It
+# also only works on a build host below Python 3.15: anyio's floor is guarded by
+# `python_version < "3.15"`, which pip evaluates against the host interpreter --
+# hence the 3.13 build Python in .github/build-python-version.
 typing-extensions<4.15

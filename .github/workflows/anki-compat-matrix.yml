@@ -1,0 +1,156 @@
+# Anki version matrix: does the .ankiaddon a release would ship import inside
+# every supported Anki?
+#
+# Catches the 0.41.0 class of bug. Anki imports aqt -- and with it its own,
+# older typing_extensions -- before any add-on loads, so the vendored copy is
+# shadowed via sys.modules and every vendored package has to run on Anki's.
+# 0.41.0 vendored anyio 4.16.0, which does `from typing_extensions import
+# sentinel` (4.16.0+ only), and failed to load on Anki 25.07-26.05.
+#
+# Two things make this check faithful, and dropping either one hides the bug:
+#
+# * The artifact is built on the Python every package-building job uses (read
+#   from .github/build-python-version). package.sh targets cp313, but pip
+#   evaluates environment markers against the BUILD interpreter, so a different
+#   build Python vendors different versions -- in 0.41.0, e2e.yml (3.11) and
+#   anki-compat.yml (3.13) built a working anyio while the release job ('3.x',
+#   which resolved to 3.15) shipped a broken one.
+# * Anki is installed from `anki-release==<ver>`, the meta-package the Anki
+#   launcher installs, which pins every dependency exactly (typing-extensions
+#   4.14.0 on 25.07-25.09, 4.15.0 on 26.05). `aqt==<ver>` alone leaves
+#   typing_extensions unpinned and pulls the newest, which masks the bug.
+#   anki-release exists for 25.07 through 26.05 only; 26.08 dropped the
+#   launcher.
+#
+# Anki 26.08+ is NOT covered: with no anki-release to pin it, and aqt itself
+# not pinning typing_extensions, there is no faithful install to test. Those
+# bundles ship typing_extensions 4.16.0, which is not affected by this bug.
+#
+# Separate from anki-compat.yml because that canary tests the LATEST aqt on
+# several OSes and files issues; this tests FIXED old Anki versions on Linux
+# only (the failure is pure Python) and is cheap enough to gate PRs. The
+# daily schedule matters too: package.sh resolves dependencies fresh on every
+# build, so a new upstream release can break the next release with no commit
+# here.
+#
+# NOTE: scheduled (cron) and workflow_dispatch triggers only work for workflow
+# files on the repository's DEFAULT branch. Until this file is merged to main,
+# it runs only on pull requests to main (GitHub uses the PR head's copy).
+
+name: Anki Version Matrix
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Daily at 05:47 UTC (off the hour, and apart from anki-compat.yml's 05:17).
+    - cron: "47 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: anki-compat-matrix-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python (the build Python)
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: .github/build-python-version
+
+      - name: Build addon
+        run: |
+          python3 --version
+          ./package.sh
+
+      - name: Show vendored anyio / typing_extensions
+        run: unzip -l anki_mcp_server.ankiaddon | grep -E 'dist-info/$' | grep -iE 'anyio|typing'
+
+      - name: Upload .ankiaddon artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: anki_mcp_server.ankiaddon
+          path: anki_mcp_server.ankiaddon
+          retention-days: 7
+
+  import-check:
+    name: import-check (Anki ${{ matrix.anki }})
+    needs: build
+    # Pinned: the apt list below uses Ubuntu 24.04's `t64` package names.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # anki-release versions (PyPI spelling). Oldest supported (latest
+        # 25.07 patch), the 0.41.0 reporter's version, and the last launcher
+        # release.
+        anki:
+          - "25.7.5"
+          - "25.9.4"
+          - "26.5"
+
+    env:
+      # Keep the smoke script's stdout and stderr in order in the log.
+      PYTHONUNBUFFERED: "1"
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      # Anki 25.07+ runs on Python 3.13.
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      # `import aqt` loads PyQt6 and PyQt6-WebEngine, whose shared libraries
+      # are not all on the runner image (libEGL is missing, among others). This
+      # is the full set `import aqt` needs on a bare ubuntu:24.04.
+      - name: Install Qt runtime libraries
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-0t64 libgl1 libegl1 libfontconfig1 libxkbcommon0 \
+            libdbus-1-3 libatomic1 libnss3 libxcomposite1 libxdamage1 \
+            libxfixes3 libxrender1 libxrandr2 libxtst6 libxi6 libasound2t64 \
+            libxkbfile1
+
+      - name: Install Anki (anki-release pins)
+        env:
+          ANKI_VERSION: ${{ matrix.anki }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "anki-release==$ANKI_VERSION"
+          python -c "import importlib.metadata as m; [print(f'{d}: {m.version(d)}') for d in ('anki-release', 'aqt', 'anki', 'typing_extensions', 'PyQt6')]"
+
+      - name: Download .ankiaddon artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: anki_mcp_server.ankiaddon
+          path: artifact
+
+      - name: Extract addon bundle
+        # Flat zip -- the extraction dir is the addon package dir (see package.sh).
+        run: python -c "import zipfile; zipfile.ZipFile('artifact/anki_mcp_server.ankiaddon').extractall('addon')"
+
+      - name: Import the add-on's dependency chain after aqt
+        # --preload-aqt imports aqt (and its typing_extensions) before the
+        # vendor path goes in, as Anki does, then walks mcp -> anyio. A
+        # vendored package needing a newer typing_extensions fails here with
+        # the full traceback.
+        run: python tests/smoke/import_smoke.py --preload-aqt "$PWD/addon"

@@ -35,6 +35,9 @@
 <li><p><b>Hosted Anki — if you don't want or can't run your computer 24/7.</b> A full copy of Anki on our servers, reachable by your AI around the clock and by you in your browser. Part of the Pro plan ($15/month), still experimental. <a href="https://ankimcp.ai/docs/hosted-anki/">Learn more →</a></p></li>
 </ul>
 
+<h2>New in v0.41.1</h2>
+<p><b>Fixes the 0.41.0 startup failure on Anki 25.07–26.05.</b> If the add-on failed to start with <code>cannot import name 'sentinel' from 'typing_extensions'</code>, update the add-on. 0.41.0 had been built on the wrong Python version; it's now built on Python 3.13, the version Anki ships. <a href="https://github.com/ankimcp/anki-mcp-server-addon/releases/latest">Full changelog →</a></p>
+
 <h2>New in v0.41.0</h2>
 <p><b>Deck descriptions.</b> Your AI can now read and update the description of a deck — the text Anki shows on the deck's overview screen. Use it as a per-deck authoring guide: what the deck is for, which note type to use, what belongs on the front and on the back. Tell your AI "read the Spanish deck's description before adding cards" and it follows your own conventions, from any client. Two tools, <code>get_deck_description</code> and <code>update_deck_description</code>; updates can be undone from Anki's Edit menu like any other change, and the Markdown setting is kept unless you ask to change it. Thanks to Roman Korostinskiy for proposing and building it. Also fixed: the tunnel now answers protocol notifications the way the MCP spec requires, so a web AI no longer waits out a 25-second timeout on them. <a href="https://github.com/ankimcp/anki-mcp-server-addon/releases/latest">Full changelog →</a></p>
 

@@ -1,16 +1,38 @@
 #!/bin/bash
-set -e
+# No pipefail: the leak check below pipes `find` into `grep -q .`, and with
+# pipefail a SIGPIPE'd find would turn a found leak into a pass. Nothing that
+# can fail the build is piped.
+set -eu
 
 ADDON_DIR="anki_mcp_server"
 OUTPUT="anki_mcp_server.ankiaddon"
 WHEELS_DIR="wheels"
 VENDOR_DIR="$ADDON_DIR/vendor"
+BUILD_PYTHON_FILE=".github/build-python-version"
 
-# Use python3 -m pip for portability
-PIP="python3 -m pip"
+# Interpreter that runs pip. Override with PYTHON=/path/to/python3.13.
+PYTHON="${PYTHON:-python3}"
 
-# Anki 25.x uses Python 3.13
-PYTHON_VERSION="313"
+# The Python Anki ships (3.13 for Anki 25.07+). Same file CI's setup-python reads.
+BUILD_PYTHON="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$BUILD_PYTHON_FILE" | grep -m1 . || true)"
+[ -n "$BUILD_PYTHON" ] || { echo "ERROR: no version found in $BUILD_PYTHON_FILE" >&2; exit 1; }
+PYTHON_VERSION="${BUILD_PYTHON//./}"
+
+echo "=== Checking build Python ==="
+# pip evaluates dependency environment markers (e.g. anyio's
+# `typing_extensions>=4.16.0; python_version < "3.15"`) against the interpreter
+# running pip, not against --python-version, so the host Python decides which
+# versions get vendored. 0.41.0 was built on 3.15 and could not load in Anki.
+FOUND_PYTHON="$("$PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+if [ "$FOUND_PYTHON" != "$BUILD_PYTHON" ]; then
+    echo "ERROR: package.sh must run on Python $BUILD_PYTHON (from $BUILD_PYTHON_FILE); '$PYTHON' is ${FOUND_PYTHON:-not runnable}." >&2
+    echo "       pip evaluates dependency environment markers against the host interpreter," >&2
+    echo "       so building on another Python vendors packages that may not load inside Anki." >&2
+    echo "       Use e.g. \`uv run --python $BUILD_PYTHON ./package.sh\`, or \`brew install python@$BUILD_PYTHON\`" >&2
+    echo "       and run \`PYTHON=python$BUILD_PYTHON ./package.sh\`." >&2
+    exit 1
+fi
+echo "Using $PYTHON (Python $FOUND_PYTHON)"
 
 echo "=== Cleaning previous builds ==="
 rm -rf "$WHEELS_DIR" "$VENDOR_DIR" "$OUTPUT"
@@ -20,17 +42,11 @@ echo "=== Downloading pure Python packages (with transitive deps) ==="
 # Versions come from requirements.txt (single source of truth); pip resolves
 # transitive deps automatically. The mcp<2 pin there keeps us on the v1 SDK.
 # Note: pydantic-core is NOT included here - it will be lazy-loaded at runtime
-$PIP download -r requirements.txt \
+"$PYTHON" -m pip download -r requirements.txt \
     --dest "$WHEELS_DIR/pure" \
     --only-binary=:all: \
-    --python-version $PYTHON_VERSION \
-    --platform macosx_11_0_arm64 \
-    2>&1 | grep -v "already satisfied" || true
-
-# Also grab any pure Python wheels we might have missed
-$PIP download -r requirements.txt \
-    --dest "$WHEELS_DIR/pure" \
-    2>&1 | grep -v "already satisfied" || true
+    --python-version "$PYTHON_VERSION" \
+    --platform macosx_11_0_arm64
 
 echo "=== Extracting wheels to vendor directory ==="
 

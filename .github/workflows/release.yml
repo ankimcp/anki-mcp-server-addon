@@ -56,7 +56,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version-file: .github/build-python-version
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -109,10 +109,10 @@ jobs:
   # registry failure can be re-run on its own.
   #
   # WARNING: re-running THIS job re-runs `./package.sh`, and package.sh does a
-  # fresh `pip download` with only `mcp` upper-bounded, so the rebuilt
-  # .ankiaddon is not byte-identical to the one users already downloaded. That
-  # is why `overwrite_files: false` is set below: a re-run leaves the published
-  # asset alone instead of silently swapping it.
+  # fresh `pip download` with only `mcp` and `typing-extensions` upper-bounded,
+  # so the rebuilt .ankiaddon is not byte-identical to the one users already
+  # downloaded. That is why `overwrite_files: false` is set below: a re-run
+  # leaves the published asset alone instead of silently swapping it.
   release:
     runs-on: ubuntu-latest
     needs: test
@@ -123,10 +123,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The Python Anki ships, not '3.x': pip evaluates dependency environment
+      # markers against this interpreter (see .github/build-python-version).
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.x'
+          python-version-file: .github/build-python-version
 
       # __version__ is the single source of truth. Already checked by the
       # version-gate job, and re-checked here rather than assumed: re-running
