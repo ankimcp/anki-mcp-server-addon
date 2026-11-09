@@ -1,11 +1,14 @@
-# Python that builds the shipped .ankiaddon (read via setup-python's
-# python-version-file). package.sh targets cp313 with `pip download
-# --python-version 313`, but pip still evaluates environment markers such as
-# anyio's `typing_extensions>=4.16.0; python_version < "3.15"` against THIS
-# interpreter, so it changes which vendored versions get resolved.
+# Python that builds every .ankiaddon (read via setup-python's
+# python-version-file by every workflow job that runs package.sh, and by
+# package.sh itself, which refuses to build on any other version). It must
+# match the Python Anki ships: 3.13 for Anki 25.07+.
+#
+# `pip download --python-version 313` only selects wheel tags. pip still
+# evaluates environment markers such as anyio's
+# `typing_extensions>=4.16.0; python_version < "3.15"` against THIS interpreter,
+# so any other build Python vendors different versions -- 0.41.0 was built on
+# 3.15 and shipped an anyio that cannot load inside Anki.
 #
 # Not named .python-version on purpose: pyenv/uv would pick that up locally.
-#
-# This is release.yml's `release` job's spec today. anki-compat-matrix.yml
-# reads it so that workflow tests the same artifact a release would ship.
-3.x
+# No inline comments: setup-python only skips lines that start with #.
+3.13

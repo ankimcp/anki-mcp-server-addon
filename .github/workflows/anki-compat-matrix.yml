@@ -9,12 +9,12 @@
 #
 # Two things make this check faithful, and dropping either one hides the bug:
 #
-# * The artifact is built with the release job's Python spec (read from
-#   .github/build-python-version). package.sh targets cp313, but pip evaluates
-#   environment markers against the BUILD interpreter, so a different build
-#   Python vendors different versions -- e2e.yml (3.11) and anki-compat.yml
-#   (3.13) built a working anyio while the release (3.x = 3.15) shipped a
-#   broken one.
+# * The artifact is built on the Python every package-building job uses (read
+#   from .github/build-python-version). package.sh targets cp313, but pip
+#   evaluates environment markers against the BUILD interpreter, so a different
+#   build Python vendors different versions -- in 0.41.0, e2e.yml (3.11) and
+#   anki-compat.yml (3.13) built a working anyio while the release job ('3.x',
+#   which resolved to 3.15) shipped a broken one.
 # * Anki is installed from `anki-release==<ver>`, the meta-package the Anki
 #   launcher installs, which pins every dependency exactly (typing-extensions
 #   4.14.0 on 25.07-25.09, 4.15.0 on 26.05). `aqt==<ver>` alone leaves
@@ -65,7 +65,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Set up Python (the release job's spec)
+      - name: Set up Python (the build Python)
         uses: actions/setup-python@v6
         with:
           python-version-file: .github/build-python-version
