@@ -613,6 +613,7 @@ This project has **no configured linters, formatters, or type checkers** (no ruf
 - **Nightly Inspector canary** (`e2e-inspector-latest.yml`) reuses `e2e.yml` with `INSPECTOR_VERSION=latest`. Expected to go red occasionally; NOT a merge gate.
 - **Weekly registry drift check** (`registry-drift.yml`) compares the registry against `__version__` and files a deduped issue on mismatch.
 - **Anki compatibility canary** (`anki-compat.yml`) tests the import chain daily against the latest `aqt`, incl. betas.
+- **Anki version matrix** (`anki-compat-matrix.yml`, push/PR to `main`, daily, dispatch) builds the `.ankiaddon` with the release job's Python (`.github/build-python-version` — pip resolves markers against the build interpreter, so another Python vendors different versions) and imports it after `import aqt` under Anki 25.07.5 / 25.09.4 / 26.05, catching vendored packages that need a newer `typing_extensions` than Anki preloads (0.41.0's anyio `sentinel` crash); Anki comes from `anki-release==<ver>`, the launcher's fully pinned meta-package, because a bare `aqt==<ver>` pulls the latest `typing_extensions` and hides the bug.
 - **Version** lives in `__init__.py` as `__version__`. Bump it there before tagging a release.
 - Scheduled workflows only run from the **default branch** — new cron triggers do nothing until merged to `main`; use `workflow_dispatch` in the meantime.
 
