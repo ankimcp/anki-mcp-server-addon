@@ -32,7 +32,7 @@
 
           pythonDeps = pkgs.python3.withPackages (
             ps: with ps; [
-              mcp
+              mcp_1
               pydantic
               pydantic-settings
               starlette
