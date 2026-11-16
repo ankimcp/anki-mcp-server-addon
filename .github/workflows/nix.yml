@@ -10,10 +10,10 @@
 # This workflow catches the class of bug where the add-on adds a top-level
 # `import` of a package the bundle happens to ship but the flake's nixpkgs list
 # does NOT — which crashes the add-on on load under Nix while passing every
-# normal (package.sh) install. The import step below loads dependency_loader
-# using ONLY vendor/shared under a clean nixpkgs python3: green means the flake
-# provides everything the add-on hard-imports; red means a dep is missing from
-# flake.nix.
+# normal (package.sh) install. The import step below loads dependency_loader and
+# FastMCP (the MCP SDK v1 check) using ONLY vendor/shared under a clean nixpkgs
+# python3: green means the flake provides everything the add-on hard-imports;
+# red means a dep is missing from flake.nix.
 
 name: Nix
 
@@ -53,8 +53,13 @@ jobs:
         # Import dependency_loader using ONLY vendor/shared (the flake's nixpkgs
         # symlinks) under a clean nixpkgs python3. This is the guard: it fails
         # with ModuleNotFoundError if the add-on hard-imports a package that
-        # flake.nix does not provide.
+        # flake.nix does not provide. It also imports FastMCP, because
+        # dependency_loader never loads the MCP SDK: a flake that resolves `mcp`
+        # to SDK v2 (no mcp.server.fastmcp) must fail here, not at add-on load.
+        # --inputs-from makes `nixpkgs` resolve to the flake's own input, not the
+        # global registry's, so the native extensions (pydantic_core, rpds) match
+        # the Python they were built for.
         run: |
           ADDON=result/share/anki/addons/anki-mcp-server
           cd "$ADDON"
-          PYTHONPATH="vendor/shared" nix shell nixpkgs#python3 --command python3 -c "import dependency_loader; print('addon dependency_loader imported OK')"
+          PYTHONPATH="vendor/shared" nix shell --inputs-from "$GITHUB_WORKSPACE" --no-write-lock-file nixpkgs#python3 --command python3 -c "import dependency_loader; from mcp.server.fastmcp import FastMCP; print('addon dependency_loader and FastMCP imported OK')"

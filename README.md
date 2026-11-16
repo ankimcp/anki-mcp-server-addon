@@ -80,6 +80,8 @@ Add the flake input and use the pre-built package:
 
 #### Without flakes
 
+On stable nixpkgs channels (e.g. 25.11 or 26.05), `ps.mcp` resolves to a 1.x MCP SDK older than the add-on's tested minimum (1.27.0), so that combination is untested. nixos-unstable provides `mcp_1` (1.29.x).
+
 ```nix
 # configuration.nix
 { pkgs, ... }:
@@ -87,12 +89,12 @@ let
   python3 = pkgs.python3;
 
   ankiMcpPythonDeps = python3.withPackages (ps: with ps; [
-    mcp pydantic pydantic-settings starlette uvicorn anyio httpx websockets
+    (ps.mcp_1 or ps.mcp) pydantic pydantic-settings starlette uvicorn anyio httpx websockets
   ]);
 
   anki-mcp-server = pkgs.anki-utils.buildAnkiAddon (finalAttrs: {
     pname = "anki-mcp-server";
-    version = "0.20.0";
+    version = "0.41.1";
     src = pkgs.fetchFromGitHub {
       owner = "ankimcp";
       repo = "anki-mcp-server-addon";
