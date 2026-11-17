@@ -175,6 +175,50 @@ class TestRealToolsSkipReset:
         assert len(undo_calls) == 1
         assert len(mw._reset_calls) == 0
 
+    def test_store_media_file_does_not_call_reset(self, handlers, install_mw):
+        mw = install_mw(_fake_mw())
+        mw.addonManager = types.SimpleNamespace(getConfig=lambda _name: {})
+        mw.col.media = types.SimpleNamespace(
+            dir=lambda: "/tmp/media",
+            write_data=lambda filename, _data: filename,
+        )
+
+        result = handlers["store_media_file"](filename="clip.mp3", data="SUQz")
+
+        assert result["filename"] == "clip.mp3"
+        assert len(mw._reset_calls) == 0
+
+    def test_store_media_files_does_not_call_reset(self, handlers, install_mw):
+        mw = install_mw(_fake_mw())
+        mw.addonManager = types.SimpleNamespace(getConfig=lambda _name: {})
+        mw.col.media = types.SimpleNamespace(
+            dir=lambda: "/tmp/media",
+            write_data=lambda filename, _data: filename,
+        )
+
+        result = handlers["store_media_files"](
+            files=[{"filename": "clip.mp3", "data": "SUQz"}]
+        )
+
+        assert result["stored"] == 1
+        assert len(mw._reset_calls) == 0
+
+    def test_delete_media_file_does_not_call_reset(self, handlers, install_mw, tmp_path):
+        mw = install_mw(_fake_mw())
+        target = tmp_path / "clip.mp3"
+        target.write_bytes(b"ID3")
+        trashed: list[list[str]] = []
+        mw.col.media = types.SimpleNamespace(
+            dir=lambda: str(tmp_path),
+            trash_files=lambda names: trashed.append(names),
+        )
+
+        result = handlers["delete_media_file"](filename="clip.mp3")
+
+        assert result["filename"] == "clip.mp3"
+        assert trashed == [["clip.mp3"]]
+        assert len(mw._reset_calls) == 0
+
 
 class TestClosedCollectionGuard:
     """mw.reset() is skipped when the collection is closed-for-full-sync

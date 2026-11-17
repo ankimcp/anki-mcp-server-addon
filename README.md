@@ -460,7 +460,7 @@ The `cors_expose_headers` setting controls which response headers browsers can r
 
 > Thanks to **[Hideaki Takahashi](https://github.com/Koukyosyumei)** (Columbia University) for responsibly disclosing the media path traversal vulnerability.
 
-The `store_media_file` tool validates all inputs to prevent path traversal and SSRF attacks:
+The `store_media_file` and `store_media_files` tools validate all inputs to prevent path traversal and SSRF attacks:
 
 - **File paths** are restricted to media files only (images, audio, video) via MIME type checking
 - **URLs** must use `http://` or `https://` and cannot target private/internal networks
@@ -484,7 +484,7 @@ Optional hardening via config:
 
 Every tool parameter carries a short `description` in the MCP input schema (since 0.29.0), so clients that show or feed the schema to the model get argument shapes without trial and error. Nested objects (e.g. `tag_batch` operations, `filtered_deck_upsert` search terms) are described on their Pydantic models and appear under `$defs`.
 
-Every tool also carries MCP annotations (since 0.31.0): a human-readable `title`, `readOnlyHint` (true for tools that never modify the collection), `destructiveHint` (false for read-only tools and for writes that are reversible and lose no data: `add_note`, `add_notes`, `create_deck`, `create_model`, `store_media_file`, `tag_add`, `card_bury`, `card_unbury`, `card_suspend`, `card_unsuspend`, `card_set_flag`, `card_change_deck`, `filtered_deck_empty` and `filtered_deck_rebuild`; true for every other write tool, i.e. those that delete, overwrite or irreversibly change data, or force a full AnkiWeb sync), `idempotentHint` (since 0.32.0; true only for write tools where repeating the same call has no further effect: `create_deck`, `update_deck_description`, `delete_notes`, `delete_media_file`, `set_fsrs_params`, `card_change_deck`, `card_bury`, `card_unbury`, `card_suspend`, `card_unsuspend`, `card_set_flag`, every `tag_*` write tool, `filtered_deck_empty`, `filtered_deck_delete` and every `model_field_*` write tool; omitted on every other tool), and `openWorldHint` (true only for `sync`, which talks to AnkiWeb, and `store_media_file`, which can fetch URLs).
+Every tool also carries MCP annotations (since 0.31.0): a human-readable `title`, `readOnlyHint` (true for tools that never modify the collection), `destructiveHint` (false for read-only tools and for writes that are reversible and lose no data: `add_note`, `add_notes`, `create_deck`, `create_model`, `store_media_file`, `store_media_files`, `tag_add`, `card_bury`, `card_unbury`, `card_suspend`, `card_unsuspend`, `card_set_flag`, `card_change_deck`, `filtered_deck_empty` and `filtered_deck_rebuild`; true for every other write tool, i.e. those that delete, overwrite or irreversibly change data, or force a full AnkiWeb sync), `idempotentHint` (since 0.32.0; true only for write tools where repeating the same call has no further effect: `create_deck`, `update_deck_description`, `delete_notes`, `delete_media_file`, `set_fsrs_params`, `card_change_deck`, `card_bury`, `card_unbury`, `card_suspend`, `card_unsuspend`, `card_set_flag`, every `tag_*` write tool, `filtered_deck_empty`, `filtered_deck_delete` and every `model_field_*` write tool; omitted on every other tool), and `openWorldHint` (true only for `sync`, which talks to AnkiWeb, and `store_media_file` / `store_media_files`, which can fetch URLs).
 
 **Upgrading from ≤ 0.27.x:** `get_due_cards` no longer returns `back` unless you pass `include_answer=true`, and `front` is now the rendered question HTML rather than the raw field. Clients that read `back` from this tool need the flag.
 
@@ -536,6 +536,7 @@ Every tool also carries MCP annotations (since 0.31.0): a human-readable `title`
 | `create_model` | Create a new note type |
 | `change_note_type` | Move existing notes to a different note type, remapping fields by name (`{old field: new field or null}`). [Destructive](#destructive-tools-opt-in) — hidden unless opted in via `enabled_destructive_tools`. Two-step flow: `dry_run=true` returns the resolved plan (mapping, dropped fields, cards removed), then the same call with `dry_run=false` **and** `confirm=true` applies it. All notes must share one source note type |
 | `store_media_file` | Store a media file (image/audio) via base64, file path, or URL. File paths are validated against a media-type allowlist; URLs are checked for SSRF |
+| `store_media_files` | Batch-store up to `max_notes_per_batch` media files (default 100) via base64, file path, or URL. Supports partial success — individual failures don't affect others |
 | `get_media_files_names` | List media files matching a pattern |
 | `delete_media_file` | Move a media file to Anki's trash (recoverable via Check Media) |
 

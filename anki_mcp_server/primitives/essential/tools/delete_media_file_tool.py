@@ -16,6 +16,7 @@ from ....media_validators import sanitize_media_filename
     "should be deleted.",
     title="Delete Media File",
     write=True,
+    refresh_ui=False,
     idempotent_hint=True,
 )
 def delete_media_file(
