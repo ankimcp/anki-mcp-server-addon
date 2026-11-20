@@ -308,6 +308,7 @@ class TunnelSettingsSection(QWidget):
                 server_url=self._config.tunnel_server_url,
                 client_id=self._config.tunnel_client_id,
                 parent=self.window(),
+                tunnel_log=self._cm.tunnel_log,
             )
             result = dialog.exec()
             if result != LoginDialog.DialogCode.Accepted or dialog.credentials is None:

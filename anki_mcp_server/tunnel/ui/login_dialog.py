@@ -30,6 +30,8 @@ from aqt.qt import (
 
 from ...credentials import Credentials, CredentialsManager
 from ..auth import AuthError, DeviceCodeResponse, DeviceFlowAuth
+from ..log import TunnelLog
+from ..login_failure import log_login_failure, unexpected_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,7 @@ class _LoginWorker(QThread):
         self._client_id = client_id
         self._cancelled = False
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._failure_reported = False
 
     # -- public API (called from main thread) --
 
@@ -97,22 +100,32 @@ class _LoginWorker(QThread):
 
     def run(self) -> None:
         """Run the full device-code flow on a dedicated event loop."""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        self._loop = loop
+        loop: asyncio.AbstractEventLoop | None = None
         try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self._loop = loop
             loop.run_until_complete(self._flow())
-        except RuntimeError:
-            # When cancel() calls loop.stop(), run_until_complete raises
-            # RuntimeError ("Event loop stopped before Future completed").
-            # That's expected -- don't treat it as an error.
+        except Exception as exc:
+            # cancel() stops the loop, so run_until_complete raises RuntimeError
+            # -- expected, stay silent when cancelled. Anything else that
+            # escapes is logged and reported so the dialog never waits forever.
             if not self._cancelled:
-                raise
+                log_login_failure("run the login worker", exc)
+                self._report_failure(unexpected_error_message(exc))
         finally:
-            # Clean shutdown: cancel any lingering tasks, then close.
-            _cancel_remaining_tasks(loop)
-            loop.close()
             self._loop = None
+            if loop is not None:
+                # Clean shutdown: cancel any lingering tasks, then close.
+                _cancel_remaining_tasks(loop)
+                loop.close()
+
+    def _report_failure(self, message: str) -> None:
+        """Emit ``login_failed`` at most once per worker run."""
+        if self._failure_reported:
+            return
+        self._failure_reported = True
+        self.login_failed.emit(message)
 
     # -- async internals --
 
@@ -124,10 +137,14 @@ class _LoginWorker(QThread):
         try:
             device = await auth.request_device_code()
         except AuthError as exc:
-            self.login_failed.emit(f"Failed to start login: {exc}")
+            if not self._cancelled:
+                log_login_failure("request a device code", exc)
+                self._report_failure(f"Failed to start login: {exc}")
             return
         except Exception as exc:
-            self.login_failed.emit(f"Unexpected error: {exc}")
+            if not self._cancelled:
+                log_login_failure("request a device code", exc)
+                self._report_failure(unexpected_error_message(exc))
             return
 
         if self._cancelled:
@@ -146,14 +163,16 @@ class _LoginWorker(QThread):
             )
         except AuthError as exc:
             if not self._cancelled:
-                self.login_failed.emit(str(exc))
+                log_login_failure("poll for the login token", exc)
+                self._report_failure(str(exc))
             return
         except asyncio.CancelledError:
             # Expected when cancel() stops the event loop.
             return
         except Exception as exc:
             if not self._cancelled:
-                self.login_failed.emit(f"Unexpected error: {exc}")
+                log_login_failure("poll for the login token", exc)
+                self._report_failure(unexpected_error_message(exc))
             return
 
         self.login_succeeded.emit(credentials)
@@ -195,8 +214,11 @@ class LoginDialog(QDialog):
         server_url: str,
         client_id: str,
         parent: QDialog | None = None,
+        tunnel_log: TunnelLog | None = None,
     ) -> None:
         super().__init__(parent)
+
+        self._tunnel_log = tunnel_log
 
         self.credentials: Credentials | None = None
         """Set on successful login; ``None`` if cancelled or failed."""
@@ -377,6 +399,8 @@ class LoginDialog(QDialog):
     def _on_failure(self, message: str) -> None:
         """Show the error and offer retry."""
         self._set_status(f"Login failed: {message}")
+        if self._tunnel_log is not None:
+            self._tunnel_log.error(f"Login failed: {message}")
         self._retry_button.setVisible(True)
         self._browser_button.setEnabled(False)
 
