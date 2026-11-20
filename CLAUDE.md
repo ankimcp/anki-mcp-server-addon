@@ -101,6 +101,7 @@ anki_mcp_server/
 │   ├── auth.py                  # OAuth 2.0 Device Flow client (async HTTP via httpx)
 │   ├── client.py                # Single WebSocket connection lifecycle (no retry)
 │   ├── reconnect.py             # Retry/backoff wrapper around client
+│   ├── tls.py                   # Fresh OS-trust-store SSLContext per call (stdlib-only)
 │   ├── in_memory_transport.py   # Feeds JSON-RPC into Server.run() via anyio streams
 │   ├── log.py                   # Thread-safe ring buffer with Qt signal
 │   └── ui/
@@ -294,11 +295,16 @@ Each tunnel module has a single responsibility. Dependencies flow one direction 
 - `auth.py` — async OAuth Device Flow HTTP calls via httpx. No WebSocket, no file I/O.
 - `client.py` — single WebSocket connection lifecycle. Receives tunnel requests, proxies via `InMemoryTransport`, handles ping/pong. No retry logic.
 - `reconnect.py` — retry/backoff wrapper around `TunnelClient`. Creates a fresh client + transport per attempt. This is the main entry point callers use.
+- `tls.py` — builds a fresh OS-trust-store `SSLContext` for `auth.py` and `client.py`. Stdlib-only; its only state is the set of `SSL_CERT_FILE` paths already warned about (never a context).
 - `in_memory_transport.py` — feeds JSON-RPC into `Server.run()` via anyio memory streams.
 - `log.py` — thread-safe ring buffer with Qt signal for cross-thread UI updates.
 - `ui/login_dialog.py` — Qt device flow dialog (user code + "Open Browser" button).
 - `ui/settings_section.py` — tunnel status/controls in the settings dialog.
 - `ui/toolbar_indicator.py` — always-present `● AnkiMCP` item in Anki's top toolbar; its dot color reflects tunnel state (grey=idle, amber=connecting/reconnecting, green=connected), clicking opens the settings dialog. Like `settings_section.py`, it derives state by polling `ConnectionManager` on a 1-second `QTimer` (the established state channel) rather than a Qt signal — this keeps core tunnel modules UI-free. Gated by the `show_toolbar_indicator` config field.
+
+#### TLS Trust
+
+Login/refresh HTTP (`verify=` in `auth.py`) and the `wss://` websocket (`ssl=` in `client.py`) each get a fresh OS-trust-store context from `tunnel/tls.py` per call. `SSL_CERT_FILE` is honoured, and a file that can't be loaded is skipped (WARNING once per path, then DEBUG). Under truststore on macOS/Windows its CAs are added on top of the OS store. Where OpenSSL verifies (Linux, or Python without truststore) OpenSSL itself already uses `SSL_CERT_FILE` in place of its default CA file, so an unreadable one *can* still fail later as a normal certificate-verify error — OpenSSL's default CA directory (e.g. `/etc/ssl/certs`) or, on Windows without truststore, the system store may still make verification succeed. Never remove `verify=`: httpx's default reads `SSL_CERT_FILE` or certifi's `cacert.pem` in the client constructor, and an unreadable file there broke login with a bare `[Errno 13]`. `ssl=` is passed so both transports share one factory (same warning/error reporting), not because websockets' default was broken. Known residual: with an `https://`-scheme proxy in the environment, httpcore builds the proxy hop's TLS context from certifi itself, so an unreadable certifi still surfaces there as `AuthError("HTTP request failed: ...")`.
 
 #### Configuration
 

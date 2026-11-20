@@ -25,6 +25,7 @@ import anyio
 import httpx
 
 from ..credentials import Credentials
+from .tls import TLSContextError, create_tls_context
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,23 @@ def _ws_url_to_http(ws_url: str) -> str:
             )
 
     return urlunparse(parsed._replace(scheme=http_scheme))
+
+
+def _new_http_client() -> httpx.AsyncClient:
+    """Construct the auth HTTP client, verifying via :func:`create_tls_context`.
+
+    Raises:
+        TLSContextError: If the TLS context can't be built.
+        AuthError: If httpx rejects the environment while constructing the
+            client (unsupported proxy scheme, SOCKS proxy without socksio).
+    """
+    ssl_context = create_tls_context()
+    try:
+        return httpx.AsyncClient(timeout=_HTTP_TIMEOUT, verify=ssl_context)
+    except (ValueError, ImportError) as exc:
+        raise AuthError(
+            f"HTTP client setup failed: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def _build_credentials(data: dict[str, Any]) -> Credentials:
@@ -379,12 +397,18 @@ class DeviceFlowAuth:
                 responses (those containing an ``error`` field).
         """
         try:
-            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+            async with _new_http_client() as client:
                 response = await client.post(url, data=form_data)
+        except TLSContextError as exc:
+            raise AuthError(str(exc)) from exc
         except httpx.TimeoutException as exc:
             raise AuthError(f"Request timed out: {url}") from exc
         except httpx.HTTPError as exc:
             raise AuthError(f"HTTP request failed: {exc}") from exc
+        except OSError as exc:
+            raise AuthError(
+                f"HTTP request failed: {type(exc).__name__}: {exc}"
+            ) from exc
 
         # Parse JSON body.
         try:
