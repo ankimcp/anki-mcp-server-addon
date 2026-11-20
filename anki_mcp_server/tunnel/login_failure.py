@@ -3,8 +3,8 @@
 Shared by every failure handler of the login worker so the user-visible text
 and the log record for a failure are decided in one place. This module formats
 no response body, device code or user code itself, but the ``AuthError``
-messages it logs can carry a short server-supplied excerpt (auth.py's
-non-JSON-response path).
+messages it logs can carry a short server-supplied excerpt (auth.py's non-JSON
+and non-object-JSON paths, non-2xx responses only).
 """
 
 from __future__ import annotations

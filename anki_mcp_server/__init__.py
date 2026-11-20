@@ -285,6 +285,7 @@ from .tool_decorator import (
     validate_enabled_opt_in_tools,
 )
 from .transport_security_config import validate_http_allowlist
+from .tunnel.protocol import validate_tunnel_server_url
 from .tunnel.ui import toolbar_indicator
 from .tunnel.ui.settings_section import TunnelSettingsSection
 
@@ -339,6 +340,11 @@ def _on_profile_opened() -> None:
     )
     warnings.extend(validate_http_allowlist(config))
     warnings.extend(validate_http_api_key(config))
+    tunnel_url_warnings = validate_tunnel_server_url(config)
+    for warning in tunnel_url_warnings:
+        print(f"AnkiMCP Server Warning: {warning}")
+        get_logger().warning(warning)
+    warnings.extend(tunnel_url_warnings)
 
     _connection_manager = ConnectionManager(config)
 

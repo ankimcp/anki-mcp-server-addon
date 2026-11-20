@@ -291,9 +291,9 @@ The tunnel runs on the **same asyncio event loop** as HTTP (the background threa
 
 Each tunnel module has a single responsibility. Dependencies flow one direction (downward). UI is never imported by core tunnel logic.
 
-- `protocol.py` — pure data types and constants (close codes, message TypedDicts, timeouts). Zero I/O, zero state.
+- `protocol.py` — pure data types and constants (close codes, message TypedDicts, timeouts), plus the pure relay-URL check `parse_tunnel_server_url` (the single decider of whether `tunnel_server_url` is usable; `auth.py` and `ConnectionManager` both go through it). Zero I/O, zero state.
 - `credentials.py` — credential file I/O only (addon-owned `user_files/credentials.json`). No auth, no network. Lives at `anki_mcp_server/credentials.py` (not in tunnel/) since it's used across the main addon.
-- `auth.py` — async OAuth Device Flow HTTP calls via httpx. No WebSocket, no file I/O.
+- `auth.py` — async OAuth Device Flow HTTP calls via httpx. No WebSocket, no file I/O. `_post` and the public methods (`request_device_code`, `poll_for_token`, `refresh_token`) raise only `AuthError` for any server response (non-object JSON, mistyped fields and non-string `error` values included); `error_code` is a `str` or `None`.
 - `client.py` — single WebSocket connection lifecycle. Receives tunnel requests, proxies via `InMemoryTransport`, handles ping/pong. No retry logic.
 - `reconnect.py` — retry/backoff wrapper around `TunnelClient`. Creates a fresh client + transport per attempt. This is the main entry point callers use.
 - `tls.py` — builds a fresh OS-trust-store `SSLContext` for `auth.py` and `client.py`. Stdlib-only; its only state is the set of `SSL_CERT_FILE` paths already warned about (never a context).
@@ -313,7 +313,7 @@ Login/refresh HTTP (`verify=` in `auth.py`) and the `wss://` websocket (`ssl=` i
 These config fields control tunnel behavior:
 
 - `http_enabled: bool = True` — when `False`, uvicorn doesn't start. Only tunnel transport is available. Toggle via the settings dialog checkbox.
-- `tunnel_server_url: str` — WebSocket URL of the tunnel relay server. Default is `wss://tunnel.ankimcp.ai` (production). Point at `ws://localhost:3004` for local relay development.
+- `tunnel_server_url: str` — WebSocket URL of the tunnel relay server. Default is `wss://tunnel.ankimcp.ai` (production). Point at `ws://localhost:3004` for local relay development. Validated as a `ws://` or `wss://` URL (host required, no credentials/query/fragment). An invalid value never blocks startup or HTTP: the tunnel is reported unavailable with the reason in the settings dialog (Connect disabled), the tunnel log (on a connect attempt), "Copy diagnostics" and a startup warning (console, `ankimcp.log`, dialog). Nothing is auto-corrected — `https://` is not rewritten to `wss://`.
 - `tunnel_client_id: str` — OAuth client identifier. Default is `ankimcp-cli` (shared with the TypeScript CLI).
 - `show_toolbar_indicator: bool = True` — when `True`, adds the persistent `● AnkiMCP` status dot to Anki's top toolbar (see `ui/toolbar_indicator.py`). Set `False` to hide it.
 
@@ -499,7 +499,7 @@ There is no `Config.mode` field and no `is_valid_for_mode()` — the addon does 
 - **HTTP** — gated by `http_enabled` (default `True`). When enabled, uvicorn serves the Streamable HTTP endpoint.
 - **Tunnel** — never auto-started. The user explicitly clicks "Connect Tunnel" in the settings dialog; configured via `tunnel_server_url` / `tunnel_client_id`.
 
-Both share one `Server` object and run on the same asyncio loop (see "Tunnel Architecture"). Don't add `mode`-based conditionals — branch on `http_enabled` and the tunnel's connection state instead. HTTP failing to start does not end the loop, so the tunnel stays usable. `ConnectionManager.http_running` is the truthful HTTP state (enabled AND `McpServer.loop_alive` AND `McpServer.http_started`), and `ConnectionManager.http_error` gives the reason when it isn't. `ConnectionManager.loop_error` is the dead loop's `fatal_error` only (None while the loop is alive, even after a port clash) — "Copy diagnostics" uses it for the `Tunnel : unavailable (...)` line.
+Both share one `Server` object and run on the same asyncio loop (see "Tunnel Architecture"). Don't add `mode`-based conditionals — branch on `http_enabled` and the tunnel's connection state instead. HTTP failing to start does not end the loop, so the tunnel stays usable. `ConnectionManager.http_running` is the truthful HTTP state (enabled AND `McpServer.loop_alive` AND `McpServer.http_started`), and `ConnectionManager.http_error` gives the reason when it isn't. `ConnectionManager.loop_error` is the dead loop's `fatal_error` only (None while the loop is alive, even after a port clash) — "Copy diagnostics" uses it for the `Tunnel : unavailable (...)` line. `ConnectionManager.tunnel_config_error` is the reason the tunnel can't be used because `tunnel_server_url` is invalid (None otherwise; `auth` is None then, and `connect_tunnel()` refuses with one tunnel-log error line); it also feeds the `Tunnel : unavailable (...)` line and is independent of HTTP and the loop.
 
 ### Tool Filtering
 

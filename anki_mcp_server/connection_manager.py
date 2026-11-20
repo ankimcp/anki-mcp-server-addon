@@ -38,7 +38,7 @@ from .queue_bridge import QueueBridge
 from .request_processor import RequestProcessor
 from .tunnel.auth import DeviceFlowAuth
 from .tunnel.log import TunnelLog
-from .tunnel.protocol import CloseCodes
+from .tunnel.protocol import CloseCodes, parse_tunnel_server_url
 
 logger = logging.getLogger(__name__)
 
@@ -120,10 +120,9 @@ class ConnectionManager:
         # These persist across start()/stop() cycles.
         self._tunnel_log = TunnelLog()
         self._credentials_manager = CredentialsManager()
-        self._auth = DeviceFlowAuth(
-            server_url=config.tunnel_server_url,
-            client_id=config.tunnel_client_id,
-        )
+        self._auth: Optional[DeviceFlowAuth] = None
+        self._tunnel_config_error: Optional[str] = None
+        self._configure_tunnel_auth(config)
 
         # Tunnel state — bundled into a single object for atomic replacement.
         # Background thread creates a new _TunnelState; UI thread reads the
@@ -330,6 +329,20 @@ class ConnectionManager:
             return None
         return server.fatal_error
 
+    @property
+    def tunnel_config_error(self) -> Optional[str]:
+        """Why the tunnel cannot be used because of its config, or None.
+
+        Set when ``tunnel_server_url`` is invalid (see
+        ``tunnel.protocol.parse_tunnel_server_url``); independent of whether
+        the server is running, and of HTTP. The reason names the field and
+        what is expected. Changes only through ``update_config``.
+
+        Thread Safety:
+            Safe to read from any thread -- reads a single attribute.
+        """
+        return self._tunnel_config_error
+
     def update_config(self, config: Config) -> None:
         """Update configuration and restart if running.
 
@@ -361,13 +374,27 @@ class ConnectionManager:
         # Recreate auth client if tunnel settings changed
         if (config.tunnel_server_url != old_config.tunnel_server_url
                 or config.tunnel_client_id != old_config.tunnel_client_id):
-            self._auth = DeviceFlowAuth(
-                server_url=config.tunnel_server_url,
-                client_id=config.tunnel_client_id,
-            )
+            self._configure_tunnel_auth(config)
 
         if was_running:
             self.restart()
+
+    def _configure_tunnel_auth(self, config: Config) -> None:
+        """Build the auth client, or record why the tunnel config is unusable.
+
+        An invalid ``tunnel_server_url`` must never break startup or HTTP, so
+        it is reported through ``tunnel_config_error`` instead of raised.
+        """
+        parsed = parse_tunnel_server_url(config.tunnel_server_url)
+        if isinstance(parsed, str):
+            self._auth = None
+            self._tunnel_config_error = parsed
+            return
+        self._tunnel_config_error = None
+        self._auth = DeviceFlowAuth(
+            server_url=config.tunnel_server_url,
+            client_id=config.tunnel_client_id,
+        )
 
     # ------------------------------------------------------------------
     # Tunnel control — called from Qt main thread (UI layer)
@@ -385,6 +412,11 @@ class ConnectionManager:
         Thread Safety:
             Must be called from Qt main thread.
         """
+        if self._tunnel_config_error is not None:
+            logger.warning("Cannot connect tunnel: %s", self._tunnel_config_error)
+            self._tunnel_log.error(f"Cannot connect: {self._tunnel_config_error}")
+            return
+
         if not self.is_running or self._server is None:
             logger.warning("Cannot connect tunnel: MCP server not running")
             self._tunnel_log.error("Cannot connect: server not running")
@@ -530,8 +562,9 @@ class ConnectionManager:
         return self._credentials_manager
 
     @property
-    def auth(self) -> DeviceFlowAuth:
-        """The shared DeviceFlowAuth instance.
+    def auth(self) -> Optional[DeviceFlowAuth]:
+        """The shared DeviceFlowAuth instance, or None while
+        ``tunnel_config_error`` is set.
 
         Exposed so the login UI can drive the device flow (request code,
         poll for token).
