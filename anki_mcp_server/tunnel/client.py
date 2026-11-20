@@ -22,6 +22,7 @@ import json
 import logging
 import time
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 import anyio
 from websockets.asyncio.client import connect
@@ -43,6 +44,7 @@ from .protocol import (
     normalize_client_version,
     parse_server_message,
 )
+from .tls import create_tls_context
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,11 @@ class _HealthCheckTimeout(Exception):
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------
+
+def _is_secure_ws_url(url: str) -> bool:
+    """Return ``True`` for a ``wss://`` URL (scheme compared case-insensitively)."""
+    return urlparse(url).scheme == "wss"
+
 
 def _extract_request_id(body: str | None) -> Any:
     """Best-effort parse of the inner JSON-RPC request ``id`` from a body string.
@@ -169,6 +176,11 @@ class TunnelClient:
         """
         # --- Step 1: Connect ---
         try:
+            # websockets rejects any ssl= argument for a ws:// URI (the
+            # documented local dev relay), so pass it for wss:// only.
+            tls_kwargs: dict[str, Any] = {}
+            if _is_secure_ws_url(self._server_url):
+                tls_kwargs["ssl"] = create_tls_context()
             ws = await connect(
                 self._server_url,
                 additional_headers=self._build_connect_headers(),
@@ -177,6 +189,7 @@ class TunnelClient:
                 # the application protocol level.
                 ping_interval=None,
                 ping_timeout=None,
+                **tls_kwargs,
             )
         except Exception as exc:
             raise TunnelConnectionError(

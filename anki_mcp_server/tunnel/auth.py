@@ -19,12 +19,13 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import urlparse, urlunparse
 
 import anyio
 import httpx
 
 from ..credentials import Credentials
+from .protocol import parse_tunnel_server_url
+from .tls import TLSContextError, create_tls_context
 
 logger = logging.getLogger(__name__)
 
@@ -79,27 +80,39 @@ class DeviceCodeResponse:
 # Helpers
 # --------------------------------------------------------------------------
 
-def _ws_url_to_http(ws_url: str) -> str:
-    """Convert a WebSocket URL to its HTTP equivalent.
+def _str_field(data: dict[str, Any], key: str) -> str:
+    """``data[key]``, which must be a string (``KeyError``/``TypeError`` otherwise)."""
+    value = data[key]
+    if not isinstance(value, str):
+        raise TypeError(f"{key!r} must be a string, got {type(value).__name__}")
+    return value
 
-    ``wss://host/path`` becomes ``https://host/path``,
-    ``ws://host/path`` becomes ``http://host/path``.
+
+def _malformed_detail(exc: Exception) -> str:
+    """Error text for a malformed response field, safe to show and log.
+
+    ``int()`` puts the offending server-supplied value into its ``ValueError``
+    text, so that one is reported by type name only. The other exceptions name
+    a key or a type, never a value.
+    """
+    return type(exc).__name__ if isinstance(exc, ValueError) else str(exc)
+
+
+def _new_http_client() -> httpx.AsyncClient:
+    """Construct the auth HTTP client, verifying via :func:`create_tls_context`.
 
     Raises:
-        ValueError: If the URL scheme is not ``ws`` or ``wss``.
+        TLSContextError: If the TLS context can't be built.
+        AuthError: If httpx rejects the environment while constructing the
+            client (unsupported proxy scheme, SOCKS proxy without socksio).
     """
-    parsed = urlparse(ws_url)
-    match parsed.scheme:
-        case "wss":
-            http_scheme = "https"
-        case "ws":
-            http_scheme = "http"
-        case _:
-            raise ValueError(
-                f"Expected ws:// or wss:// URL, got {parsed.scheme!r}"
-            )
-
-    return urlunparse(parsed._replace(scheme=http_scheme))
+    ssl_context = create_tls_context()
+    try:
+        return httpx.AsyncClient(timeout=_HTTP_TIMEOUT, verify=ssl_context)
+    except (ValueError, ImportError) as exc:
+        raise AuthError(
+            f"HTTP client setup failed: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def _build_credentials(data: dict[str, Any]) -> Credentials:
@@ -122,15 +135,20 @@ def _build_credentials(data: dict[str, Any]) -> Credentials:
         expires_in = int(data["expires_in"])
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
+        user = data["user"]
+        if not isinstance(user, dict):
+            raise TypeError(f"'user' must be an object, got {type(user).__name__}")
+
         return Credentials(
-            access_token=data["access_token"],
-            refresh_token=data["refresh_token"],
+            access_token=_str_field(data, "access_token"),
+            refresh_token=_str_field(data, "refresh_token"),
             expires_at=expires_at.isoformat(),
-            user=data["user"],
+            user=user,
         )
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise AuthError(
-            f"Malformed token response: {exc}", error_code="invalid_response"
+            f"Malformed token response: {_malformed_detail(exc)}",
+            error_code="invalid_response",
         ) from exc
 
 
@@ -175,11 +193,14 @@ class DeviceFlowAuth:
                 (e.g. ``ankimcp-cli``).
 
         Raises:
-            ValueError: If ``server_url`` is not a ws:// or wss:// URL.
+            ValueError: If ``server_url`` is not a valid relay URL (see
+                :func:`parse_tunnel_server_url`); the message is the reason.
         """
-        http_url = _ws_url_to_http(server_url)
-        self._device_endpoint = f"{http_url}/auth/device"
-        self._token_endpoint = f"{http_url}/auth/token"
+        parsed = parse_tunnel_server_url(server_url)
+        if isinstance(parsed, str):
+            raise ValueError(parsed)
+        self._device_endpoint = f"{parsed.http_url}/auth/device"
+        self._token_endpoint = f"{parsed.http_url}/auth/token"
         self._client_id = client_id
 
         logger.debug(
@@ -220,17 +241,22 @@ class DeviceFlowAuth:
         )
 
         try:
+            verification_uri_complete = data.get("verification_uri_complete")
+            if verification_uri_complete is not None and not isinstance(
+                verification_uri_complete, str
+            ):
+                raise TypeError("'verification_uri_complete' must be a string")
             return DeviceCodeResponse(
-                device_code=data["device_code"],
-                user_code=data["user_code"],
-                verification_uri=data["verification_uri"],
-                verification_uri_complete=data.get("verification_uri_complete"),
+                device_code=_str_field(data, "device_code"),
+                user_code=_str_field(data, "user_code"),
+                verification_uri=_str_field(data, "verification_uri"),
+                verification_uri_complete=verification_uri_complete,
                 expires_in=int(data["expires_in"]),
                 interval=int(data.get("interval", 5)),
             )
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
             raise AuthError(
-                f"Malformed device code response: {exc}",
+                f"Malformed device code response: {_malformed_detail(exc)}",
                 error_code="invalid_response",
             ) from exc
 
@@ -364,7 +390,8 @@ class DeviceFlowAuth:
     ) -> dict[str, Any]:
         """POST form-encoded data and return parsed JSON.
 
-        Handles HTTP errors and OAuth error responses uniformly.
+        Handles HTTP errors and OAuth error responses uniformly. Whatever the
+        server sends, only :class:`AuthError` leaves this method.
 
         Args:
             url: Full endpoint URL.
@@ -375,31 +402,53 @@ class DeviceFlowAuth:
             Parsed JSON response body as a dict.
 
         Raises:
-            AuthError: On HTTP errors, non-JSON responses, or OAuth error
-                responses (those containing an ``error`` field).
+            AuthError: On HTTP errors, non-JSON or non-object responses, or
+                OAuth error responses (a non-2xx status). ``error_code`` is
+                the response's ``error`` field when it is a string, else None.
         """
         try:
-            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+            async with _new_http_client() as client:
                 response = await client.post(url, data=form_data)
+        except TLSContextError as exc:
+            raise AuthError(str(exc)) from exc
+        except (httpx.InvalidURL, UnicodeError) as exc:
+            raise AuthError(f"Invalid auth URL {url!r}: {exc}") from exc
         except httpx.TimeoutException as exc:
             raise AuthError(f"Request timed out: {url}") from exc
         except httpx.HTTPError as exc:
             raise AuthError(f"HTTP request failed: {exc}") from exc
+        except OSError as exc:
+            raise AuthError(
+                f"HTTP request failed: {type(exc).__name__}: {exc}"
+            ) from exc
 
-        # Parse JSON body.
+        # Parse JSON body. A 2xx body may carry tokens, so it is never quoted.
         try:
             data = response.json()
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError, RecursionError) as exc:
+            detail = "" if response.is_success else f": {response.text[:200]}"
             raise AuthError(
-                f"Non-JSON response (HTTP {response.status_code}): "
-                f"{response.text[:200]}",
+                f"Non-JSON response (HTTP {response.status_code}){detail}",
             ) from exc
+
+        if not isinstance(data, dict):
+            detail = (
+                f": {type(data).__name__}"
+                if response.is_success
+                else f": {response.text[:200]}"
+            )
+            raise AuthError(
+                f"Non-object JSON response (HTTP {response.status_code}){detail}",
+            )
 
         # Check for OAuth error response (HTTP 400/401 with error field).
         if not response.is_success:
-            error_code = data.get("error", "unknown_error")
-            error_desc = data.get(
-                "error_description", f"HTTP {response.status_code}"
+            raw_code = data.get("error", "unknown_error")
+            error_code = raw_code if isinstance(raw_code, str) else None
+            raw_desc = data.get("error_description")
+            error_desc = (
+                raw_desc if isinstance(raw_desc, str)
+                else f"HTTP {response.status_code}"
             )
             logger.debug(
                 "Auth error: code=%s, description=%s", error_code, error_desc

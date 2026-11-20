@@ -18,6 +18,7 @@ from typing import Iterator
 
 import pytest
 
+from anki_mcp_server import connection_manager as cm_module
 from anki_mcp_server.config import Config
 
 from .test_mcp_server_http_failure import (  # noqa: F401  (fixtures)
@@ -123,6 +124,44 @@ class TestTransportLines:
         assert _lines(diagnostics_section, manager, http_enabled=True) == [
             f"HTTP   : enabled (not running: {_FATAL})",
             f"Tunnel : unavailable ({_FATAL})",
+        ]
+
+    def test_invalid_tunnel_url_http_unaffected(
+        self, diagnostics_section, manager, open_loop, live_thread,
+    ) -> None:
+        # `manager` has already stubbed the collaborators ConnectionManager builds.
+        bad = cm_module.ConnectionManager(
+            Config(http_enabled=True, tunnel_server_url="https://tunnel.ankimcp.ai")
+        )
+        bad._processor = manager._processor
+        _attach_server(bad, loop=open_loop, thread=live_thread, started=True)
+        reason = (
+            "Invalid tunnel_server_url 'https://tunnel.ankimcp.ai': expected a "
+            "ws:// or wss:// URL, not https:// (use wss://tunnel.ankimcp.ai)"
+        )
+
+        assert _lines(diagnostics_section, bad, http_enabled=True) == [
+            "HTTP   : enabled (running)",
+            f"Tunnel : unavailable ({reason})",
+        ]
+
+    def test_loop_dead_and_invalid_tunnel_url_show_both_reasons(
+        self, diagnostics_section, manager, closed_loop, dead_thread,
+    ) -> None:
+        bad = cm_module.ConnectionManager(
+            Config(http_enabled=False, tunnel_server_url="https://tunnel.ankimcp.ai")
+        )
+        bad._processor = manager._processor
+        _attach_server(
+            bad, loop=closed_loop, thread=dead_thread, started=None,
+            fatal_error=_FATAL,
+        )
+        reason = bad.tunnel_config_error
+
+        assert reason
+        assert _lines(diagnostics_section, bad, http_enabled=False) == [
+            "HTTP   : disabled",
+            f"Tunnel : unavailable ({_FATAL}; {reason})",
         ]
 
     def test_loop_dead_http_disabled(

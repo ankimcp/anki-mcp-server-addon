@@ -10,6 +10,7 @@ UI module -- depends on ConnectionManager for tunnel state and control.
 from __future__ import annotations
 
 import logging
+from html import escape
 
 from aqt.qt import (
     QApplication,
@@ -230,7 +231,14 @@ class TunnelSettingsSection(QWidget):
         else:
             # -- Disconnected state --
             has_credentials = user is not None
-            self._status_label.setText("Status: Not connected")
+            config_error = self._cm.tunnel_config_error
+            if config_error:
+                self._status_label.setText(
+                    f"Status: unavailable — {escape(config_error)}<br>"
+                    "<i>Fix it in the add-on config and restart Anki.</i>"
+                )
+            else:
+                self._status_label.setText("Status: Not connected")
             self._expiry_label.setVisible(False)
 
             # URL row hidden
@@ -239,7 +247,7 @@ class TunnelSettingsSection(QWidget):
 
             # Buttons
             self._connect_button.setVisible(True)
-            self._connect_button.setEnabled(True)
+            self._connect_button.setEnabled(not config_error)
             self._connect_button.setText("Connect Tunnel")
             self._disconnect_button.setVisible(False)
             self._logout_button.setVisible(has_credentials)
@@ -308,6 +316,7 @@ class TunnelSettingsSection(QWidget):
                 server_url=self._config.tunnel_server_url,
                 client_id=self._config.tunnel_client_id,
                 parent=self.window(),
+                tunnel_log=self._cm.tunnel_log,
             )
             result = dialog.exec()
             if result != LoginDialog.DialogCode.Accepted or dialog.credentials is None:

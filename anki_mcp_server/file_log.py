@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import os
 import platform
 import re
 import sys
@@ -488,6 +489,123 @@ def _module_provenance(name: str) -> str:
     return f"{version_str}  ({file_str})"
 
 
+def _path_state(path: str, *, probe_open: bool = False) -> str:
+    """Classify a file path. Opens it (read-only, no read) only if ``probe_open``.
+
+    ``os.access`` is deliberately not used: on Windows it only checks that the
+    file exists, so a Deny-Read ACL or an exclusive lock would look healthy.
+    The ``isfile`` guard comes first so a FIFO or device is never opened.
+    """
+    if not os.path.exists(path):
+        return "missing"
+    if os.path.isdir(path):
+        return "directory"
+    if not os.path.isfile(path):
+        return "not a regular file"
+    if probe_open:
+        try:
+            with open(path, "rb"):
+                pass
+        except OSError as exc:
+            return f"file, cannot open: {type(exc).__name__}: {exc}"
+    return "file"
+
+
+def _dir_state(path: str) -> str:
+    if not os.path.exists(path):
+        return "missing"
+    if not os.path.isdir(path):
+        return "not a directory"
+    return "directory"
+
+
+def _unexpected_path(path: object) -> Optional[str]:
+    """Placeholder for a value that isn't a ``str`` path, else ``None``.
+
+    Values from ``ssl``/``certifi`` enter here. An ``int`` would be treated by
+    ``os.path`` and ``open`` as a file descriptor (and ``open`` would close it),
+    and ``bytes`` paths are not decoded, so neither is ever passed on.
+    """
+    if path is None or isinstance(path, str):
+        return None
+    return f"<unexpected {type(path).__name__}>"
+
+
+def _described_path(path: object, *, probe_open: bool = False) -> str:
+    unexpected = _unexpected_path(path)
+    if unexpected is not None:
+        return unexpected
+    return "None" if not path else f"{path}  [{_path_state(path, probe_open=probe_open)}]"
+
+
+def _described_dir(path: object) -> str:
+    unexpected = _unexpected_path(path)
+    if unexpected is not None:
+        return unexpected
+    return "None" if not path else f"{path}  [{_dir_state(path)}]"
+
+
+def _env_path(name: str) -> str:
+    value = os.environ.get(name)
+    if value is None:
+        return "not set"
+    if not value:
+        return "(empty)"
+    if name == "SSL_CERT_DIR":
+        return _described_dir(value)
+    return _described_path(value, probe_open=name == "SSL_CERT_FILE")
+
+
+def _ssl_context_class() -> str:
+    import ssl
+
+    cls = ssl.SSLContext
+    return f"{cls.__module__}.{cls.__qualname__}"
+
+
+def _openssl_version() -> str:
+    import ssl
+
+    return ssl.OPENSSL_VERSION
+
+
+def _default_verify_paths() -> "dict[str, str]":
+    import ssl
+
+    paths = ssl.get_default_verify_paths()
+    return {
+        "verify cafile": _described_path(paths.cafile, probe_open=True),
+        "verify capath": _described_dir(paths.capath),
+        "openssl cafile": str(paths.openssl_cafile),
+        "openssl capath": str(paths.openssl_capath),
+    }
+
+
+def _certifi_bundle() -> str:
+    """The loaded certifi's CA bundle path, WITHOUT importing certifi."""
+    module = sys.modules.get("certifi")
+    if module is None:
+        return "not loaded"
+    return _described_path(module.where(), probe_open=True)
+
+
+def _tls_lines() -> list[str]:
+    """TLS environment lines, each gathered defensively."""
+    lines = [
+        f"  {name:<18}: {_safe(lambda name=name: _env_path(name))}"
+        for name in ("SSL_CERT_FILE", "SSL_CERT_DIR", "SSLKEYLOGFILE")
+    ]
+    lines.append(f"  {'ssl.SSLContext':<18}: {_safe(_ssl_context_class)}")
+    lines.append(f"  {'OpenSSL':<18}: {_safe(_openssl_version)}")
+    try:
+        verify_paths = _default_verify_paths()
+    except Exception as exc:
+        verify_paths = {"default verify paths": f"<error: {exc!r}>"}
+    lines.extend(f"  {label:<18}: {value}" for label, value in verify_paths.items())
+    lines.append(f"  {'certifi bundle':<18}: {_safe(_certifi_bundle)}")
+    return lines
+
+
 def build_diagnostics_snapshot(
     *,
     addon_version: str,
@@ -544,6 +662,10 @@ def build_diagnostics_snapshot(
     lines.append("Loaded module provenance (sys.modules; not force-imported):")
     for name in (*_PROVENANCE_MODULES, *extra_modules):
         lines.append(f"  {name:<18}: {_module_provenance(name)}")
+
+    lines.append("")
+    lines.append("TLS (certificate files probed with a read-only open; certifi not force-imported):")
+    lines.extend(_tls_lines())
     lines.append("=" * 60)
     return "\n".join(lines)
 
