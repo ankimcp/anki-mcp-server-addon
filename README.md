@@ -194,6 +194,7 @@ claude mcp add anki --transport http https://tunnel.ankimcp.ai/<your-tunnel-id>
 **Tunnel config fields** (for advanced users / self-hosters):
 - `tunnel_server_url` — WebSocket URL of the tunnel relay server (default: `wss://tunnel.ankimcp.ai`)
 - `tunnel_client_id` — OAuth client identifier (default: `ankimcp-cli`)
+- `tunnel_proxy` — how the tunnel and the login reach the server: `"auto"` (default), `"none"` or an `http://` proxy address. See [Tunnel Proxy](#tunnel-proxy).
 
 Credentials are stored in the addon's own `user_files/credentials.json` (preserved across addon updates). They are not shared with the [AnkiMCP CLI](https://github.com/ankimcp/anki-mcp-cli) — the CLI keeps its own credentials under `~/.ankimcp/`, so you log in to the addon and the CLI independently. The on-disk format is identical between the two.
 
@@ -218,6 +219,7 @@ Edit via Anki's *Tools → Add-ons → AnkiMCP Server → Config*:
   "max_notes_per_batch": 100,
   "tunnel_server_url": "wss://tunnel.ankimcp.ai",
   "tunnel_client_id": "ankimcp-cli",
+  "tunnel_proxy": "auto",
   "media_import_dir": "",
   "media_allowed_types": [],
   "media_allowed_hosts": [],
@@ -239,6 +241,28 @@ The `http_enabled` setting controls whether the local HTTP server runs. When set
 ```
 
 This is useful if you only use the tunnel and don't want a local HTTP server listening.
+
+### Tunnel Proxy
+
+`tunnel_proxy` controls how the tunnel connection **and** the tunnel login reach the server. It has no effect on the local HTTP server.
+
+| Value | Behaviour |
+|---|---|
+| `"auto"` (default) | Follow your system or environment proxy settings (`HTTPS_PROXY`, macOS/Windows network settings). Only HTTP proxies are used. With no proxy configured, it connects directly. |
+| `"none"` | Always connect directly and ignore every system and environment proxy. |
+| `"http://host:port"` | Always use this proxy. `https://` works too, and `http://user:password@host:port` adds proxy login. |
+
+SOCKS proxies are not supported. If your system proxy settings offer only a SOCKS proxy, the tunnel and the login stop with an error that names `tunnel_proxy`; they never silently go around the proxy.
+
+```json
+{
+  "tunnel_proxy": "none"
+}
+```
+
+In `"auto"` mode only the HTTPS and ALL proxy settings are consulted (for example `HTTPS_PROXY`, `ALL_PROXY`); the `WSS_PROXY` and `WS_PROXY` environment variables are no longer read. Takes effect after an Anki restart. The route taken (direct, or via which proxy) is shown as a `Route:` line in the tunnel log in the settings dialog. Passwords in a proxy address are never written to logs.
+
+**Troubleshooting: tunnel fails while a VPN or system proxy is on.** Many VPN apps (Clash and similar) switch on a system proxy that includes a SOCKS entry. If connecting or logging in fails with an error mentioning `tunnel_proxy` and SOCKS, set `"tunnel_proxy": "none"` to connect directly, or set it to the VPN's HTTP proxy address (often `http://127.0.0.1:7890`; check the VPN app's settings), then restart Anki.
 
 ### Tools Menu Item
 
@@ -274,7 +298,7 @@ When an AI client triggers a sync, the addon shows a brief, non-modal tooltip in
 
 ### Diagnostic File Logging
 
-Set `log_to_file` to `true` to write a rotating log to `user_files/ankimcp.log` (~1 MB per file, 3 backups). It's **off by default**. When enabled, the addon records a startup diagnostics snapshot (addon/Anki/Qt/Python versions plus the live provenance of shared libraries like `pydantic`, `mcp`, `protobuf`, etc.), which is the key data for diagnosing cross-add-on conflicts. Secrets — the `http_api_key`, OAuth tokens, and any `Bearer` token — are **redacted** before anything is written to disk.
+Set `log_to_file` to `true` to write a rotating log to `user_files/ankimcp.log` (~1 MB per file, 3 backups). It's **off by default**. When enabled, the addon records a startup diagnostics snapshot (addon/Anki/Qt/Python versions plus the live provenance of shared libraries like `pydantic`, `mcp`, `protobuf`, etc.), which is the key data for diagnosing cross-add-on conflicts. Secrets — the `http_api_key`, OAuth tokens, any `Bearer` token, and the `user:password@` part of any URL (such as a proxy address) — are **redacted** before anything is written to disk.
 
 ```json
 {
