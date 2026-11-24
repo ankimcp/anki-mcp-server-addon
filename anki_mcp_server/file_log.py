@@ -102,6 +102,8 @@ class _RedactingFilter(logging.Filter):
     * Pattern masking: ``Authorization: Bearer <token>`` / bare ``Bearer <token>``
       style strings are masked structurally, so a token we never registered
       (e.g. one logged by a vendored library) still never reaches disk.
+      Likewise the ``user:password@`` part of any ``scheme://`` URL (a proxy
+      address), whose password may be shorter than ``register_secret`` accepts.
 
     The filter rewrites ``record.msg`` to the redacted, already-%-formatted
     string and clears ``record.args`` so the handler's formatter doesn't try to
@@ -119,6 +121,14 @@ class _RedactingFilter(logging.Filter):
     # raise it if a legitimate token ever fails to match.
     _BEARER_RE = re.compile(
         r"(?i)(bearer\s+)[A-Za-z0-9._\-+/=]{16,}",
+    )
+
+    # URL userinfo: "scheme://user:password@" or "scheme://user@". Kept in
+    # step with tunnel/proxy.py's own pattern, which this stdlib-only module
+    # must not import. The lookbehind lets a scheme start only at a boundary;
+    # without it every position of a long alphanumeric run rescans the run.
+    _URL_USERINFO_RE = re.compile(
+        r"(?<![A-Za-z0-9+.\-])([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#\s]*@"
     )
 
     def __init__(self) -> None:
@@ -148,6 +158,9 @@ class _RedactingFilter(logging.Filter):
                 text = text.replace(secret, self._REPLACEMENT)
         # Structural Bearer-token masking.
         text = self._BEARER_RE.sub(lambda m: m.group(1) + self._REPLACEMENT, text)
+        text = self._URL_USERINFO_RE.sub(
+            lambda m: m.group(1) + self._REPLACEMENT + "@", text
+        )
         return text
 
     def filter(self, record: logging.LogRecord) -> bool:
