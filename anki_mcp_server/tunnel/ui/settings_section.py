@@ -306,6 +306,13 @@ class TunnelSettingsSection(QWidget):
             self._refresh_status()
             return
 
+        # The button is disabled while the config is invalid, so this only
+        # guards a stale click. connect_tunnel() writes the reason to the
+        # tunnel log; past this point the proxy setting is never None.
+        if self._cm.tunnel_config_error is not None:
+            self._cm.connect_tunnel()
+            return
+
         # Otherwise, start a new connection.
         # Check for existing credentials first.
         credentials = self._cm.credentials_manager.load()
@@ -317,6 +324,7 @@ class TunnelSettingsSection(QWidget):
                 client_id=self._config.tunnel_client_id,
                 parent=self.window(),
                 tunnel_log=self._cm.tunnel_log,
+                proxy=self._cm.tunnel_proxy_setting,
             )
             result = dialog.exec()
             if result != LoginDialog.DialogCode.Accepted or dialog.credentials is None:

@@ -14,6 +14,7 @@ import pytest
 
 from anki_mcp_server.credentials import Credentials
 from anki_mcp_server.tunnel.client import TunnelClient
+from anki_mcp_server.tunnel.proxy import ProxyRoute
 from anki_mcp_server.tunnel.protocol import (
     CLIENT_TYPE,
     CLIENT_TYPE_HEADER,
@@ -75,6 +76,7 @@ class TestBuildConnectHeaders:
             server_url="wss://tunnel.example/test",
             credentials=credentials,
             transport=object(),  # type: ignore[arg-type] -- unused by this method
+            route=ProxyRoute(None, "test"),
         )
 
     def test_always_present_headers_and_real_version(self) -> None:

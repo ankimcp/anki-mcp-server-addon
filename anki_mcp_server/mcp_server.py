@@ -37,6 +37,7 @@ from mcp.types import Icon
 from . import __version__
 from .config import Config
 from .http_auth import ApiKeyAuthMiddleware
+from .tunnel.proxy import ProxySetting
 from .transport_security_config import build_transport_security
 from .queue_bridge import BridgeError, QueueBridge, ToolRequest
 from .primitives import register_all_tools, register_all_resources, register_all_prompts
@@ -336,6 +337,9 @@ class McpServer:
         on_request_completed: Callable[[str, int, float], None] | None = None,
         on_reconnecting: Callable[[int, float], None] | None = None,
         on_stopped: Callable[[int, str], None] | None = None,
+        on_route: Callable[[str], None] | None = None,
+        *,
+        proxy: ProxySetting,
     ) -> bool:
         """Start the tunnel alongside the HTTP server.
 
@@ -352,7 +356,8 @@ class McpServer:
             auth: DeviceFlowAuth instance for token refresh.
             on_tunnel_established: Called when tunnel is ready (url, user).
             on_disconnected: Called when a connection ends (code, reason).
-            on_error: Called on server error (error_code, message).
+            on_error: Called on a server error message or a failed
+                connection or token-refresh attempt (error_code, message).
             on_request_completed: Called after each proxied request
                 (method_path, status_code, duration_ms).
             on_reconnecting: Called before each reconnection delay
@@ -360,7 +365,12 @@ class McpServer:
             on_stopped: Called once when the tunnel stops for good (no
                 further reconnection) — whether a clean disconnect or a
                 permanent failure. Receives (close_code, reason); inspect
-                close_code (NORMAL == clean) to distinguish.
+                close_code (NORMAL == clean) to distinguish. An unusable
+                proxy setting stops with
+                (PROXY_UNUSABLE_STOP_CODE, <full actionable message>).
+            on_route: Called once per connection attempt with the route
+                taken, as one masked line.
+            proxy: The parsed ``tunnel_proxy`` setting.
 
         Thread Safety:
             Safe to call from any thread. The actual work runs on the
@@ -381,6 +391,8 @@ class McpServer:
                 on_request_completed=on_request_completed,
                 on_reconnecting=on_reconnecting,
                 on_stopped=on_stopped,
+                on_route=on_route,
+                proxy=proxy,
             ),
             loop,
         )
@@ -485,6 +497,9 @@ class McpServer:
         on_request_completed: Callable[[str, int, float], None] | None = None,
         on_reconnecting: Callable[[int, float], None] | None = None,
         on_stopped: Callable[[int, str], None] | None = None,
+        on_route: Callable[[str], None] | None = None,
+        *,
+        proxy: ProxySetting,
     ) -> None:
         """Internal: start the tunnel on the asyncio loop.
 
@@ -535,6 +550,8 @@ class McpServer:
             on_request_completed=on_request_completed,
             on_reconnecting=on_reconnecting,
             on_stopped=_on_stopped_wrapper,
+            on_route=on_route,
+            proxy=proxy,
         )
 
         self._tunnel_manager = manager

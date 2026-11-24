@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from anki_mcp_server.tunnel.client import TunnelClient
+from anki_mcp_server.tunnel.proxy import ProxyRoute
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +48,7 @@ def _make_client(transport: object, on_request_completed: MagicMock) -> TunnelCl
         credentials=MagicMock(),
         transport=transport,  # type: ignore[arg-type]
         on_request_completed=on_request_completed,
+        route=ProxyRoute(None, "test"),
     )
 
 

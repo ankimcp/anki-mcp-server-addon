@@ -25,6 +25,15 @@ import httpx
 
 from ..credentials import Credentials
 from .protocol import parse_tunnel_server_url
+from .proxy import (
+    PROXY_FIX_HINT,
+    PROXY_UNSUPPORTED,
+    ProxyRoute,
+    ProxySetting,
+    TunnelProxyError,
+    mask_url_credentials,
+    resolve_route,
+)
 from .tls import TLSContextError, create_tls_context
 
 logger = logging.getLogger(__name__)
@@ -48,6 +57,18 @@ class AuthError(Exception):
     def __init__(self, message: str, error_code: str | None = None) -> None:
         super().__init__(message)
         self.error_code = error_code
+
+
+class ProxyUnusableError(AuthError):
+    """The ``tunnel_proxy`` setting (or the system proxy) cannot be used.
+
+    A local condition, never something a server reports: callers branch on
+    this class, not on ``error_code``, which shares a namespace with the
+    OAuth codes a server may send. ``error_code`` is still ``"proxy_unsupported"``.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_code=PROXY_UNSUPPORTED)
 
 
 # --------------------------------------------------------------------------
@@ -98,21 +119,38 @@ def _malformed_detail(exc: Exception) -> str:
     return type(exc).__name__ if isinstance(exc, ValueError) else str(exc)
 
 
-def _new_http_client() -> httpx.AsyncClient:
-    """Construct the auth HTTP client, verifying via :func:`create_tls_context`.
+def _new_http_client(route: ProxyRoute) -> httpx.AsyncClient:
+    """Construct the auth HTTP client for ``route``, verifying via :func:`create_tls_context`.
+
+    The route is decided by :func:`resolve_route`, never by httpx: ``trust_env``
+    is off for a direct route and an explicit ``proxy=`` replaces the
+    environment lookup for a proxied one.
 
     Raises:
         TLSContextError: If the TLS context can't be built.
-        AuthError: If httpx rejects the environment while constructing the
-            client (unsupported proxy scheme, SOCKS proxy without socksio).
+        ProxyUnusableError: If httpx rejects the proxy address
+            (``InvalidURL``). ``UnicodeError`` is caught as a safeguard only:
+            proxy.py rejects non-ASCII hosts first. The route only ever
+            carries http(s) proxies, so these are the construction failures
+            left (``ValueError`` for a scheme and ``ImportError`` for socksio
+            need a SOCKS proxy).
     """
     ssl_context = create_tls_context()
     try:
-        return httpx.AsyncClient(timeout=_HTTP_TIMEOUT, verify=ssl_context)
-    except (ValueError, ImportError) as exc:
-        raise AuthError(
-            f"HTTP client setup failed: {type(exc).__name__}: {exc}"
-        ) from exc
+        if route.proxy_url is None:
+            return httpx.AsyncClient(
+                timeout=_HTTP_TIMEOUT, verify=ssl_context, trust_env=False
+            )
+        proxy: str | httpx.Proxy = route.proxy_url
+        if route.uses_https_proxy:
+            proxy = httpx.Proxy(route.proxy_url, ssl_context=create_tls_context())
+        return httpx.AsyncClient(
+            timeout=_HTTP_TIMEOUT, verify=ssl_context, proxy=proxy
+        )
+    except (httpx.InvalidURL, UnicodeError):
+        raise ProxyUnusableError(
+            f"The proxy address was rejected by the HTTP client. {PROXY_FIX_HINT}"
+        ) from None
 
 
 def _build_credentials(data: dict[str, Any]) -> Credentials:
@@ -168,6 +206,7 @@ class DeviceFlowAuth:
         auth = DeviceFlowAuth(
             server_url="wss://tunnel.ankimcp.ai",
             client_id="ankimcp-cli",
+            proxy=AUTO_PROXY,
         )
 
         # Step 1: Request a device code
@@ -183,7 +222,9 @@ class DeviceFlowAuth:
         new_credentials = await auth.refresh_token(credentials.refresh_token)
     """
 
-    def __init__(self, server_url: str, client_id: str) -> None:
+    def __init__(
+        self, server_url: str, client_id: str, *, proxy: ProxySetting
+    ) -> None:
         """Initialize the auth client.
 
         Args:
@@ -191,6 +232,9 @@ class DeviceFlowAuth:
                 (e.g. ``wss://tunnel.ankimcp.ai``).
             client_id: OAuth client identifier
                 (e.g. ``ankimcp-cli``).
+            proxy: The ``tunnel_proxy`` setting. The route is resolved again
+                for every request, so a VPN toggled meanwhile applies to the
+                next one.
 
         Raises:
             ValueError: If ``server_url`` is not a valid relay URL (see
@@ -202,6 +246,7 @@ class DeviceFlowAuth:
         self._device_endpoint = f"{parsed.http_url}/auth/device"
         self._token_endpoint = f"{parsed.http_url}/auth/token"
         self._client_id = client_id
+        self._proxy = proxy
 
         logger.debug(
             "DeviceFlowAuth initialized: device=%s, token=%s, client_id=%s",
@@ -405,9 +450,17 @@ class DeviceFlowAuth:
             AuthError: On HTTP errors, non-JSON or non-object responses, or
                 OAuth error responses (a non-2xx status). ``error_code`` is
                 the response's ``error`` field when it is a string, else None.
+                A proxy setting that cannot be used raises the subclass
+                :class:`ProxyUnusableError` (see :func:`resolve_route`).
         """
         try:
-            async with _new_http_client() as client:
+            route = resolve_route(self._proxy, url)
+        except TunnelProxyError as exc:
+            raise ProxyUnusableError(str(exc)) from exc
+        logger.debug("Auth request route: %s", route.display())
+
+        try:
+            async with _new_http_client(route) as client:
                 response = await client.post(url, data=form_data)
         except TLSContextError as exc:
             raise AuthError(str(exc)) from exc
@@ -416,10 +469,13 @@ class DeviceFlowAuth:
         except httpx.TimeoutException as exc:
             raise AuthError(f"Request timed out: {url}") from exc
         except httpx.HTTPError as exc:
-            raise AuthError(f"HTTP request failed: {exc}") from exc
+            raise AuthError(
+                f"HTTP request failed: {mask_url_credentials(str(exc))}"
+            ) from exc
         except OSError as exc:
             raise AuthError(
-                f"HTTP request failed: {type(exc).__name__}: {exc}"
+                f"HTTP request failed: {type(exc).__name__}: "
+                f"{mask_url_credentials(str(exc))}"
             ) from exc
 
         # Parse JSON body. A 2xx body may carry tokens, so it is never quoted.

@@ -34,6 +34,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from anki_mcp_server.tunnel import reconnect as reconnect_module
+from anki_mcp_server.tunnel.proxy import AUTO_PROXY
 from anki_mcp_server.tunnel.reconnect import TunnelReconnectManager
 from anki_mcp_server.tunnel.protocol import (
     CloseCodes,
@@ -113,6 +114,7 @@ def _make_manager(**overrides) -> TunnelReconnectManager:
         "mcp_server": MagicMock(),
         "credentials_manager": _make_credentials_manager(),
         "auth": auth,
+        "proxy": AUTO_PROXY,
     }
     kwargs.update(overrides)
     return TunnelReconnectManager(**kwargs)

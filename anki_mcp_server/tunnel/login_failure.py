@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 
-from .auth import AuthError
+from .auth import AuthError, ProxyUnusableError
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,8 @@ def unexpected_error_message(exc: BaseException) -> str:
 def log_login_failure(step: str, exc: Exception) -> None:
     """Log a login failure with enough detail to diagnose it from the file log.
 
-    Expected OAuth outcomes are logged at INFO without a traceback. Any other
+    Expected OAuth outcomes are logged at INFO without a traceback. An unusable
+    proxy setting is a configuration condition: WARNING, message only. Any other
     ``AuthError`` is a WARNING with ``exc_info`` so its chained ``__cause__``
     (the httpx/OSError behind "HTTP request failed") is recorded. Everything
     else is an ERROR with the full traceback.
@@ -39,6 +40,8 @@ def log_login_failure(step: str, exc: Exception) -> None:
         code = exc.error_code
         if isinstance(code, str) and code in _EXPECTED_OAUTH_CODES:
             logger.info("Login ended while trying to %s: %s (%s)", step, exc, code)
+        elif isinstance(exc, ProxyUnusableError):
+            logger.warning("Login failed while trying to %s: %s", step, exc)
         else:
             logger.warning("Login failed while trying to %s: %s", step, exc, exc_info=exc)
     else:

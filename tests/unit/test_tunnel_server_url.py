@@ -17,13 +17,14 @@ import anki_mcp_server as addon
 from anki_mcp_server import connection_manager as cm_module
 from anki_mcp_server.config import Config
 from anki_mcp_server.tunnel.auth import DeviceFlowAuth
+from anki_mcp_server.tunnel.proxy import AUTO_PROXY
 from anki_mcp_server.tunnel.protocol import (
     TunnelServerUrl,
     parse_tunnel_server_url,
     validate_tunnel_server_url,
 )
 
-from .test_mcp_server_http_failure import _FakeTunnelLog
+from .fakes import FakeTunnelLog
 
 _EXPECTED = "expected a ws:// or wss:// URL (e.g. wss://tunnel.ankimcp.ai)"
 
@@ -200,12 +201,14 @@ class TestDeviceFlowAuthAgreesWithValidator:
         reason = parse_tunnel_server_url("https://tunnel.ankimcp.ai")
 
         with pytest.raises(ValueError) as excinfo:
-            DeviceFlowAuth("https://tunnel.ankimcp.ai", "client")
+            DeviceFlowAuth("https://tunnel.ankimcp.ai", "client", proxy=AUTO_PROXY)
 
         assert str(excinfo.value) == reason
 
     def test_endpoints_derive_from_the_parsed_http_url(self) -> None:
-        auth = DeviceFlowAuth("wss://relay.example/prefix/", "client")
+        auth = DeviceFlowAuth(
+            "wss://relay.example/prefix/", "client", proxy=AUTO_PROXY
+        )
 
         assert auth._device_endpoint == "https://relay.example/prefix/auth/device"
         assert auth._token_endpoint == "https://relay.example/prefix/auth/token"
@@ -213,7 +216,7 @@ class TestDeviceFlowAuthAgreesWithValidator:
 
 @pytest.fixture()
 def build_manager(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(cm_module, "TunnelLog", _FakeTunnelLog)
+    monkeypatch.setattr(cm_module, "TunnelLog", FakeTunnelLog)
     monkeypatch.setattr(cm_module, "CredentialsManager", MagicMock)
     auth_cls = MagicMock()
     monkeypatch.setattr(cm_module, "DeviceFlowAuth", auth_cls)
@@ -245,6 +248,7 @@ class TestConnectionManagerInvalidTunnelUrl:
         assert manager.tunnel_config_error is None
         build_manager.auth_cls.assert_called_once_with(
             server_url="ws://localhost:3004", client_id="ankimcp-cli",
+            proxy=AUTO_PROXY,
         )
         assert manager.auth is build_manager.auth_cls.return_value
 

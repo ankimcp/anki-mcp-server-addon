@@ -27,6 +27,9 @@ from anki_mcp_server import mcp_server as mcp_server_module
 from anki_mcp_server.config import Config
 from anki_mcp_server.mcp_server import McpServer
 from anki_mcp_server.queue_bridge import QueueBridge
+from anki_mcp_server.tunnel.proxy import AUTO_PROXY
+
+from .fakes import FakeTunnelLog
 
 
 _LOGGER_NAME = "anki_mcp_server.mcp_server"
@@ -542,13 +545,13 @@ class TestBinderSkipRules:
 class TestStartTunnelReturn:
 
     def test_false_without_loop(self, server: McpServer) -> None:
-        assert server.start_tunnel(MagicMock(), MagicMock()) is False
+        assert server.start_tunnel(MagicMock(), MagicMock(), proxy=AUTO_PROXY) is False
 
     def test_false_with_closed_loop(self, server: McpServer) -> None:
         loop = asyncio.new_event_loop()
         loop.close()
         server._loop = loop
-        assert server.start_tunnel(MagicMock(), MagicMock()) is False
+        assert server.start_tunnel(MagicMock(), MagicMock(), proxy=AUTO_PROXY) is False
 
     def test_true_when_scheduled(self, server: McpServer) -> None:
         loop = asyncio.new_event_loop()
@@ -557,7 +560,7 @@ class TestStartTunnelReturn:
         try:
             server._loop = loop
             with patch.object(server, "_start_tunnel_async", new=AsyncMock()) as start_async:
-                assert server.start_tunnel(MagicMock(), MagicMock()) is True
+                assert server.start_tunnel(MagicMock(), MagicMock(), proxy=AUTO_PROXY) is True
                 deadline = time.monotonic() + 2.0
                 while start_async.await_count == 0 and time.monotonic() < deadline:
                     time.sleep(0.01)
@@ -617,19 +620,6 @@ class TestThreadDeath:
 # 6. ConnectionManager — truthful HTTP state + loud tunnel failure
 # ---------------------------------------------------------------------------
 
-class _FakeTunnelLog:
-    """Records entries; stands in for the QObject-based TunnelLog."""
-
-    def __init__(self) -> None:
-        self.entries: list[tuple[str, str]] = []
-
-    def info(self, message: str) -> None:
-        self.entries.append(("info", message))
-
-    def error(self, message: str) -> None:
-        self.entries.append(("error", message))
-
-
 class _LiveThread:
     """A real, alive thread for the duration of a test."""
 
@@ -674,7 +664,7 @@ def closed_loop() -> asyncio.AbstractEventLoop:
 
 @pytest.fixture()
 def manager(monkeypatch: pytest.MonkeyPatch) -> Iterator[cm_module.ConnectionManager]:
-    monkeypatch.setattr(cm_module, "TunnelLog", _FakeTunnelLog)
+    monkeypatch.setattr(cm_module, "TunnelLog", FakeTunnelLog)
     monkeypatch.setattr(cm_module, "CredentialsManager", MagicMock)
     monkeypatch.setattr(cm_module, "DeviceFlowAuth", MagicMock)
     m = cm_module.ConnectionManager(Config(http_enabled=True))

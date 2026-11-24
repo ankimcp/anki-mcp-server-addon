@@ -7,6 +7,8 @@ running a tunnel — callers interact with this, not TunnelClient directly.
 Responsibilities:
 - Exponential backoff with jitter between reconnection attempts
 - Token refresh on auth-related close codes
+- Resolving the proxy route afresh for every attempt; an unusable proxy
+  setting is a terminal stop, not something to retry
 - Clean shutdown via cancellation
 
 Does NOT handle WebSocket internals — that belongs in client.py.
@@ -21,7 +23,7 @@ from typing import Any, Callable
 import anyio
 
 from ..credentials import CredentialsManager
-from .auth import AuthError, DeviceFlowAuth
+from .auth import AuthError, DeviceFlowAuth, ProxyUnusableError
 from .client import TunnelClient, TunnelConnectionError
 from .in_memory_transport import InMemoryTransport
 from .protocol import (
@@ -29,10 +31,12 @@ from .protocol import (
     RECONNECT_JITTER_FACTOR,
     RECONNECT_MAX_ATTEMPTS,
     RECONNECT_MAX_DELAY,
+    PROXY_UNUSABLE_STOP_CODE,
     CloseCodes,
     should_reconnect,
     should_refresh_token,
 )
+from .proxy import ProxySetting, TunnelProxyError, resolve_route
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +62,9 @@ class TunnelReconnectManager:
         on_request_completed: Callable[[str, int, float], None] | None = None,
         on_reconnecting: Callable[[int, float], None] | None = None,
         on_stopped: Callable[[int, str], None] | None = None,
+        on_route: Callable[[str], None] | None = None,
+        *,
+        proxy: ProxySetting,
     ) -> None:
         """Initialize the reconnection manager.
 
@@ -73,7 +80,9 @@ class TunnelReconnectManager:
                 Receives ``(public_url, user_dict)``.
             on_disconnected: Called when a single connection ends.
                 Receives ``(close_code, reason)``.
-            on_error: Called when the server sends an error message.
+            on_error: Called when the server sends an error message, or when
+                a connection attempt fails or the tunnel cannot start
+                (``connection_failed``, ``token_refresh_failed``, ...).
                 Receives ``(error_code, error_message)``.
             on_request_completed: Called after each proxied request.
                 Receives ``(method_path, status_code, duration_ms)``.
@@ -83,11 +92,19 @@ class TunnelReconnectManager:
                 further reconnection) — whether a clean disconnect or a
                 permanent failure. Receives ``(close_code, reason)``.
                 Inspect ``close_code`` (``NORMAL`` == clean) to distinguish.
+                An unusable proxy setting stops with
+                ``(PROXY_UNUSABLE_STOP_CODE, <full actionable message>)``
+                and fires no ``on_error``.
+            on_route: Called once per attempt with the route taken, as one
+                masked line (``ProxyRoute.display()``).
+            proxy: The ``tunnel_proxy`` setting; the route is resolved from
+                it at the start of every attempt.
         """
         self._server_url = server_url
         self._mcp_server = mcp_server
         self._credentials_manager = credentials_manager
         self._auth = auth
+        self._proxy = proxy
 
         # Callbacks forwarded to TunnelClient
         self._on_tunnel_established = on_tunnel_established
@@ -98,6 +115,7 @@ class TunnelReconnectManager:
         # Reconnection-specific callbacks
         self._on_reconnecting = on_reconnecting
         self._on_stopped = on_stopped
+        self._on_route = on_route
 
         # State
         self._shutdown = False
@@ -131,6 +149,7 @@ class TunnelReconnectManager:
         It keeps reconnecting until:
         - A permanent close code is received (TOKEN_REVOKED, ACCOUNT_DELETED,
           SESSION_REPLACED, NORMAL)
+        - The proxy setting cannot be used (PROXY_UNUSABLE_STOP_CODE)
         - Max reconnection attempts exhausted
         - Cancelled via disconnect()
 
@@ -144,6 +163,14 @@ class TunnelReconnectManager:
             if credentials is None:
                 logger.warning("No credentials found, cannot connect tunnel")
                 return (0, "No credentials available")
+
+            # --- Step 1b: Resolve the route for this attempt ---
+            try:
+                route = resolve_route(self._proxy, self._server_url)
+            except TunnelProxyError as exc:
+                return self._stop_for_unusable_proxy(str(exc))
+            logger.info("Tunnel route: %s", route.display())
+            self._fire_callback(self._on_route, route.display())
 
             # --- Step 2: Refresh token if expired ---
             if self._credentials_manager.is_token_expired(credentials):
@@ -160,6 +187,8 @@ class TunnelReconnectManager:
                             "Refresh token revoked, re-login required: %s", exc
                         )
                         return (0, "Refresh token revoked — re-login required")
+                    if isinstance(exc, ProxyUnusableError):
+                        return self._stop_for_unusable_proxy(str(exc))
                     logger.warning("Token refresh failed: %s", exc)
                     self._fire_callback(
                         self._on_error,
@@ -231,6 +260,7 @@ class TunnelReconnectManager:
                 on_disconnected=self._on_disconnected,
                 on_error=self._on_error,
                 on_request_completed=self._on_request_completed,
+                route=route,
             )
             self._active_client = client
 
@@ -283,6 +313,8 @@ class TunnelReconnectManager:
                                 close_code,
                                 "Refresh token revoked — re-login required",
                             )
+                        if isinstance(exc, ProxyUnusableError):
+                            return self._stop_for_unusable_proxy(str(exc))
                         logger.warning(
                             "Token refresh failed after close code %d: %s",
                             close_code,
@@ -350,6 +382,15 @@ class TunnelReconnectManager:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _stop_for_unusable_proxy(self, message: str) -> tuple[int, str]:
+        """Log an unusable proxy setting once and give the terminal stop result.
+
+        The full message travels as the stop reason, a channel a relay cannot
+        produce, so ``on_error`` (which also carries server codes) is not used.
+        """
+        logger.warning("Tunnel proxy cannot be used: %s", message)
+        return (PROXY_UNUSABLE_STOP_CODE, message)
 
     def _calculate_delay(self, attempt: int) -> float:
         """Calculate reconnection delay with exponential backoff and jitter.

@@ -36,6 +36,7 @@ from websockets.frames import Close
 
 from anki_mcp_server.tunnel import client as client_module
 from anki_mcp_server.tunnel.client import TunnelClient
+from anki_mcp_server.tunnel.proxy import ProxyRoute
 from anki_mcp_server.tunnel.protocol import CloseCodes, should_reconnect
 
 
@@ -168,6 +169,7 @@ def _make_client(**callbacks) -> TunnelClient:
         server_url="wss://tunnel.example",
         credentials=MagicMock(),
         transport=MagicMock(),
+        route=ProxyRoute(None, "test"),
         **callbacks,
     )
 

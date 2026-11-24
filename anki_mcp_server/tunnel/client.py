@@ -44,6 +44,7 @@ from .protocol import (
     normalize_client_version,
     parse_server_message,
 )
+from .proxy import ProxyRoute, mask_url_credentials
 from .tls import create_tls_context
 
 logger = logging.getLogger(__name__)
@@ -123,6 +124,8 @@ class TunnelClient:
         on_disconnected: Callable[[int, str], None] | None = None,
         on_error: Callable[[str, str], None] | None = None,
         on_request_completed: Callable[[str, int, float], None] | None = None,
+        *,
+        route: ProxyRoute,
     ) -> None:
         """Initialize the tunnel client.
 
@@ -140,10 +143,13 @@ class TunnelClient:
                 Receives ``(error_code, error_message)``.
             on_request_completed: Called after each proxied request.
                 Receives ``(method_path, status_code, duration_ms)``.
+            route: How to reach the relay, already resolved for this attempt
+                (``None`` proxy means a direct connection).
         """
         self._server_url = server_url
         self._credentials = credentials
         self._transport = transport
+        self._route = route
 
         # Callbacks
         self._on_tunnel_established = on_tunnel_established
@@ -181,6 +187,9 @@ class TunnelClient:
             tls_kwargs: dict[str, Any] = {}
             if _is_secure_ws_url(self._server_url):
                 tls_kwargs["ssl"] = create_tls_context()
+            # websockets rejects proxy_ssl for an http:// proxy.
+            if self._route.uses_https_proxy:
+                tls_kwargs["proxy_ssl"] = create_tls_context()
             ws = await connect(
                 self._server_url,
                 additional_headers=self._build_connect_headers(),
@@ -189,12 +198,20 @@ class TunnelClient:
                 # the application protocol level.
                 ping_interval=None,
                 ping_timeout=None,
+                # Explicit: None means direct. The default would re-read the
+                # system settings and pick a SOCKS proxy it cannot use.
+                proxy=self._route.proxy_url,
                 **tls_kwargs,
             )
         except Exception as exc:
+            # Library errors may quote the proxy URL, password included; drop
+            # the chained cause too, since a traceback would print it. The
+            # type name keeps what the dropped cause would have told.
+            cause = None if self._route.proxy_url is not None else exc
             raise TunnelConnectionError(
-                f"Failed to connect to {self._server_url}: {exc}"
-            ) from exc
+                f"Failed to connect to {self._server_url}: "
+                f"{type(exc).__name__}: {mask_url_credentials(str(exc))}"
+            ) from cause
 
         self._ws = ws
         self._last_server_ping = time.monotonic()

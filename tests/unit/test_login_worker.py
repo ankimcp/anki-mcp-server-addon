@@ -27,6 +27,7 @@ import pytest
 import anki_mcp_server  # noqa: F401
 
 from anki_mcp_server.tunnel.auth import AuthError, DeviceCodeResponse
+from anki_mcp_server.tunnel.proxy import AUTO_PROXY
 
 _MODULE = "anki_mcp_server.tunnel.ui.login_dialog"
 _UI_PACKAGE = "anki_mcp_server.tunnel.ui"
@@ -150,7 +151,7 @@ def install_auth(login_dialog, monkeypatch) -> Callable[..., None]:
         poll_fn = poll or default_poll
 
         class FakeAuth:
-            def __init__(self, server_url: str, client_id: str) -> None:
+            def __init__(self, server_url: str, client_id: str, *, proxy) -> None:
                 if init_exc is not None:
                     raise init_exc
 
@@ -166,7 +167,9 @@ def install_auth(login_dialog, monkeypatch) -> Callable[..., None]:
 
 
 def _worker(login_dialog):
-    return login_dialog._LoginWorker("wss://example.invalid", "client-id")
+    return login_dialog._LoginWorker(
+        "wss://example.invalid", "client-id", proxy=AUTO_PROXY
+    )
 
 
 def _run(worker) -> None:

@@ -32,6 +32,7 @@ from ...credentials import Credentials, CredentialsManager
 from ..auth import AuthError, DeviceCodeResponse, DeviceFlowAuth
 from ..log import TunnelLog
 from ..login_failure import log_login_failure, unexpected_error_message
+from ..proxy import ProxySetting
 
 logger = logging.getLogger(__name__)
 
@@ -72,11 +73,17 @@ class _LoginWorker(QThread):
     login_failed = pyqtSignal(str)              # error message
 
     def __init__(
-        self, server_url: str, client_id: str, parent: QDialog | None = None
+        self,
+        server_url: str,
+        client_id: str,
+        parent: QDialog | None = None,
+        *,
+        proxy: ProxySetting,
     ) -> None:
         super().__init__(parent)
         self._server_url = server_url
         self._client_id = client_id
+        self._proxy = proxy
         self._cancelled = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._failure_reported = False
@@ -131,7 +138,7 @@ class _LoginWorker(QThread):
 
     async def _flow(self) -> None:
         """Run request_device_code -> poll loop, emitting signals."""
-        auth = DeviceFlowAuth(self._server_url, self._client_id)
+        auth = DeviceFlowAuth(self._server_url, self._client_id, proxy=self._proxy)
 
         # Step 1: get the user code.
         try:
@@ -203,6 +210,7 @@ class LoginDialog(QDialog):
             server_url="wss://tunnel.ankimcp.ai",
             client_id="ankimcp-cli",
             parent=mw,
+            proxy=AUTO_PROXY,
         )
         dialog.exec()
         if dialog.credentials is not None:
@@ -215,10 +223,13 @@ class LoginDialog(QDialog):
         client_id: str,
         parent: QDialog | None = None,
         tunnel_log: TunnelLog | None = None,
+        *,
+        proxy: ProxySetting,
     ) -> None:
         super().__init__(parent)
 
         self._tunnel_log = tunnel_log
+        self._proxy = proxy
 
         self.credentials: Credentials | None = None
         """Set on successful login; ``None`` if cancelled or failed."""
@@ -329,7 +340,7 @@ class LoginDialog(QDialog):
         self._stop_worker()
 
         self._worker = _LoginWorker(
-            self._server_url, self._client_id, parent=self
+            self._server_url, self._client_id, parent=self, proxy=self._proxy
         )
         self._worker.device_code_received.connect(self._on_device_code)
         self._worker.login_succeeded.connect(self._on_success)

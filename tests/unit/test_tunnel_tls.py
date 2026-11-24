@@ -22,7 +22,6 @@ import anki_mcp_server  # noqa: F401
 import asyncio
 import json
 import logging
-import os
 import re
 import ssl
 import urllib.request
@@ -32,7 +31,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import certifi
 import httpx
-import httpx._utils as httpx_utils
 import pytest
 
 from anki_mcp_server.tunnel import auth as auth_module
@@ -44,6 +42,7 @@ from anki_mcp_server.tunnel.client import (
     TunnelConnectionError,
     _is_secure_ws_url,
 )
+from anki_mcp_server.tunnel.proxy import AUTO_PROXY, ProxyRoute
 from anki_mcp_server.tunnel.tls import TLSContextError, create_tls_context
 
 _TLS_LOGGER = "anki_mcp_server.tunnel.tls"
@@ -61,35 +60,17 @@ _DEVICE_CODE_BODY = {
 }
 
 
-def _is_proxy_env_var(name: str) -> bool:
-    """Match what ``urllib.request.getproxies_environment`` reads.
-
-    httpx gets its env proxies from ``getproxies()`` and uses the ``http``,
-    ``https``, ``all`` and ``no`` entries; urllib builds those from ANY
-    ``<scheme>_proxy`` variable, matched case-insensitively.
-    """
-    return len(name) > 5 and name[-6] == "_" and name[-5:].lower() == "proxy"
-
-
 @pytest.fixture(autouse=True)
 def _clean_tls_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Remove ambient env vars these tests are sensitive to.
 
     A developer shell's ``SSLKEYLOGFILE`` pointing at a missing directory makes
-    every ``ssl.create_default_context()`` fail, and a SOCKS ``ALL_PROXY``
-    makes the real ``httpx.AsyncClient`` constructor raise ``ImportError``.
-    Tests that need one of these set it again with ``monkeypatch.setenv``.
-    httpx's ``getproxies`` is routed to ``getproxies_environment`` so the
-    OS-level proxy settings that ``getproxies`` reads on macOS/Windows can't
-    reach the real constructor either.
+    every ``ssl.create_default_context()`` fail. Tests that need one of these
+    set it again with ``monkeypatch.setenv``. Ambient proxy settings are
+    neutralised suite-wide by ``_no_ambient_proxy`` in ``conftest.py``.
     """
     for name in _TLS_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
-    for name in [n for n in os.environ if _is_proxy_env_var(n)]:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(
-        httpx_utils, "getproxies", urllib.request.getproxies_environment
-    )
 
 
 @pytest.fixture(autouse=True)
@@ -376,7 +357,9 @@ def _forbid_client_construction(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _make_auth() -> DeviceFlowAuth:
-    return DeviceFlowAuth(server_url=_SERVER_URL, client_id="test-client")
+    return DeviceFlowAuth(
+        server_url=_SERVER_URL, client_id="test-client", proxy=AUTO_PROXY
+    )
 
 
 class TestPostErrorMapping:
@@ -454,47 +437,46 @@ class TestPostErrorMapping:
         assert isinstance(excinfo.value.__cause__, PermissionError)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "error",
-        [
-            ValueError("Unknown scheme for proxy URL"),
-            ImportError("socksio"),
-        ],
-        ids=["ValueError", "ImportError"],
-    )
-    async def test_client_construction_error_becomes_auth_error(
-        self, error: Exception, monkeypatch: pytest.MonkeyPatch
+    async def test_proxy_address_rejected_by_httpx_becomes_proxy_error(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # With http(s)-only routes, InvalidURL is the one construction failure
+        # left; ValueError (scheme) and ImportError (socksio) need a SOCKS proxy.
         def _raise(*args: object, **kwargs: object) -> httpx.AsyncClient:
-            raise error
+            raise httpx.InvalidURL("Invalid IPv6 address: '[v1.x]'")
 
         monkeypatch.setattr(auth_module.httpx, "AsyncClient", _raise)
+        monkeypatch.setattr(
+            urllib.request, "getproxies", lambda: {"https": "http://proxy.example:3128"}
+        )
 
         with pytest.raises(AuthError) as excinfo:
             await _make_auth().request_device_code()
 
-        assert str(excinfo.value) == (
-            f"HTTP client setup failed: {type(error).__name__}: {error}"
-        )
-        assert excinfo.value.__cause__ is error
+        assert isinstance(excinfo.value, auth_module.ProxyUnusableError)
+        assert excinfo.value.error_code == "proxy_unsupported"
+        assert "tunnel_proxy" in str(excinfo.value)
+        assert "Invalid auth URL" not in str(excinfo.value)
 
     @pytest.mark.asyncio
     async def test_unsupported_env_proxy_scheme_becomes_auth_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Real constructor: httpx rejects the scheme while building mounts,
-        # before any request, so nothing reaches the network.
-        monkeypatch.setenv("HTTPS_PROXY", "ftp://proxy.example:21")
+        # The route decision rejects the scheme before any client is built, so
+        # nothing reaches the network.
+        monkeypatch.setattr(
+            urllib.request, "getproxies", lambda: {"https": "ftp://proxy.example:21"}
+        )
+        _forbid_client_construction(monkeypatch)
 
         with pytest.raises(AuthError) as excinfo:
             await _make_auth().request_device_code()
 
-        message = str(excinfo.value)
-        assert message.startswith("HTTP client setup failed: ValueError: ")
-        assert "Unknown scheme for proxy URL" in message
+        assert excinfo.value.error_code == "proxy_unsupported"
+        assert "tunnel_proxy" in str(excinfo.value)
 
     @pytest.mark.asyncio
-    async def test_value_error_from_request_is_not_a_setup_failure(
+    async def test_value_error_from_request_propagates_unchanged(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         original = ValueError("raised while sending")
@@ -504,8 +486,7 @@ class TestPostErrorMapping:
 
         _patch_client_with_handler(monkeypatch, _handler)
 
-        # Only client construction is mapped to "HTTP client setup failed";
-        # a ValueError from the request itself is not an httpx.HTTPError or
+        # A ValueError from the request itself is not an httpx.HTTPError or
         # OSError, so _post lets it propagate unchanged.
         with pytest.raises(ValueError) as excinfo:
             await _make_auth().request_device_code()
@@ -575,6 +556,7 @@ def _make_client(server_url: str) -> TunnelClient:
         server_url=server_url,
         credentials=MagicMock(),
         transport=MagicMock(),
+        route=ProxyRoute(None, "test"),
     )
 
 

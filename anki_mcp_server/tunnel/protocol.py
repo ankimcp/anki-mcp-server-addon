@@ -44,6 +44,13 @@ class CloseCodes:
     IDLE_TIMEOUT = 4010
 
 
+# Not a WebSocket close code: the stop code reported to ``on_stopped`` when the
+# tunnel stops because the ``tunnel_proxy`` setting cannot be used. Nothing was
+# ever connected, so the relay sent no code; negative keeps it clear of the
+# 1000-4999 range above.
+PROXY_UNUSABLE_STOP_CODE = -1
+
+
 # Close codes that mean "don't bother reconnecting"
 _NO_RECONNECT: set[int] = {
     CloseCodes.NORMAL,
