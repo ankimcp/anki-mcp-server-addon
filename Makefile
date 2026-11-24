@@ -70,9 +70,50 @@ echo "Waiting for $(2) MCP server on port $(1) (Inspector $(INSPECTOR_VERSION)).
 	done
 endef
 
+# ---------------------------------------------------------------------------
+# Build interpreter
+# ---------------------------------------------------------------------------
+
+# package.sh refuses to run on any Python but the one in
+# .github/build-python-version (see "Build Python" in CLAUDE.md), and a dev
+# machine's default python3 is often a different one. Find the right one and
+# hand it over through package.sh's own PYTHON override; the guard in package.sh
+# stays the enforcer. Order: a non-empty PYTHON (environment or command line;
+# empty counts as unset, like package.sh's ${PYTHON:-python3}) is left
+# untouched; else python<version> on PATH; else uv's interpreter for that
+# version (--system keeps uv from returning a project .venv interpreter, which
+# may lack pip; --no-python-downloads keeps it from installing anything; a uv
+# that fails or rejects a flag just means "not found"); else nothing, and
+# package.sh reports the mismatch itself.
+# Recursive (`=`) on purpose, so the lookup runs once per build and not at all
+# for targets that do not build.
+#
+# CI: setup-python puts python3 and python<version> in the same toolcache bin
+# dir, first on PATH, so python<version> is the interpreter python3 already is.
+# A literal # cannot be written portably inside $(shell ...) across make 3.81
+# and 4.3+, so it goes through this variable. Do not inline it.
+HASH := \#
+BUILD_PYTHON_VERSION = $(strip $(shell sed -e 's/$(HASH).*//' -e 's/[[:space:]]//g' .github/build-python-version 2>/dev/null | grep -m1 .))
+
+# $(1) = version. Empty when it is unknown or no interpreter is found.
+define find_build_python
+$(if $(1),$(shell command -v python$(1) 2>/dev/null || { command -v uv >/dev/null 2>&1 && uv python find --system --no-python-downloads $(1) 2>/dev/null; }))
+endef
+
+# $(1) = interpreter path. Single-quoted so $ and backticks in it are inert.
+define build_python_env
+$(if $(1),PYTHON='$(subst ','\'',$(1))')
+endef
+
+ifeq ($(strip $(PYTHON)),)
+BUILD_PYTHON_ENV = $(call build_python_env,$(call find_build_python,$(BUILD_PYTHON_VERSION)))
+else
+BUILD_PYTHON_ENV =
+endif
+
 # Build the addon package
 build:
-	./package.sh
+	$(BUILD_PYTHON_ENV) ./package.sh
 
 # Run unit tests (no Docker / Anki needed -- aqt is stubbed in tests/unit/conftest.py)
 unit:

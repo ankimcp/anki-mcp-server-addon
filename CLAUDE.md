@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Quick Reference
 
 ```bash
-./package.sh                    # Build .ankiaddon package
+./package.sh                    # Build .ankiaddon package (needs the build Python as python3, or PYTHON=...)
+make build                      # Same, but looks for the build Python itself (`python<version>` on PATH, then uv)
 make e2e                        # Full E2E cycle: regular (port 3141) + filtered (port 3142)
 make e2e-full                   # Regular tests only: build → Docker → test → teardown
 make e2e-up                     # Build addon + start headless Anki container (port 3141)
@@ -145,7 +146,7 @@ anki_mcp_server/
 
 **Keeping vendor lists in sync**: `requirements.txt` is the **vendoring source of truth** — `package.sh` runs `pip download -r requirements.txt`, so its top-level entries (plus transitive deps) are exactly what gets bundled. The `mcp>=1.27.0,<2` ceiling there pins the addon to the v1 MCP SDK (v2 is a breaking rewrite). When adding or removing a vendored dependency, update **both** `requirements.txt` (controls what gets downloaded/bundled) **and** `_VENDOR_PACKAGES` in `__init__.py` (controls conflict detection at startup). They must stay in sync.
 
-**Build Python**: `.github/build-python-version` (`3.13`, the Python Anki 25.07+ ships) is the single source of truth for the interpreter that runs `package.sh`. Every workflow job that builds a package reads it via `setup-python`'s `python-version-file`, and `package.sh` aborts on any other version (override the interpreter with `PYTHON=...`, or run `uv run --python 3.13 ./package.sh`). Why it matters: anyio 4.16.0 declares `typing_extensions>=4.16.0; python_version < "3.15"`; on a 3.15 host that marker is false, the `typing-extensions<4.15` ceiling never conflicts, and pip vendors an anyio that imports `sentinel` — which Anki 25.07–26.05's preloaded `typing_extensions` lacks. That is exactly how 0.41.0 shipped broken: the `release` job used `'3.x'`. `tests/unit/test_version_consistency.py` fails if a package-building job uses a literal `python-version:`.
+**Build Python**: `.github/build-python-version` (`3.13`, the Python Anki 25.07+ ships) is the single source of truth for the interpreter that runs `package.sh`. Every workflow job that builds a package reads it via `setup-python`'s `python-version-file`, and `package.sh` aborts on any other version (override the interpreter with `PYTHON=...`, or run `uv run --python 3.13 ./package.sh`). `make build` (and every `make` target that builds) finds the interpreter itself and passes it as `PYTHON`: a non-empty `PYTHON` wins, else `python<version>` on PATH, else `uv python find --system --no-python-downloads <version>` (`--system` so a `.venv` without pip is never picked), else it passes nothing and `package.sh` prints its error; plain `./package.sh` does no lookup. Why it matters: anyio 4.16.0 declares `typing_extensions>=4.16.0; python_version < "3.15"`; on a 3.15 host that marker is false, the `typing-extensions<4.15` ceiling never conflicts, and pip vendors an anyio that imports `sentinel` — which Anki 25.07–26.05's preloaded `typing_extensions` lacks. That is exactly how 0.41.0 shipped broken: the `release` job used `'3.x'`. `tests/unit/test_version_consistency.py` fails if a package-building job uses a literal `python-version:`.
 
 ### Decorator Patterns
 

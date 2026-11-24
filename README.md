@@ -634,7 +634,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 
-# Build the addon
+# Build the addon (needs Python 3.13; `make build` also looks for `python3.13` on PATH, then uv)
 ./package.sh
 
 # Start Anki container
