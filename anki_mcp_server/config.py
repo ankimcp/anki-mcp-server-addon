@@ -74,6 +74,13 @@ class Config:
     tunnel_server_url: str = "wss://tunnel.ankimcp.ai"
     tunnel_client_id: str = "ankimcp-cli"
 
+    # How the tunnel (WebSocket and login) reaches the relay:
+    #   "auto" - follow the system/environment proxy, HTTP(S) proxies only
+    #   "none" - always connect directly
+    #   "http://host:port" (or https://, optionally user:password@) - that proxy
+    # SOCKS proxies are not supported. Takes effect after an Anki restart.
+    tunnel_proxy: str = "auto"
+
     # Media security settings
     # Restrict file path imports to this directory (empty = no restriction, any directory allowed)
     # Example: "/Users/me/anki-media"
@@ -108,7 +115,8 @@ class Config:
     # Optional rotating file logging for diagnostics. When true, the addon
     # writes a log to user_files/ankimcp.log (rotating, ~1MB x 3 backups) and
     # records a startup diagnostics snapshot (versions + loaded-module
-    # provenance). Secrets (API key, OAuth tokens, Bearer tokens) are redacted
+    # provenance). Secrets (API key, OAuth tokens, Bearer tokens, URL
+    # user:password@ parts such as proxy credentials) are redacted
     # before they reach disk. Opt-in (default false); takes effect on restart.
     log_to_file: bool = False
 

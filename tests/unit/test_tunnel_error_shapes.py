@@ -38,6 +38,7 @@ from mcp.server.fastmcp import FastMCP
 from anki_mcp_server.tunnel import in_memory_transport
 from anki_mcp_server.tunnel.client import TunnelClient, _extract_request_id
 from anki_mcp_server.tunnel.in_memory_transport import InMemoryTransport
+from anki_mcp_server.tunnel.proxy import ProxyRoute
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +75,7 @@ def _make_client(transport: object) -> TunnelClient:
         server_url="wss://example.invalid",
         credentials=MagicMock(),
         transport=transport,  # type: ignore[arg-type]
+        route=ProxyRoute(None, "test"),
     )
 
 

@@ -123,8 +123,10 @@ class DiagnosticsSection(QWidget):
             tunnel = "connected"
         elif self._cm.tunnel_active:
             tunnel = "connecting/reconnecting"
-        elif self._cm.loop_error:
-            tunnel = f"unavailable ({self._cm.loop_error})"
+        elif reasons := [
+            r for r in (self._cm.loop_error, self._cm.tunnel_config_error) if r
+        ]:
+            tunnel = f"unavailable ({'; '.join(reasons)})"
         else:
             tunnel = "not connected"
 

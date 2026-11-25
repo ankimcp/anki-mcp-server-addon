@@ -11,7 +11,13 @@ Server-to-client and client-to-server messages use separate type sets.
 
 import json
 import re
-from typing import NotRequired, TypedDict
+import unicodedata
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, NotRequired, TypedDict
+from urllib.parse import urlsplit, urlunsplit
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 
 # ------------------------------------------------------------------------------
@@ -36,6 +42,20 @@ class CloseCodes:
     SERVICE_UNAVAILABLE = 4008
     SHUTDOWN = 4009
     IDLE_TIMEOUT = 4010
+
+
+# Not a WebSocket close code: the stop code reported to ``on_stopped`` when the
+# tunnel stops because the ``tunnel_proxy`` setting cannot be used. Nothing was
+# ever connected, so the relay sent no code; negative keeps it clear of the
+# 1000-4999 range above.
+PROXY_UNUSABLE_STOP_CODE = -1
+
+
+# Appended to the "attempts exhausted" stop reason after a certificate failure,
+# so the final line keeps the cause.
+CERTIFICATE_GAVE_UP_NOTE = (
+    "last error: certificate could not be verified — see above"
+)
 
 
 # Close codes that mean "don't bother reconnecting"
@@ -270,3 +290,106 @@ def should_refresh_token(close_code: int) -> bool:
         True if the client should refresh its auth token.
     """
     return close_code in _REFRESH_TOKEN
+
+
+# ------------------------------------------------------------------------------
+# Relay URL (the ``tunnel_server_url`` config value)
+# ------------------------------------------------------------------------------
+
+TUNNEL_URL_EXAMPLE = "wss://tunnel.ankimcp.ai"
+
+_MAX_ECHOED_VALUE = 200
+
+_HTTP_SCHEME_FOR_WS = {"ws": "http", "wss": "https"}
+_WS_SCHEME_FOR_HTTP = {http: ws for ws, http in _HTTP_SCHEME_FOR_WS.items()}
+
+
+@dataclass(frozen=True)
+class TunnelServerUrl:
+    """A validated relay URL and the auth base URL derived from it.
+
+    Attributes:
+        ws_url: The configured WebSocket URL, unchanged.
+        http_url: The auth endpoints' base: same host, scheme swapped
+            (``wss`` -> ``https``, ``ws`` -> ``http``), trailing ``/`` dropped.
+    """
+
+    ws_url: str
+    http_url: str
+
+
+def parse_tunnel_server_url(raw: object) -> TunnelServerUrl | str:
+    """Validate the raw ``tunnel_server_url`` config value.
+
+    The single place that decides whether a relay URL is usable. Nothing is
+    corrected: an ``https://`` value is reported (with the ``wss://`` spelling
+    to use), never silently rewritten, so a custom relay is never swapped for
+    another host.
+
+    Returns:
+        A :class:`TunnelServerUrl` when valid, otherwise the human-readable
+        reason (a ``str``) naming the field and what is expected.
+    """
+    shown = repr(raw)
+    has_at = "@" in unicodedata.normalize("NFKC", shown)
+    echoable = not has_at and len(shown) <= _MAX_ECHOED_VALUE
+    if has_at:
+        invalid = "Invalid tunnel_server_url"
+    elif echoable:
+        invalid = f"Invalid tunnel_server_url {shown}"
+    else:
+        invalid = f"Invalid tunnel_server_url {shown[:_MAX_ECHOED_VALUE]}..."
+    expected = f"expected a ws:// or wss:// URL (e.g. {TUNNEL_URL_EXAMPLE})"
+
+    if not isinstance(raw, str) or not raw.strip():
+        return f"{invalid}: {expected}"
+    if any(ch.isspace() for ch in raw):
+        return f"{invalid}: must not contain whitespace, {expected}"
+    if not raw.isprintable():
+        return f"{invalid}: contains control or invalid characters, {expected}"
+
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        return f"{invalid}: not a valid URL, {expected}"
+
+    if "@" in parts.netloc:
+        return (
+            "Invalid tunnel_server_url: credentials in the URL are not "
+            f"supported, {expected}"
+        )
+
+    scheme = parts.scheme.lower()
+    if scheme in _WS_SCHEME_FOR_HTTP:
+        ws_scheme = _WS_SCHEME_FOR_HTTP[scheme]
+        use = ws_scheme + raw[len(scheme):] if echoable else f"{ws_scheme}://"
+        return (
+            f"{invalid}: expected a ws:// or wss:// URL, not {scheme}:// "
+            f"(use {use})"
+        )
+    if scheme not in _HTTP_SCHEME_FOR_WS:
+        return f"{invalid}: {expected}"
+
+    if not parts.hostname:
+        return f"{invalid}: missing host, {expected}"
+    try:
+        parts.port
+    except ValueError:
+        return f"{invalid}: invalid port, {expected}"
+    if "?" in raw or "#" in raw:
+        return f"{invalid}: must not contain a query or fragment, {expected}"
+
+    http_url = urlunsplit(
+        (_HTTP_SCHEME_FOR_WS[scheme], parts.netloc, parts.path.rstrip("/"), "", "")
+    )
+    return TunnelServerUrl(ws_url=raw, http_url=http_url)
+
+
+def validate_tunnel_server_url(config: "Config") -> list[str]:
+    """Advisory startup check of ``config.tunnel_server_url``.
+
+    Same contract as ``validate_http_allowlist``: pure, never rejects or alters
+    the setting, returns zero or one warning for the caller to surface.
+    """
+    result = parse_tunnel_server_url(config.tunnel_server_url)
+    return [result] if isinstance(result, str) else []

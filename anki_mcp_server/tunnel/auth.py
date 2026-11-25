@@ -19,12 +19,28 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlsplit
 
 import anyio
 import httpx
 
 from ..credentials import Credentials
+from .protocol import parse_tunnel_server_url
+from .proxy import (
+    PROXY_FIX_HINT,
+    PROXY_UNSUPPORTED,
+    ProxyRoute,
+    ProxySetting,
+    TunnelProxyError,
+    mask_url_credentials,
+    resolve_route,
+)
+from .tls import (
+    TLSContextError,
+    certificate_failure_message,
+    create_tls_context,
+    find_certificate_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +63,27 @@ class AuthError(Exception):
     def __init__(self, message: str, error_code: str | None = None) -> None:
         super().__init__(message)
         self.error_code = error_code
+
+
+class ProxyUnusableError(AuthError):
+    """The ``tunnel_proxy`` setting (or the system proxy) cannot be used.
+
+    A local condition, never something a server reports: callers branch on
+    this class, not on ``error_code``, which shares a namespace with the
+    OAuth codes a server may send. ``error_code`` is still ``"proxy_unsupported"``.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, error_code=PROXY_UNSUPPORTED)
+
+
+class CertificateVerificationError(AuthError):
+    """A TLS certificate could not be verified (possibly not the server's own).
+
+    A local condition, never something a server reports: callers branch on this
+    class, and ``error_code`` stays ``None``. ``str()`` is the full user-facing
+    message, free of credentials.
+    """
 
 
 # --------------------------------------------------------------------------
@@ -79,27 +116,76 @@ class DeviceCodeResponse:
 # Helpers
 # --------------------------------------------------------------------------
 
-def _ws_url_to_http(ws_url: str) -> str:
-    """Convert a WebSocket URL to its HTTP equivalent.
+def _str_field(data: dict[str, Any], key: str) -> str:
+    """``data[key]``, which must be a string (``KeyError``/``TypeError`` otherwise)."""
+    value = data[key]
+    if not isinstance(value, str):
+        raise TypeError(f"{key!r} must be a string, got {type(value).__name__}")
+    return value
 
-    ``wss://host/path`` becomes ``https://host/path``,
-    ``ws://host/path`` becomes ``http://host/path``.
+
+def _malformed_detail(exc: Exception) -> str:
+    """Error text for a malformed response field, safe to show and log.
+
+    ``int()`` puts the offending server-supplied value into its ``ValueError``
+    text, so that one is reported by type name only. The other exceptions name
+    a key or a type, never a value.
+    """
+    return type(exc).__name__ if isinstance(exc, ValueError) else str(exc)
+
+
+def _new_http_client(route: ProxyRoute) -> httpx.AsyncClient:
+    """Construct the auth HTTP client for ``route``, verifying via :func:`create_tls_context`.
+
+    The route is decided by :func:`resolve_route`, never by httpx: ``trust_env``
+    is off for a direct route and an explicit ``proxy=`` replaces the
+    environment lookup for a proxied one.
 
     Raises:
-        ValueError: If the URL scheme is not ``ws`` or ``wss``.
+        TLSContextError: If the TLS context can't be built.
+        ProxyUnusableError: If httpx rejects the proxy address
+            (``InvalidURL``). ``UnicodeError`` is caught as a safeguard only:
+            proxy.py rejects non-ASCII hosts first. The route only ever
+            carries http(s) proxies, so these are the construction failures
+            left (``ValueError`` for a scheme and ``ImportError`` for socksio
+            need a SOCKS proxy).
     """
-    parsed = urlparse(ws_url)
-    match parsed.scheme:
-        case "wss":
-            http_scheme = "https"
-        case "ws":
-            http_scheme = "http"
-        case _:
-            raise ValueError(
-                f"Expected ws:// or wss:// URL, got {parsed.scheme!r}"
+    ssl_context = create_tls_context()
+    try:
+        if route.proxy_url is None:
+            return httpx.AsyncClient(
+                timeout=_HTTP_TIMEOUT, verify=ssl_context, trust_env=False
             )
+        proxy: str | httpx.Proxy = route.proxy_url
+        if route.uses_https_proxy:
+            proxy = httpx.Proxy(route.proxy_url, ssl_context=create_tls_context())
+        return httpx.AsyncClient(
+            timeout=_HTTP_TIMEOUT, verify=ssl_context, proxy=proxy
+        )
+    except (httpx.InvalidURL, UnicodeError):
+        raise ProxyUnusableError(
+            f"The proxy address was rejected by the HTTP client. {PROXY_FIX_HINT}"
+        ) from None
 
-    return urlunparse(parsed._replace(scheme=http_scheme))
+
+def _raise_if_certificate_failure(
+    exc: BaseException, url: str, route: ProxyRoute
+) -> None:
+    """Raise :class:`CertificateVerificationError` when ``exc`` wraps one.
+
+    Chained from the ssl error alone: the wrapping httpx errors may quote the
+    proxy URL.
+    """
+    cert_error = find_certificate_error(exc)
+    if cert_error is None:
+        return
+    raise CertificateVerificationError(
+        certificate_failure_message(
+            cert_error,
+            host=urlsplit(url).hostname,
+            proxy_route=route.proxied_display(),
+        )
+    ) from cert_error
 
 
 def _build_credentials(data: dict[str, Any]) -> Credentials:
@@ -122,15 +208,20 @@ def _build_credentials(data: dict[str, Any]) -> Credentials:
         expires_in = int(data["expires_in"])
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
+        user = data["user"]
+        if not isinstance(user, dict):
+            raise TypeError(f"'user' must be an object, got {type(user).__name__}")
+
         return Credentials(
-            access_token=data["access_token"],
-            refresh_token=data["refresh_token"],
+            access_token=_str_field(data, "access_token"),
+            refresh_token=_str_field(data, "refresh_token"),
             expires_at=expires_at.isoformat(),
-            user=data["user"],
+            user=user,
         )
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
         raise AuthError(
-            f"Malformed token response: {exc}", error_code="invalid_response"
+            f"Malformed token response: {_malformed_detail(exc)}",
+            error_code="invalid_response",
         ) from exc
 
 
@@ -150,6 +241,7 @@ class DeviceFlowAuth:
         auth = DeviceFlowAuth(
             server_url="wss://tunnel.ankimcp.ai",
             client_id="ankimcp-cli",
+            proxy=AUTO_PROXY,
         )
 
         # Step 1: Request a device code
@@ -165,7 +257,9 @@ class DeviceFlowAuth:
         new_credentials = await auth.refresh_token(credentials.refresh_token)
     """
 
-    def __init__(self, server_url: str, client_id: str) -> None:
+    def __init__(
+        self, server_url: str, client_id: str, *, proxy: ProxySetting
+    ) -> None:
         """Initialize the auth client.
 
         Args:
@@ -173,14 +267,21 @@ class DeviceFlowAuth:
                 (e.g. ``wss://tunnel.ankimcp.ai``).
             client_id: OAuth client identifier
                 (e.g. ``ankimcp-cli``).
+            proxy: The ``tunnel_proxy`` setting. The route is resolved again
+                for every request, so a VPN toggled meanwhile applies to the
+                next one.
 
         Raises:
-            ValueError: If ``server_url`` is not a ws:// or wss:// URL.
+            ValueError: If ``server_url`` is not a valid relay URL (see
+                :func:`parse_tunnel_server_url`); the message is the reason.
         """
-        http_url = _ws_url_to_http(server_url)
-        self._device_endpoint = f"{http_url}/auth/device"
-        self._token_endpoint = f"{http_url}/auth/token"
+        parsed = parse_tunnel_server_url(server_url)
+        if isinstance(parsed, str):
+            raise ValueError(parsed)
+        self._device_endpoint = f"{parsed.http_url}/auth/device"
+        self._token_endpoint = f"{parsed.http_url}/auth/token"
         self._client_id = client_id
+        self._proxy = proxy
 
         logger.debug(
             "DeviceFlowAuth initialized: device=%s, token=%s, client_id=%s",
@@ -220,17 +321,22 @@ class DeviceFlowAuth:
         )
 
         try:
+            verification_uri_complete = data.get("verification_uri_complete")
+            if verification_uri_complete is not None and not isinstance(
+                verification_uri_complete, str
+            ):
+                raise TypeError("'verification_uri_complete' must be a string")
             return DeviceCodeResponse(
-                device_code=data["device_code"],
-                user_code=data["user_code"],
-                verification_uri=data["verification_uri"],
-                verification_uri_complete=data.get("verification_uri_complete"),
+                device_code=_str_field(data, "device_code"),
+                user_code=_str_field(data, "user_code"),
+                verification_uri=_str_field(data, "verification_uri"),
+                verification_uri_complete=verification_uri_complete,
                 expires_in=int(data["expires_in"]),
                 interval=int(data.get("interval", 5)),
             )
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
             raise AuthError(
-                f"Malformed device code response: {exc}",
+                f"Malformed device code response: {_malformed_detail(exc)}",
                 error_code="invalid_response",
             ) from exc
 
@@ -364,7 +470,8 @@ class DeviceFlowAuth:
     ) -> dict[str, Any]:
         """POST form-encoded data and return parsed JSON.
 
-        Handles HTTP errors and OAuth error responses uniformly.
+        Handles HTTP errors and OAuth error responses uniformly. Whatever the
+        server sends, only :class:`AuthError` leaves this method.
 
         Args:
             url: Full endpoint URL.
@@ -375,31 +482,66 @@ class DeviceFlowAuth:
             Parsed JSON response body as a dict.
 
         Raises:
-            AuthError: On HTTP errors, non-JSON responses, or OAuth error
-                responses (those containing an ``error`` field).
+            AuthError: On HTTP errors, non-JSON or non-object responses, or
+                OAuth error responses (a non-2xx status). ``error_code`` is
+                the response's ``error`` field when it is a string, else None.
+                A proxy setting that cannot be used raises the subclass
+                :class:`ProxyUnusableError` (see :func:`resolve_route`).
         """
         try:
-            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+            route = resolve_route(self._proxy, url)
+        except TunnelProxyError as exc:
+            raise ProxyUnusableError(str(exc)) from exc
+        logger.debug("Auth request route: %s", route.display())
+
+        try:
+            async with _new_http_client(route) as client:
                 response = await client.post(url, data=form_data)
+        except TLSContextError as exc:
+            raise AuthError(str(exc)) from exc
+        except (httpx.InvalidURL, UnicodeError) as exc:
+            raise AuthError(f"Invalid auth URL {url!r}: {exc}") from exc
         except httpx.TimeoutException as exc:
             raise AuthError(f"Request timed out: {url}") from exc
         except httpx.HTTPError as exc:
-            raise AuthError(f"HTTP request failed: {exc}") from exc
+            _raise_if_certificate_failure(exc, url, route)
+            raise AuthError(
+                f"HTTP request failed: {mask_url_credentials(str(exc))}"
+            ) from exc
+        except OSError as exc:
+            _raise_if_certificate_failure(exc, url, route)
+            raise AuthError(
+                f"HTTP request failed: {type(exc).__name__}: "
+                f"{mask_url_credentials(str(exc))}"
+            ) from exc
 
-        # Parse JSON body.
+        # Parse JSON body. A 2xx body may carry tokens, so it is never quoted.
         try:
             data = response.json()
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError, RecursionError) as exc:
+            detail = "" if response.is_success else f": {response.text[:200]}"
             raise AuthError(
-                f"Non-JSON response (HTTP {response.status_code}): "
-                f"{response.text[:200]}",
+                f"Non-JSON response (HTTP {response.status_code}){detail}",
             ) from exc
+
+        if not isinstance(data, dict):
+            detail = (
+                f": {type(data).__name__}"
+                if response.is_success
+                else f": {response.text[:200]}"
+            )
+            raise AuthError(
+                f"Non-object JSON response (HTTP {response.status_code}){detail}",
+            )
 
         # Check for OAuth error response (HTTP 400/401 with error field).
         if not response.is_success:
-            error_code = data.get("error", "unknown_error")
-            error_desc = data.get(
-                "error_description", f"HTTP {response.status_code}"
+            raw_code = data.get("error", "unknown_error")
+            error_code = raw_code if isinstance(raw_code, str) else None
+            raw_desc = data.get("error_description")
+            error_desc = (
+                raw_desc if isinstance(raw_desc, str)
+                else f"HTTP {response.status_code}"
             )
             logger.debug(
                 "Auth error: code=%s, description=%s", error_code, error_desc

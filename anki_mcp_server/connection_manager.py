@@ -38,7 +38,12 @@ from .queue_bridge import QueueBridge
 from .request_processor import RequestProcessor
 from .tunnel.auth import DeviceFlowAuth
 from .tunnel.log import TunnelLog
-from .tunnel.protocol import CloseCodes
+from .tunnel.protocol import (
+    PROXY_UNUSABLE_STOP_CODE,
+    CloseCodes,
+    parse_tunnel_server_url,
+)
+from .tunnel.proxy import ProxySetting, parse_tunnel_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -120,10 +125,10 @@ class ConnectionManager:
         # These persist across start()/stop() cycles.
         self._tunnel_log = TunnelLog()
         self._credentials_manager = CredentialsManager()
-        self._auth = DeviceFlowAuth(
-            server_url=config.tunnel_server_url,
-            client_id=config.tunnel_client_id,
-        )
+        self._auth: Optional[DeviceFlowAuth] = None
+        self._tunnel_config_error: Optional[str] = None
+        self._tunnel_proxy_setting: Optional[ProxySetting] = None
+        self._configure_tunnel_auth(config)
 
         # Tunnel state — bundled into a single object for atomic replacement.
         # Background thread creates a new _TunnelState; UI thread reads the
@@ -330,6 +335,33 @@ class ConnectionManager:
             return None
         return server.fatal_error
 
+    @property
+    def tunnel_config_error(self) -> Optional[str]:
+        """Why the tunnel cannot be used because of its config, or None.
+
+        Set when ``tunnel_server_url`` or ``tunnel_proxy`` is invalid (see
+        ``tunnel.protocol.parse_tunnel_server_url`` and
+        ``tunnel.proxy.parse_tunnel_proxy``); independent of whether the
+        server is running, and of HTTP. The reason names the field and what
+        is expected. Changes only through ``update_config``.
+
+        Thread Safety:
+            Safe to read from any thread -- reads a single attribute.
+        """
+        return self._tunnel_config_error
+
+    @property
+    def tunnel_proxy_setting(self) -> Optional[ProxySetting]:
+        """The parsed ``tunnel_proxy``, or None while it is invalid.
+
+        The one parsed setting every consumer shares: the tunnel connection,
+        the auth client and the login dialog.
+
+        Thread Safety:
+            Safe to read from any thread -- reads a single attribute.
+        """
+        return self._tunnel_proxy_setting
+
     def update_config(self, config: Config) -> None:
         """Update configuration and restart if running.
 
@@ -360,14 +392,37 @@ class ConnectionManager:
 
         # Recreate auth client if tunnel settings changed
         if (config.tunnel_server_url != old_config.tunnel_server_url
-                or config.tunnel_client_id != old_config.tunnel_client_id):
-            self._auth = DeviceFlowAuth(
-                server_url=config.tunnel_server_url,
-                client_id=config.tunnel_client_id,
-            )
+                or config.tunnel_client_id != old_config.tunnel_client_id
+                or config.tunnel_proxy != old_config.tunnel_proxy):
+            self._configure_tunnel_auth(config)
 
         if was_running:
             self.restart()
+
+    def _configure_tunnel_auth(self, config: Config) -> None:
+        """Build the auth client, or record why the tunnel config is unusable.
+
+        An invalid ``tunnel_server_url`` or ``tunnel_proxy`` must never break
+        startup or HTTP, so it is reported through ``tunnel_config_error``
+        instead of raised. The server URL's reason wins when both are invalid.
+        """
+        parsed_proxy = parse_tunnel_proxy(config.tunnel_proxy)
+        self._tunnel_proxy_setting = (
+            None if isinstance(parsed_proxy, str) else parsed_proxy
+        )
+        parsed_url = parse_tunnel_server_url(config.tunnel_server_url)
+        if isinstance(parsed_url, str) or isinstance(parsed_proxy, str):
+            self._auth = None
+            self._tunnel_config_error = (
+                parsed_url if isinstance(parsed_url, str) else parsed_proxy
+            )
+            return
+        self._tunnel_config_error = None
+        self._auth = DeviceFlowAuth(
+            server_url=config.tunnel_server_url,
+            client_id=config.tunnel_client_id,
+            proxy=parsed_proxy,
+        )
 
     # ------------------------------------------------------------------
     # Tunnel control — called from Qt main thread (UI layer)
@@ -385,6 +440,11 @@ class ConnectionManager:
         Thread Safety:
             Must be called from Qt main thread.
         """
+        if self._tunnel_config_error is not None:
+            logger.warning("Cannot connect tunnel: %s", self._tunnel_config_error)
+            self._tunnel_log.error(f"Cannot connect: {self._tunnel_config_error}")
+            return
+
         if not self.is_running or self._server is None:
             logger.warning("Cannot connect tunnel: MCP server not running")
             self._tunnel_log.error("Cannot connect: server not running")
@@ -422,6 +482,9 @@ class ConnectionManager:
             on_request_completed=self._on_tunnel_request_completed,
             on_reconnecting=self._on_tunnel_reconnecting,
             on_stopped=self._on_tunnel_stopped,
+            on_route=self._on_tunnel_route,
+            on_certificate_error=self._on_tunnel_certificate_error,
+            proxy=self._tunnel_proxy_setting,
         )
         if not scheduled:
             self._tunnel_log.error(
@@ -530,8 +593,9 @@ class ConnectionManager:
         return self._credentials_manager
 
     @property
-    def auth(self) -> DeviceFlowAuth:
-        """The shared DeviceFlowAuth instance.
+    def auth(self) -> Optional[DeviceFlowAuth]:
+        """The shared DeviceFlowAuth instance, or None while
+        ``tunnel_config_error`` is set.
 
         Exposed so the login UI can drive the device flow (request code,
         poll for token).
@@ -557,9 +621,24 @@ class ConnectionManager:
         logger.info("Tunnel disconnected: code=%d, reason=%s", code, reason)
 
     def _on_tunnel_error(self, error_code: str, message: str) -> None:
-        """Called when the server sends an error message."""
+        """Called when the relay (or a connection attempt) reports an error."""
         self._tunnel_log.error(f"Server error [{error_code}]: {message}")
         logger.warning("Tunnel server error: code=%s, message=%s", error_code, message)
+
+    def _on_tunnel_certificate_error(self, message: str) -> None:
+        """Called when a connection attempt or token refresh fails on a certificate.
+
+        A callback of its own, so a relay-sent error can never render as this.
+        The reconnect manager owns the log record; this only writes the panel.
+        """
+        self._tunnel_log.error(f"Certificate error: {message}")
+
+    def _on_tunnel_route(self, route: str) -> None:
+        """Called once per connection attempt with the (masked) route taken.
+
+        The reconnect manager owns the log record; this only writes the panel.
+        """
+        self._tunnel_log.info(f"Route: {route}")
 
     def _on_tunnel_request_completed(
         self, method_path: str, status_code: int, duration_ms: float
@@ -581,9 +660,14 @@ class ConnectionManager:
         A clean close (code 1000) is a deliberate user-initiated disconnect,
         not a failure — log it as such. Everything else (token revoked,
         account deleted, max attempts exhausted, …) is a genuine give-up.
+        An unusable proxy setting is neither: nothing was retried, the reason is
+        the full actionable message (shown as the one panel line), and the
+        reconnect manager already wrote the log record.
         """
         self._tunnel_state = _TunnelState()
-        if code == CloseCodes.NORMAL:
+        if code == PROXY_UNUSABLE_STOP_CODE:
+            self._tunnel_log.error(f"Proxy error: {reason}")
+        elif code == CloseCodes.NORMAL:
             self._tunnel_log.info("Tunnel disconnected")
             logger.info("Tunnel stopped: code=%d, reason=%s", code, reason)
         else:

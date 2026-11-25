@@ -14,6 +14,7 @@
   "max_notes_per_batch": 100,
   "tunnel_server_url": "wss://tunnel.ankimcp.ai",
   "tunnel_client_id": "ankimcp-cli",
+  "tunnel_proxy": "auto",
   "media_import_dir": "",
   "media_allowed_types": [],
   "media_allowed_hosts": [],

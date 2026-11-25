@@ -22,6 +22,7 @@ import json
 import logging
 import time
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 import anyio
 from websockets.asyncio.client import connect
@@ -43,6 +44,8 @@ from .protocol import (
     normalize_client_version,
     parse_server_message,
 )
+from .proxy import ProxyRoute, mask_url_credentials
+from .tls import certificate_failure_message, create_tls_context, find_certificate_error
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,14 @@ class TunnelConnectionError(Exception):
     """
 
 
+class TunnelCertificateError(TunnelConnectionError):
+    """The connection failed because a TLS certificate could not be verified.
+
+    A local condition, never something a relay reports: callers branch on this
+    class. ``str()`` is the full user-facing message, free of credentials.
+    """
+
+
 class _HealthCheckTimeout(Exception):
     """Internal signal that the server stopped sending pings."""
 
@@ -66,6 +77,11 @@ class _HealthCheckTimeout(Exception):
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------
+
+def _is_secure_ws_url(url: str) -> bool:
+    """Return ``True`` for a ``wss://`` URL (scheme compared case-insensitively)."""
+    return urlparse(url).scheme == "wss"
+
 
 def _extract_request_id(body: str | None) -> Any:
     """Best-effort parse of the inner JSON-RPC request ``id`` from a body string.
@@ -116,6 +132,8 @@ class TunnelClient:
         on_disconnected: Callable[[int, str], None] | None = None,
         on_error: Callable[[str, str], None] | None = None,
         on_request_completed: Callable[[str, int, float], None] | None = None,
+        *,
+        route: ProxyRoute,
     ) -> None:
         """Initialize the tunnel client.
 
@@ -133,10 +151,13 @@ class TunnelClient:
                 Receives ``(error_code, error_message)``.
             on_request_completed: Called after each proxied request.
                 Receives ``(method_path, status_code, duration_ms)``.
+            route: How to reach the relay, already resolved for this attempt
+                (``None`` proxy means a direct connection).
         """
         self._server_url = server_url
         self._credentials = credentials
         self._transport = transport
+        self._route = route
 
         # Callbacks
         self._on_tunnel_established = on_tunnel_established
@@ -169,6 +190,14 @@ class TunnelClient:
         """
         # --- Step 1: Connect ---
         try:
+            # websockets rejects any ssl= argument for a ws:// URI (the
+            # documented local dev relay), so pass it for wss:// only.
+            tls_kwargs: dict[str, Any] = {}
+            if _is_secure_ws_url(self._server_url):
+                tls_kwargs["ssl"] = create_tls_context()
+            # websockets rejects proxy_ssl for an http:// proxy.
+            if self._route.uses_https_proxy:
+                tls_kwargs["proxy_ssl"] = create_tls_context()
             ws = await connect(
                 self._server_url,
                 additional_headers=self._build_connect_headers(),
@@ -177,11 +206,31 @@ class TunnelClient:
                 # the application protocol level.
                 ping_interval=None,
                 ping_timeout=None,
+                # Explicit: None means direct. The default would re-read the
+                # system settings and pick a SOCKS proxy it cannot use.
+                proxy=self._route.proxy_url,
+                **tls_kwargs,
             )
         except Exception as exc:
+            cert_error = find_certificate_error(exc)
+            if cert_error is not None:
+                # Chained from the ssl error alone: the wrapping library
+                # errors may quote the proxy URL.
+                raise TunnelCertificateError(
+                    certificate_failure_message(
+                        cert_error,
+                        host=urlparse(self._server_url).hostname,
+                        proxy_route=self._route.proxied_display(),
+                    )
+                ) from cert_error
+            # Library errors may quote the proxy URL, password included; drop
+            # the chained cause too, since a traceback would print it. The
+            # type name keeps what the dropped cause would have told.
+            cause = None if self._route.proxy_url is not None else exc
             raise TunnelConnectionError(
-                f"Failed to connect to {self._server_url}: {exc}"
-            ) from exc
+                f"Failed to connect to {self._server_url}: "
+                f"{type(exc).__name__}: {mask_url_credentials(str(exc))}"
+            ) from cause
 
         self._ws = ws
         self._last_server_ping = time.monotonic()

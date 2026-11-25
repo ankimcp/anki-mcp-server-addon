@@ -505,3 +505,27 @@ def tools_list(real_mcp):
         f"{len(result)} -- auto-discovery or destructive opt-in may be broken"
     )
     return result
+
+
+# ---------------------------------------------------------------------------
+# 7. Proxy isolation
+#
+# The tunnel's route decision reads the OS/environment proxy settings through
+# urllib.request, and httpx reads them through its own bound ``getproxies``. A
+# developer's VPN (macOS system SOCKS proxy, Clash, a corporate HTTPS_PROXY)
+# must never change a unit test's outcome, so every test starts with no proxy
+# configured. Tests that need one set it with ``monkeypatch.setattr`` on
+# ``urllib.request.getproxies`` / ``proxy_bypass`` (and ``httpx._utils``).
+# ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def _no_ambient_proxy(monkeypatch):
+    import os
+    import urllib.request
+
+    import httpx._utils as httpx_utils
+
+    for name in [n for n in os.environ if n.lower().endswith("_proxy")]:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(urllib.request, "getproxies", lambda: {})
+    monkeypatch.setattr(urllib.request, "proxy_bypass", lambda host: False)
+    monkeypatch.setattr(httpx_utils, "getproxies", lambda: {})

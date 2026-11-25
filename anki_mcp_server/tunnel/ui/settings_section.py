@@ -10,6 +10,7 @@ UI module -- depends on ConnectionManager for tunnel state and control.
 from __future__ import annotations
 
 import logging
+from html import escape
 
 from aqt.qt import (
     QApplication,
@@ -22,6 +23,7 @@ from aqt.qt import (
     QSizePolicy,
     Qt,
     QTextCharFormat,
+    QTextOption,
     QTimer,
     QVBoxLayout,
     QWidget,
@@ -33,6 +35,16 @@ from ..log import LogEntry, format_entry
 from .login_dialog import LoginDialog
 
 logger = logging.getLogger(__name__)
+
+# How many newer entries may follow an error entry before the log goes back to
+# following the bottom: the reconnect manager adds a short "Reconnecting" line
+# right after each error, and the error's label must stay readable meanwhile.
+_ERROR_ANCHOR_WINDOW = 2
+
+
+def _should_anchor_on_error(entries_since_error: int | None) -> bool:
+    """Whether the newest error entry is recent enough to keep in view."""
+    return entries_since_error is not None and entries_since_error <= _ERROR_ANCHOR_WINDOW
 
 
 class TunnelSettingsSection(QWidget):
@@ -55,6 +67,13 @@ class TunnelSettingsSection(QWidget):
 
         self._cm = connection_manager
         self._config = config
+
+        self._error_block = 0
+        self._entries_since_error: int | None = None
+        # Fires once the layout has caught up with the appended text.
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.setSingleShot(True)
+        self._scroll_timer.timeout.connect(self._scroll_to_latest_entry)
 
         self._setup_ui()
         self._populate_log()
@@ -149,7 +168,10 @@ class TunnelSettingsSection(QWidget):
         log_font = QFont("Courier")
         log_font.setPointSize(10)
         self._log_display.setFont(log_font)
-        self._log_display.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self._log_display.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self._log_display.setWordWrapMode(
+            QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere
+        )
         layout.addWidget(self._log_display)
 
         # -- Log action buttons --
@@ -230,7 +252,14 @@ class TunnelSettingsSection(QWidget):
         else:
             # -- Disconnected state --
             has_credentials = user is not None
-            self._status_label.setText("Status: Not connected")
+            config_error = self._cm.tunnel_config_error
+            if config_error:
+                self._status_label.setText(
+                    f"Status: unavailable — {escape(config_error)}<br>"
+                    "<i>Fix it in the add-on config and restart Anki.</i>"
+                )
+            else:
+                self._status_label.setText("Status: Not connected")
             self._expiry_label.setVisible(False)
 
             # URL row hidden
@@ -239,7 +268,7 @@ class TunnelSettingsSection(QWidget):
 
             # Buttons
             self._connect_button.setVisible(True)
-            self._connect_button.setEnabled(True)
+            self._connect_button.setEnabled(not config_error)
             self._connect_button.setText("Connect Tunnel")
             self._disconnect_button.setVisible(False)
             self._logout_button.setVisible(has_credentials)
@@ -264,22 +293,47 @@ class TunnelSettingsSection(QWidget):
 
         cursor = self._log_display.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
+        if not self._log_display.document().isEmpty():
+            cursor.insertBlock()
 
         fmt = QTextCharFormat()
         if entry.level == "error":
+            self._error_block = cursor.blockNumber()
+            self._entries_since_error = 0
             fmt.setForeground(Qt.GlobalColor.red)
         else:
+            if self._entries_since_error is not None:
+                self._entries_since_error += 1
             # Use the widget's default text color so it works in both
             # light and dark themes (hardcoded black is invisible in dark mode).
             fmt.setForeground(self._log_display.palette().text().color())
 
-        cursor.insertText(text + "\n", fmt)
+        cursor.insertText(text, fmt)
         self._log_display.setTextCursor(cursor)
+        if not self._scroll_timer.isActive():
+            self._scroll_timer.start(0)
 
-        # Auto-scroll to bottom
+    def _scroll_to_latest_entry(self) -> None:
+        """Scroll to the bottom, keeping a recent error entry's first line in view.
+
+        A wrapped entry taller than the panel would lose its first lines (the
+        timestamp and the label) off the top. When scrolling to the bottom would
+        do that to the newest error entry, and at most ``_ERROR_ANCHOR_WINDOW``
+        entries follow it, the panel is scrolled to that entry's start instead.
+        Runs from a zero-delay timer so the decision sees the finished layout.
+        """
         scrollbar = self._log_display.verticalScrollBar()
-        if scrollbar is not None:
-            scrollbar.setValue(scrollbar.maximum())
+        if scrollbar is None:
+            return
+        scrollbar.setValue(scrollbar.maximum())
+        if not _should_anchor_on_error(self._entries_since_error):
+            return
+        block = self._log_display.document().findBlockByNumber(self._error_block)
+        cursor = self._log_display.textCursor()
+        cursor.setPosition(block.position())
+        if self._log_display.cursorRect(cursor).top() < 0:
+            self._log_display.setTextCursor(cursor)
+            self._log_display.ensureCursorVisible()
 
     # ------------------------------------------------------------------
     # Button handlers
@@ -298,6 +352,13 @@ class TunnelSettingsSection(QWidget):
             self._refresh_status()
             return
 
+        # The button is disabled while the config is invalid, so this only
+        # guards a stale click. connect_tunnel() writes the reason to the
+        # tunnel log; past this point the proxy setting is never None.
+        if self._cm.tunnel_config_error is not None:
+            self._cm.connect_tunnel()
+            return
+
         # Otherwise, start a new connection.
         # Check for existing credentials first.
         credentials = self._cm.credentials_manager.load()
@@ -308,6 +369,8 @@ class TunnelSettingsSection(QWidget):
                 server_url=self._config.tunnel_server_url,
                 client_id=self._config.tunnel_client_id,
                 parent=self.window(),
+                tunnel_log=self._cm.tunnel_log,
+                proxy=self._cm.tunnel_proxy_setting,
             )
             result = dialog.exec()
             if result != LoginDialog.DialogCode.Accepted or dialog.credentials is None:
@@ -339,12 +402,13 @@ class TunnelSettingsSection(QWidget):
         """Copy all log entries to clipboard as plain text."""
         text = self._log_display.toPlainText()
         if text:
-            QApplication.clipboard().setText(text)
+            QApplication.clipboard().setText(text + "\n")
 
     def _on_clear_log(self) -> None:
         """Clear the log display and the underlying buffer."""
         self._cm.tunnel_log.clear()
         self._log_display.clear()
+        self._entries_since_error = None
 
     # ------------------------------------------------------------------
     # Cleanup
@@ -359,6 +423,7 @@ class TunnelSettingsSection(QWidget):
         disconnection takes effect.
         """
         self._refresh_timer.stop()
+        self._scroll_timer.stop()
         try:
             self._cm.tunnel_log.entry_added.disconnect(self._on_log_entry)
         except (TypeError, RuntimeError):
@@ -368,6 +433,7 @@ class TunnelSettingsSection(QWidget):
     def hideEvent(self, event) -> None:  # type: ignore[override]
         """Stop timer when widget is hidden (dialog closed)."""
         self._refresh_timer.stop()
+        self._scroll_timer.stop()
         super().hideEvent(event)
 
     def showEvent(self, event) -> None:  # type: ignore[override]
@@ -375,4 +441,5 @@ class TunnelSettingsSection(QWidget):
         self._refresh_status()
         if not self._refresh_timer.isActive():
             self._refresh_timer.start(1000)
+        self._scroll_timer.start(0)
         super().showEvent(event)
