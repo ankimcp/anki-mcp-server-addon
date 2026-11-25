@@ -96,6 +96,7 @@ class TestConnectTunnelWiring:
         kwargs = server.start_tunnel.call_args.kwargs
         assert kwargs["proxy"] == px.parse_tunnel_proxy("http://127.0.0.1:3128")
         assert callable(kwargs["on_route"])
+        assert kwargs["on_certificate_error"] == manager._on_tunnel_certificate_error
 
     def test_route_callback_writes_the_panel_line_and_leaves_logging_to_reconnect(
         self, build_manager, caplog: pytest.LogCaptureFixture

@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
+import ssl
 import sys
 import threading
 from types import ModuleType
@@ -26,7 +27,11 @@ import pytest
 # The package __init__ must run before the MCP SDK is imported.
 import anki_mcp_server  # noqa: F401
 
-from anki_mcp_server.tunnel.auth import AuthError, DeviceCodeResponse
+from anki_mcp_server.tunnel.auth import (
+    AuthError,
+    CertificateVerificationError,
+    DeviceCodeResponse,
+)
 from anki_mcp_server.tunnel.proxy import AUTO_PROXY
 
 _MODULE = "anki_mcp_server.tunnel.ui.login_dialog"
@@ -299,6 +304,27 @@ class TestAuthError:
         assert record.exc_info[1] is exc
         assert record.exc_info[1].__cause__ is cause
         assert worker.device_code_received.emitted == []
+        assert loops[0].is_closed()
+
+    def test_certificate_failure_reads_clearly_and_logs_warning_with_ssl_cause(
+        self, login_dialog, install_auth, loops, caplog,
+    ) -> None:
+        cause = ssl.SSLCertVerificationError(1, "unable to get local issuer certificate")
+        exc = CertificateVerificationError("A security certificate could not be verified.")
+        exc.__cause__ = cause
+        install_auth(request=_raiser(exc))
+        worker = _worker(login_dialog)
+
+        with caplog.at_level(logging.DEBUG):
+            _run(worker)
+
+        assert _failed(worker) == [
+            "Failed to start login: A security certificate could not be verified."
+        ]
+        (record,) = _serious(caplog)
+        assert record.levelno == logging.WARNING
+        assert record.exc_info is not None
+        assert record.exc_info[1].__cause__ is cause
         assert loops[0].is_closed()
 
 

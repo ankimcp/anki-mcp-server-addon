@@ -9,6 +9,9 @@ truststore injection. httpx's default instead reads a CA *file*
 and an unreadable file there used to break login with a bare
 ``[Errno 13] Permission denied``.
 
+It also owns the one description of a certificate-verification failure, so
+both transports tell the user the same thing.
+
 Stdlib-only: no Qt, no vendored packages, no other add-on modules.
 """
 
@@ -16,8 +19,10 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import ssl
 import threading
+from typing import Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +72,81 @@ def create_tls_context() -> ssl.SSLContext:
             _report_unloadable_cert_file(cert_file, exc)
 
     return ctx
+
+
+_MAX_CHAIN_DEPTH = 16
+_OPENSSL_PREFIX_RE = re.compile(r"^\[SSL: [A-Z0-9_]+\]\s*(certificate verify failed:?\s*)?")
+_OPENSSL_SUFFIX_RE = re.compile(r"\s*\(_ssl\.c:\d+\)\s*$")
+
+
+def find_certificate_error(exc: BaseException) -> ssl.SSLCertVerificationError | None:
+    """The certificate-verification failure behind ``exc``, if there is one.
+
+    Found by class anywhere in the ``__cause__`` / ``__context__`` chain, never
+    by message text: httpx/httpcore and websockets each wrap the ssl error
+    under their own exception. Other ``ssl.SSLError`` subclasses (a handshake
+    failure, an unsupported protocol) are not certificate failures.
+    """
+    seen: set[int] = set()
+    pending: list[BaseException] = [exc]
+    while pending and len(seen) < _MAX_CHAIN_DEPTH:
+        current = pending.pop(0)
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, ssl.SSLCertVerificationError):
+            return current
+        pending.extend(
+            e for e in (current.__cause__, current.__context__) if e is not None
+        )
+    return None
+
+
+def _flatten_strings(value: object) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, (tuple, list)):
+        for item in value:
+            yield from _flatten_strings(item)
+
+
+def _verification_reason(exc: ssl.SSLCertVerificationError) -> str:
+    """The OS/OpenSSL reason as plain text: no tuple repr, no ``(_ssl.c:N)`` tail."""
+    reason = getattr(exc, "verify_message", None)
+    if not isinstance(reason, str) or not reason.strip():
+        parts = [p for p in _flatten_strings(exc.args) if p.strip()]
+        reason = parts[-1] if parts else type(exc).__name__
+    reason = _OPENSSL_SUFFIX_RE.sub("", reason.strip())
+    reason = _OPENSSL_PREFIX_RE.sub("", reason).strip().rstrip(".")
+    return reason or type(exc).__name__
+
+
+def certificate_failure_message(
+    exc: ssl.SSLCertVerificationError, *, host: str | None, proxy_route: str | None
+) -> str:
+    """Plain-language text for a certificate failure, shared by both transports.
+
+    ``host`` is the server the connection was made to, not necessarily the one
+    whose certificate failed: through an ``https://`` proxy, or under
+    interception, it may be another certificate, which nothing here can tell.
+    So the text only says where the connection was going and, when proxied, how
+    it was routed. ``proxy_route`` is the already credential-masked route text
+    (``ProxyRoute.proxied_display()``), ``None`` for a direct connection.
+    """
+    target = host or "the server"
+    text = (
+        "A security certificate could not be verified while "
+        f"connecting to {target} ({_verification_reason(exc)})."
+    )
+    if proxy_route is not None:
+        text += f" The connection is routed {proxy_route}."
+    return (
+        f"{text} This usually means a proxy, antivirus or company network is "
+        "inspecting HTTPS traffic, or that your computer's date and time are "
+        "wrong. If it is inspection, trust that product's root certificate in "
+        "your operating system (or point the SSL_CERT_FILE environment "
+        "variable at it) and restart Anki."
+    )
 
 
 def _report_unloadable_cert_file(cert_file: str, exc: OSError) -> None:

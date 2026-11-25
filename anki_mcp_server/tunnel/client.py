@@ -45,7 +45,7 @@ from .protocol import (
     parse_server_message,
 )
 from .proxy import ProxyRoute, mask_url_credentials
-from .tls import create_tls_context
+from .tls import certificate_failure_message, create_tls_context, find_certificate_error
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,14 @@ class TunnelConnectionError(Exception):
 
     This covers WebSocket connection errors, authentication rejections,
     and timeouts waiting for the ``tunnel_established`` message.
+    """
+
+
+class TunnelCertificateError(TunnelConnectionError):
+    """The connection failed because a TLS certificate could not be verified.
+
+    A local condition, never something a relay reports: callers branch on this
+    class. ``str()`` is the full user-facing message, free of credentials.
     """
 
 
@@ -204,6 +212,17 @@ class TunnelClient:
                 **tls_kwargs,
             )
         except Exception as exc:
+            cert_error = find_certificate_error(exc)
+            if cert_error is not None:
+                # Chained from the ssl error alone: the wrapping library
+                # errors may quote the proxy URL.
+                raise TunnelCertificateError(
+                    certificate_failure_message(
+                        cert_error,
+                        host=urlparse(self._server_url).hostname,
+                        proxy_route=self._route.proxied_display(),
+                    )
+                ) from cert_error
             # Library errors may quote the proxy URL, password included; drop
             # the chained cause too, since a traceback would print it. The
             # type name keeps what the dropped cause would have told.

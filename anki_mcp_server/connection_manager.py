@@ -483,6 +483,7 @@ class ConnectionManager:
             on_reconnecting=self._on_tunnel_reconnecting,
             on_stopped=self._on_tunnel_stopped,
             on_route=self._on_tunnel_route,
+            on_certificate_error=self._on_tunnel_certificate_error,
             proxy=self._tunnel_proxy_setting,
         )
         if not scheduled:
@@ -623,6 +624,14 @@ class ConnectionManager:
         """Called when the relay (or a connection attempt) reports an error."""
         self._tunnel_log.error(f"Server error [{error_code}]: {message}")
         logger.warning("Tunnel server error: code=%s, message=%s", error_code, message)
+
+    def _on_tunnel_certificate_error(self, message: str) -> None:
+        """Called when a connection attempt or token refresh fails on a certificate.
+
+        A callback of its own, so a relay-sent error can never render as this.
+        The reconnect manager owns the log record; this only writes the panel.
+        """
+        self._tunnel_log.error(f"Certificate error: {message}")
 
     def _on_tunnel_route(self, route: str) -> None:
         """Called once per connection attempt with the (masked) route taken.

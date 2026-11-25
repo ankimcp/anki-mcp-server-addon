@@ -139,6 +139,7 @@ class TestMcpServerTunnelStart:
         setting = px.parse_tunnel_proxy("none")
         assert setting != px.AUTO_PROXY
         on_route = MagicMock(name="on_route")
+        on_certificate_error = MagicMock(name="on_certificate_error")
         created = threading.Event()
         seen: dict[str, Any] = {}
 
@@ -160,7 +161,11 @@ class TestMcpServerTunnelStart:
         try:
             server._loop = loop
             scheduled = server.start_tunnel(
-                MagicMock(), MagicMock(), on_route=on_route, proxy=setting
+                MagicMock(),
+                MagicMock(),
+                on_route=on_route,
+                on_certificate_error=on_certificate_error,
+                proxy=setting,
             )
             assert scheduled is True
             assert created.wait(SCENARIO_TIMEOUT)
@@ -172,6 +177,7 @@ class TestMcpServerTunnelStart:
 
         assert seen["proxy"] is setting
         assert seen["on_route"] is on_route
+        assert seen["on_certificate_error"] is on_certificate_error
 
 
 # ---------------------------------------------------------------------------

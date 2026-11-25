@@ -338,6 +338,7 @@ class McpServer:
         on_reconnecting: Callable[[int, float], None] | None = None,
         on_stopped: Callable[[int, str], None] | None = None,
         on_route: Callable[[str], None] | None = None,
+        on_certificate_error: Callable[[str], None] | None = None,
         *,
         proxy: ProxySetting,
     ) -> bool:
@@ -370,6 +371,9 @@ class McpServer:
                 (PROXY_UNUSABLE_STOP_CODE, <full actionable message>).
             on_route: Called once per connection attempt with the route
                 taken, as one masked line.
+            on_certificate_error: Called with the full message when a
+                connection attempt or token refresh fails because a
+                certificate could not be verified.
             proxy: The parsed ``tunnel_proxy`` setting.
 
         Thread Safety:
@@ -392,6 +396,7 @@ class McpServer:
                 on_reconnecting=on_reconnecting,
                 on_stopped=on_stopped,
                 on_route=on_route,
+                on_certificate_error=on_certificate_error,
                 proxy=proxy,
             ),
             loop,
@@ -498,6 +503,7 @@ class McpServer:
         on_reconnecting: Callable[[int, float], None] | None = None,
         on_stopped: Callable[[int, str], None] | None = None,
         on_route: Callable[[str], None] | None = None,
+        on_certificate_error: Callable[[str], None] | None = None,
         *,
         proxy: ProxySetting,
     ) -> None:
@@ -551,6 +557,7 @@ class McpServer:
             on_reconnecting=on_reconnecting,
             on_stopped=_on_stopped_wrapper,
             on_route=on_route,
+            on_certificate_error=on_certificate_error,
             proxy=proxy,
         )
 

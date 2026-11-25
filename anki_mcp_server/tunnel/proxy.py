@@ -236,6 +236,10 @@ class ProxyRoute:
         kind = "HTTPS" if self.uses_https_proxy else "HTTP"
         return f"via {kind} proxy {_address(self.proxy_url)} ({self.source})"
 
+    def proxied_display(self) -> str | None:
+        """:meth:`display` for a proxied route, ``None`` for a direct one."""
+        return None if self.proxy_url is None else self.display()
+
     def __repr__(self) -> str:
         shown = None if self.proxy_url is None else mask_proxy_url(self.proxy_url)
         return f"ProxyRoute(proxy_url={shown!r}, source={self.source!r})"

@@ -23,10 +23,16 @@ from typing import Any, Callable
 import anyio
 
 from ..credentials import CredentialsManager
-from .auth import AuthError, DeviceFlowAuth, ProxyUnusableError
-from .client import TunnelClient, TunnelConnectionError
+from .auth import (
+    AuthError,
+    CertificateVerificationError,
+    DeviceFlowAuth,
+    ProxyUnusableError,
+)
+from .client import TunnelCertificateError, TunnelClient, TunnelConnectionError
 from .in_memory_transport import InMemoryTransport
 from .protocol import (
+    CERTIFICATE_GAVE_UP_NOTE,
     RECONNECT_INITIAL_DELAY,
     RECONNECT_JITTER_FACTOR,
     RECONNECT_MAX_ATTEMPTS,
@@ -63,6 +69,7 @@ class TunnelReconnectManager:
         on_reconnecting: Callable[[int, float], None] | None = None,
         on_stopped: Callable[[int, str], None] | None = None,
         on_route: Callable[[str], None] | None = None,
+        on_certificate_error: Callable[[str], None] | None = None,
         *,
         proxy: ProxySetting,
     ) -> None:
@@ -83,7 +90,8 @@ class TunnelReconnectManager:
             on_error: Called when the server sends an error message, or when
                 a connection attempt fails or the tunnel cannot start
                 (``connection_failed``, ``token_refresh_failed``, ...).
-                Receives ``(error_code, error_message)``.
+                Receives ``(error_code, error_message)``. Certificate
+                failures do not use it (see ``on_certificate_error``).
             on_request_completed: Called after each proxied request.
                 Receives ``(method_path, status_code, duration_ms)``.
             on_reconnecting: Called before each reconnection delay.
@@ -97,6 +105,12 @@ class TunnelReconnectManager:
                 and fires no ``on_error``.
             on_route: Called once per attempt with the route taken, as one
                 masked line (``ProxyRoute.display()``).
+            on_certificate_error: Called with the full user-facing message
+                when a connection attempt or token refresh fails because a
+                certificate could not be verified. A callback of its own, so
+                nothing a relay sends through ``on_error`` can look like it.
+                This module writes the log record; the callback only shows
+                the line.
             proxy: The ``tunnel_proxy`` setting; the route is resolved from
                 it at the start of every attempt.
         """
@@ -116,6 +130,7 @@ class TunnelReconnectManager:
         self._on_reconnecting = on_reconnecting
         self._on_stopped = on_stopped
         self._on_route = on_route
+        self._on_certificate_error = on_certificate_error
 
         # State
         self._shutdown = False
@@ -158,6 +173,8 @@ class TunnelReconnectManager:
         attempt = 0
 
         while not self._shutdown:
+            certificate_failed = False
+
             # --- Step 1: Load credentials ---
             credentials = self._credentials_manager.load()
             if credentials is None:
@@ -189,12 +206,23 @@ class TunnelReconnectManager:
                         return (0, "Refresh token revoked — re-login required")
                     if isinstance(exc, ProxyUnusableError):
                         return self._stop_for_unusable_proxy(str(exc))
-                    logger.warning("Token refresh failed: %s", exc)
-                    self._fire_callback(
-                        self._on_error,
-                        "token_refresh_failed",
-                        f"Token refresh failed (will retry): {exc}",
-                    )
+                    if isinstance(exc, CertificateVerificationError):
+                        logger.warning(
+                            "Token refresh failed: %s (ssl error: %r)",
+                            exc,
+                            exc.__cause__,
+                        )
+                        self._fire_callback(
+                            self._on_certificate_error,
+                            f"Token refresh failed (will retry): {exc}",
+                        )
+                    else:
+                        logger.warning("Token refresh failed: %s", exc)
+                        self._fire_callback(
+                            self._on_error,
+                            "token_refresh_failed",
+                            f"Token refresh failed (will retry): {exc}",
+                        )
                     # Non-fatal refresh failure — try connecting anyway,
                     # the server will tell us if the token is truly dead.
 
@@ -234,10 +262,7 @@ class TunnelReconnectManager:
                         "Max reconnection attempts (%d) reached, giving up",
                         RECONNECT_MAX_ATTEMPTS,
                     )
-                    return (
-                        0,
-                        f"Max reconnection attempts ({RECONNECT_MAX_ATTEMPTS}) exhausted",
-                    )
+                    return (0, self._exhausted_reason(certificate_failed))
                 delay = self._calculate_delay(attempt)
                 logger.info(
                     "Reconnecting in %.1fs (attempt %d/%d)",
@@ -266,6 +291,16 @@ class TunnelReconnectManager:
 
             try:
                 close_code, close_reason = await client.run()
+            except TunnelCertificateError as exc:
+                logger.warning(
+                    "Tunnel certificate verification failed: %s (ssl error: %r)",
+                    exc,
+                    exc.__cause__,
+                )
+                self._fire_callback(self._on_certificate_error, str(exc))
+                self._active_client = None
+                attempt += 1
+                certificate_failed = True
             except TunnelConnectionError as exc:
                 logger.warning("Tunnel connection failed: %s", exc)
                 self._fire_callback(
@@ -315,16 +350,30 @@ class TunnelReconnectManager:
                             )
                         if isinstance(exc, ProxyUnusableError):
                             return self._stop_for_unusable_proxy(str(exc))
-                        logger.warning(
-                            "Token refresh failed after close code %d: %s",
-                            close_code,
-                            exc,
-                        )
-                        self._fire_callback(
-                            self._on_error,
-                            "token_refresh_failed",
-                            f"Token refresh failed: {exc}",
-                        )
+                        if isinstance(exc, CertificateVerificationError):
+                            logger.warning(
+                                "Token refresh failed after close code %d: %s "
+                                "(ssl error: %r)",
+                                close_code,
+                                exc,
+                                exc.__cause__,
+                            )
+                            self._fire_callback(
+                                self._on_certificate_error,
+                                f"Token refresh failed: {exc}",
+                            )
+                            certificate_failed = True
+                        else:
+                            logger.warning(
+                                "Token refresh failed after close code %d: %s",
+                                close_code,
+                                exc,
+                            )
+                            self._fire_callback(
+                                self._on_error,
+                                "token_refresh_failed",
+                                f"Token refresh failed: {exc}",
+                            )
                         attempt += 1
                 else:
                     attempt += 1
@@ -340,10 +389,7 @@ class TunnelReconnectManager:
                     "Max reconnection attempts (%d) reached, giving up",
                     RECONNECT_MAX_ATTEMPTS,
                 )
-                return (
-                    0,
-                    f"Max reconnection attempts ({RECONNECT_MAX_ATTEMPTS}) exhausted",
-                )
+                return (0, self._exhausted_reason(certificate_failed))
 
             # --- Backoff delay ---
             delay = self._calculate_delay(attempt)
@@ -391,6 +437,14 @@ class TunnelReconnectManager:
         """
         logger.warning("Tunnel proxy cannot be used: %s", message)
         return (PROXY_UNUSABLE_STOP_CODE, message)
+
+    @staticmethod
+    def _exhausted_reason(certificate_failed: bool) -> str:
+        """The give-up reason, naming a certificate failure as the last error."""
+        reason = f"Max reconnection attempts ({RECONNECT_MAX_ATTEMPTS}) exhausted"
+        if certificate_failed:
+            reason += f" ({CERTIFICATE_GAVE_UP_NOTE})"
+        return reason
 
     def _calculate_delay(self, attempt: int) -> float:
         """Calculate reconnection delay with exponential backoff and jitter.

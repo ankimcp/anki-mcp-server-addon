@@ -22,6 +22,7 @@ from .helpers import (
     SocksSink,
     client_tls_context,
     server_tls_context,
+    untrusted_tls_context,
 )
 
 
@@ -41,6 +42,13 @@ def _tunnel_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         reconnect_module, "InMemoryTransport", MagicMock(return_value=transport)
     )
+
+
+@pytest.fixture()
+def untrusted_tls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the tunnel and the login trust no CA, so every certificate fails to verify."""
+    monkeypatch.setattr(client_module, "create_tls_context", untrusted_tls_context)
+    monkeypatch.setattr(auth_module, "create_tls_context", untrusted_tls_context)
 
 
 @pytest.fixture()

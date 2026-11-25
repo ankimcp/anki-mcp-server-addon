@@ -84,6 +84,11 @@ def client_tls_context() -> ssl.SSLContext:
     return ssl.create_default_context(cafile=str(CA_PEM))
 
 
+def untrusted_tls_context() -> ssl.SSLContext:
+    """Verifies like the real one but trusts nothing, so every server certificate fails."""
+    return ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+
+
 # ---------------------------------------------------------------------------
 # System proxy shapes
 # ---------------------------------------------------------------------------
@@ -398,9 +403,10 @@ class Observed:
     reconnecting: list[tuple[int, float]] = field(default_factory=list)
     stopped: list[tuple[int, str]] = field(default_factory=list)
     routes: list[str] = field(default_factory=list)
+    certificate_errors: list[str] = field(default_factory=list)
 
     def all_text(self) -> list[str]:
-        texts: list[str] = [*self.routes]
+        texts: list[str] = [*self.routes, *self.certificate_errors]
         texts += [url for url, _ in self.established]
         texts += [reason for _, reason in self.disconnected]
         texts += [part for pair in self.errors for part in pair]
@@ -465,6 +471,11 @@ async def run_tunnel(
         if connection_manager is not None:
             connection_manager._on_tunnel_stopped(code, reason)
 
+    def on_certificate_error(message: str) -> None:
+        observed.certificate_errors.append(message)
+        if connection_manager is not None:
+            connection_manager._on_tunnel_certificate_error(message)
+
     manager = reconnect_module.TunnelReconnectManager(
         server_url=server_url,
         mcp_server=MagicMock(),
@@ -476,6 +487,7 @@ async def run_tunnel(
         on_error=on_error,
         on_reconnecting=on_reconnecting,
         on_stopped=on_stopped,
+        on_certificate_error=on_certificate_error,
         **{ROUTE_CALLBACK_KWARG: observed.routes.append},
     )
     await asyncio.wait_for(manager.run(), timeout)

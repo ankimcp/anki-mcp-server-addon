@@ -19,6 +19,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 import anyio
 import httpx
@@ -34,7 +35,12 @@ from .proxy import (
     mask_url_credentials,
     resolve_route,
 )
-from .tls import TLSContextError, create_tls_context
+from .tls import (
+    TLSContextError,
+    certificate_failure_message,
+    create_tls_context,
+    find_certificate_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +75,15 @@ class ProxyUnusableError(AuthError):
 
     def __init__(self, message: str) -> None:
         super().__init__(message, error_code=PROXY_UNSUPPORTED)
+
+
+class CertificateVerificationError(AuthError):
+    """A TLS certificate could not be verified (possibly not the server's own).
+
+    A local condition, never something a server reports: callers branch on this
+    class, and ``error_code`` stays ``None``. ``str()`` is the full user-facing
+    message, free of credentials.
+    """
 
 
 # --------------------------------------------------------------------------
@@ -151,6 +166,26 @@ def _new_http_client(route: ProxyRoute) -> httpx.AsyncClient:
         raise ProxyUnusableError(
             f"The proxy address was rejected by the HTTP client. {PROXY_FIX_HINT}"
         ) from None
+
+
+def _raise_if_certificate_failure(
+    exc: BaseException, url: str, route: ProxyRoute
+) -> None:
+    """Raise :class:`CertificateVerificationError` when ``exc`` wraps one.
+
+    Chained from the ssl error alone: the wrapping httpx errors may quote the
+    proxy URL.
+    """
+    cert_error = find_certificate_error(exc)
+    if cert_error is None:
+        return
+    raise CertificateVerificationError(
+        certificate_failure_message(
+            cert_error,
+            host=urlsplit(url).hostname,
+            proxy_route=route.proxied_display(),
+        )
+    ) from cert_error
 
 
 def _build_credentials(data: dict[str, Any]) -> Credentials:
@@ -469,10 +504,12 @@ class DeviceFlowAuth:
         except httpx.TimeoutException as exc:
             raise AuthError(f"Request timed out: {url}") from exc
         except httpx.HTTPError as exc:
+            _raise_if_certificate_failure(exc, url, route)
             raise AuthError(
                 f"HTTP request failed: {mask_url_credentials(str(exc))}"
             ) from exc
         except OSError as exc:
+            _raise_if_certificate_failure(exc, url, route)
             raise AuthError(
                 f"HTTP request failed: {type(exc).__name__}: "
                 f"{mask_url_credentials(str(exc))}"

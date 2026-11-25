@@ -51,6 +51,13 @@ class CloseCodes:
 PROXY_UNUSABLE_STOP_CODE = -1
 
 
+# Appended to the "attempts exhausted" stop reason after a certificate failure,
+# so the final line keeps the cause.
+CERTIFICATE_GAVE_UP_NOTE = (
+    "last error: certificate could not be verified — see above"
+)
+
+
 # Close codes that mean "don't bother reconnecting"
 _NO_RECONNECT: set[int] = {
     CloseCodes.NORMAL,
