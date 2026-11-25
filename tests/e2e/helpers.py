@@ -442,6 +442,72 @@ def delete_filtered_deck(deck_id: int) -> dict[str, Any]:
     return result
 
 
+def deck_names() -> set[str]:
+    """Return the full name of every deck in the collection."""
+    return {deck["name"] for deck in call_tool("list_decks")["decks"]}
+
+
+def deck_path(name: str) -> list[str]:
+    """Return the full name of every deck from the top level down to ``name``."""
+    parts = name.split("::")
+    return ["::".join(parts[:depth]) for depth in range(1, len(parts) + 1)]
+
+
+def nested_deck_name(root: str, levels: int) -> str:
+    """Return ``root::L2::...::L<levels>``, a deck name with ``levels`` levels."""
+    return "::".join([root] + [f"L{i}" for i in range(2, levels + 1)])
+
+
+def create_basic_card(uid: str, deck_name: str) -> int:
+    """Create ``deck_name`` and one Basic note in it; return the note's card ID."""
+    call_tool("create_deck", {"deck_name": deck_name})
+    note_result = call_tool("add_note", {
+        "deck_name": deck_name,
+        "model_name": "Basic",
+        "fields": {"Front": f"Q {uid}", "Back": f"A {uid}"},
+    })
+    notes_info = call_tool("notes_info", {"notes": [note_result["note_id"]]})
+    return notes_info["notes"][0]["cards"][0]
+
+
+def card_deck_name(card_id: int) -> str:
+    """Return the name of the deck ``card_id`` is in."""
+    result = call_tool("present_card", {"card_id": card_id})
+    assert result.get("isError") is not True, result
+    return result["card"]["deck_name"]
+
+
+def create_deck_past_create_limit(root: str, levels: int = 11) -> str:
+    """Create a normal deck with ``levels`` (> 10) levels and return its name.
+
+    create_deck and card_change_deck refuse to create a deck with more than 10
+    levels, but Anki only limits how many missing ancestors one call creates
+    (rslib ``first_existing_parent``), and filtered_deck_upsert does not apply
+    the add-on's limit. So: create the top 10 levels with create_deck, then a
+    filtered deck one level below the target, which makes Anki create the
+    missing levels as normal parent decks, then delete the filtered deck.
+    """
+    assert levels > 10
+    base = nested_deck_name(root, 10)
+    target = nested_deck_name(root, levels)
+
+    created = call_tool("create_deck", {"deck_name": base})
+    assert created.get("isError") is not True, created
+    filtered = call_tool("filtered_deck_upsert", {
+        "name": f"{target}::Filtered",
+        "search_terms": [
+            {"search": f'deck:"NonExistentDeck_{root}"', "limit": 1},
+        ],
+        "allow_empty": True,
+    })
+    assert filtered.get("isError") is not True, filtered
+    deleted = call_tool("filtered_deck_delete", {"deck_id": filtered["deck_id"]})
+    assert deleted.get("isError") is not True, deleted
+
+    assert target in deck_names(), f"setup failed: {target!r} was not created"
+    return target
+
+
 def list_tools() -> list[dict[str, Any]]:
     """List all available MCP tools.
 

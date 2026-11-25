@@ -75,7 +75,10 @@ EXPECTED_DESCRIPTIONS: dict[str, dict[str, str]] = {
         "include_first_field": "Also return each note's excerpted first field",
     },
     "create_deck": {
-        "deck_name": 'Deck name, optionally "Parent::Child" (max 2 levels)',
+        "deck_name": (
+            'Deck name; nest with "::", e.g. "Spanish::Verbs" '
+            "(a new deck can have at most 10 levels)"
+        ),
     },
     "tag_add": {
         "note_ids": "Note IDs to add tags to",

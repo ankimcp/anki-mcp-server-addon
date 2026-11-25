@@ -4,16 +4,31 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from ....tool_decorator import Tool
-from ....handler_wrappers import HandlerError, get_col
+from ....handler_wrappers import get_col
+from ._deck_name_helpers import (
+    MAX_DECK_DEPTH,
+    MAX_DEPTH_DOC,
+    deck_path,
+    resolve_deck_target,
+)
+
+
+def _quoted(names: list[str]) -> str:
+    return ", ".join(f'"{name}"' for name in names)
 
 
 @Tool(
     "create_deck",
-    'Create a new empty Anki deck. Supports parent::child structure '
-    '(e.g., "Japanese::Tokyo" creates parent deck "Japanese" and child deck "Tokyo"). '
-    'Maximum 2 levels of nesting allowed. Will not overwrite existing decks. '
-    'Creates the deck only; it adds no notes or cards. '
-    'Returns deckId and created flag (false if deck already existed).',
+    "Create a new empty Anki deck, along with any parent decks that don't exist yet. "
+    f"{MAX_DEPTH_DOC} "
+    "Names match existing decks case-insensitively; an existing deck is reused, "
+    "never overwritten. Creates the deck only; it adds no notes or cards. "
+    "Returns deckId, deckName, created (false if the deck already existed), "
+    "exists (present, and true, only when it already existed), decks (full names from the "
+    "top-level deck down to this one), depth, createdParentDecks (full names of "
+    "the parent decks this call created) and message. deckName and decks use the "
+    "spelling stored in Anki: an existing deck's or parent's spelling wins over "
+    "the input's.",
     title="Create Deck",
     write=True,
     destructive_hint=False,
@@ -21,57 +36,44 @@ from ....handler_wrappers import HandlerError, get_col
 )
 def create_deck(
     deck_name: Annotated[
-        str, Field(description='Deck name, optionally "Parent::Child" (max 2 levels)')
+        str,
+        Field(
+            description=(
+                'Deck name; nest with "::", e.g. "Spanish::Verbs" '
+                f"(a new deck can have at most {MAX_DECK_DEPTH} levels)"
+            )
+        ),
     ],
 ) -> dict[str, Any]:
     col = get_col()
-
-    parts = deck_name.split("::")
-    if len(parts) > 2:
-        raise HandlerError(
-            f"Deck name can have maximum 2 levels (parent::child). Provided: {len(parts)} levels",
-            hint="Use format like 'Parent::Child', not 'A::B::C'",
-        )
-
-    if any(part.strip() == "" for part in parts):
-        raise HandlerError("Deck name parts cannot be empty")
-
-    # id_for_name() matches case-insensitively, the same lookup decks.id() uses
-    # to reuse an existing deck.
-    deck_exists = col.decks.id_for_name(deck_name) is not None
-    parent_exists = len(parts) == 2 and col.decks.id_for_name(parts[0]) is not None
+    target = resolve_deck_target(col, deck_name)
 
     deck_id = col.decks.id(deck_name)
     # The stored name keeps the spelling of whichever deck (or parent) existed
-    # first, which can differ in case from the input.
+    # first, which can differ in case from the input, and Anki trims each level.
     stored_name = col.decks.name_if_exists(deck_id) or deck_name
+    decks = deck_path(stored_name)
+    created_parents = [decks[depth - 1] for depth in target.missing_parent_depths]
 
     response: dict[str, Any] = {
         "deckId": deck_id,
         "deckName": stored_name,
-        "created": not deck_exists,
+        "created": not target.exists,
+        "decks": decks,
+        "depth": len(decks),
+        "createdParentDecks": created_parents,
     }
 
-    if deck_exists:
+    if target.exists:
         response["exists"] = True
         response["message"] = f'Deck "{stored_name}" already exists'
+    elif created_parents:
+        noun = "parent deck" if len(created_parents) == 1 else "parent decks"
+        response["message"] = (
+            f'Successfully created deck "{stored_name}" '
+            f"and {noun} {_quoted(created_parents)}"
+        )
     else:
-        stored_parts = stored_name.split("::")
-        if len(stored_parts) == 2:
-            parent, child = stored_parts
-            response["parentDeck"] = parent
-            response["childDeck"] = child
-            if parent_exists:
-                response["message"] = (
-                    f'Successfully created child deck "{child}" '
-                    f'under existing parent deck "{parent}"'
-                )
-            else:
-                response["message"] = (
-                    f'Successfully created parent deck "{parent}" '
-                    f'and child deck "{child}"'
-                )
-        else:
-            response["message"] = f'Successfully created deck "{stored_name}"'
+        response["message"] = f'Successfully created deck "{stored_name}"'
 
     return response

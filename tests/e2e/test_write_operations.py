@@ -19,7 +19,7 @@ class TestCreateDeck:
         assert result["created"] is True
 
     def test_create_nested_deck(self):
-        """create_deck should create nested deck (2 levels max)."""
+        """create_deck should create a nested deck."""
         deck_name = f"E2E::Nested{unique_id()}"
         result = call_tool("create_deck", {"deck_name": deck_name})
         assert "deckId" in result

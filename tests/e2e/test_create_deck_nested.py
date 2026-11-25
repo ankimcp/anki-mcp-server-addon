@@ -1,7 +1,7 @@
-"""E2E test: create_deck's message reflects which levels were actually created.
+"""E2E test: create_deck's response reflects which levels were actually created.
 
 With parent "A" already present, create_deck("A::B") creates only the child,
-so the message must not claim the parent was created.
+so neither createdParentDecks nor the message may claim the parent was created.
 """
 from __future__ import annotations
 
@@ -15,10 +15,14 @@ class TestCreateDeckNested:
         parent_result = call_tool("create_deck", {"deck_name": parent})
         assert parent_result["created"] is True
 
-        result = call_tool("create_deck", {"deck_name": f"{parent}::Child"})
+        child = f"{parent}::Child"
+        result = call_tool("create_deck", {"deck_name": child})
 
         assert result.get("isError") is not True
         assert result["created"] is True
         assert result["deckId"] != parent_result["deckId"]
-        assert "created parent deck" not in result["message"]
-        assert "existing parent deck" in result["message"]
+        assert result["decks"] == [parent, child]
+        assert result["depth"] == 2
+        assert result["createdParentDecks"] == []
+        assert result["message"] == f'Successfully created deck "{child}"'
+        assert "parent deck" not in result["message"]

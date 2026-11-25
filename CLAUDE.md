@@ -540,6 +540,10 @@ Every model-mutating tool's success payload carries `will_force_full_sync` (`RES
 - `select_mode` enforces that full-content and patch params are mutually exclusive (presence-based, so `{}` selects full mode and is rejected by `reject_empty_full_input`); `require_patch_pair` rejects a half-specified patch.
 - **JSON-literal caveat** (`JSON_LITERAL_CAVEAT`): FastMCP pre-parses string args whose annotation isn't exactly `str`. Our patch params are `str | None`, so a value that is entirely valid JSON (`null`, or a whole array/object) is `json.loads`'d in transit — `null` arrives as `None`, a list/dict fails validation. The vendored SDK isn't ours to patch, so the tool descriptions tell callers to include an adjacent context character.
 
+### Deck Names (`_deck_name_helpers.py`)
+
+The two tools that create normal decks (`create_deck`, `card_change_deck`) call `resolve_deck_target(col, name)` in their tool file before calling Anki. It always rejects an ASCII control character (U+0000–U+001F, U+007F — Anki strips them from each level, so `A:\x01:B` would be stored as the one-level deck `A::B`), a blank name and any empty/whitespace-only level. The `MAX_DECK_DEPTH` (10) limit applies only when the deck doesn't exist yet (`col.decks.id_for_name`, the case-insensitive lookup `decks.id()` reuses): an existing deck of any depth is accepted. Anki itself would turn an empty level into a deck named `blank` and only refuses once 11+ missing ancestors would be created (`rslib/src/decks/addupdate.rs`, `first_existing_parent`), with a bare backend error. `MAX_DEPTH_DOC` is the shared description snippet. `filtered_deck_upsert` also creates decks (and missing parents) but does not use the helper yet.
+
 ## Development Workflow
 
 ### E2E Tests
