@@ -64,9 +64,6 @@ class TestGetTagsDeckScope:
     def test_get_tags_deck_scope_includes_subdecks(self):
         """get_tags(deck=parent) includes tags from notes in subdecks too."""
         uid = unique_id()
-        # create_deck caps nesting at 2 levels (parent::child), so the parent
-        # is a top-level deck here rather than under the usual E2E:: namespace,
-        # mirroring test_cards_stats_includes_subdecks.
         parent = f"GetTagsParent{uid}"
         child = f"{parent}::Child"
         parent_tag = f"parentTag{uid}"

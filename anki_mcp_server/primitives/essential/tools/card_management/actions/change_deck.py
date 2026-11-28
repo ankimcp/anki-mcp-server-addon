@@ -1,7 +1,7 @@
 """Implementation for the card_change_deck tool."""
 from typing import Any
 
-from ......handler_wrappers import HandlerError, get_col
+from ......handler_wrappers import get_col
 
 
 def change_deck_impl(card_ids: list[int], deck: str) -> dict[str, Any]:
@@ -9,20 +9,12 @@ def change_deck_impl(card_ids: list[int], deck: str) -> dict[str, Any]:
 
     Args:
         card_ids: Card IDs to move
-        deck: Target deck name (creates if doesn't exist)
+        deck: Target deck name, already checked by ``resolve_deck_target``
+            (creates if doesn't exist)
 
     Returns:
         Dict with moved count, deck_id, and message
-
-    Raises:
-        HandlerError: If deck name is empty
     """
-    if not deck.strip():
-        raise HandlerError(
-            "deck name cannot be empty",
-            hint="Provide a valid deck name (e.g., 'Spanish' or 'Spanish::Verbs')"
-        )
-
     col = get_col()
     deck_id = col.decks.id(deck)  # Creates deck if it doesn't exist
     result = col.set_deck(card_ids, deck_id)

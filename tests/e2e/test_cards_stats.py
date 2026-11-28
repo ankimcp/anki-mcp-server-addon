@@ -179,8 +179,6 @@ class TestCardsStats:
     def test_cards_stats_includes_subdecks(self):
         """cards_stats on a parent deck includes cards from its subdecks."""
         uid = unique_id()
-        # create_deck caps nesting at 2 levels (parent::child), so the parent
-        # is a top-level deck here rather than under the usual E2E:: namespace.
         parent = f"CardsStatsParent{uid}"
         child = f"{parent}::Child"
         call_tool("create_deck", {"deck_name": parent})

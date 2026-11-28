@@ -17,6 +17,7 @@ from pathlib import Path
 
 import httpx
 import httpx._utils as httpx_utils
+from packaging.version import Version
 import pytest
 import websockets
 from websockets.asyncio.client import connect
@@ -57,7 +58,11 @@ class TestVendoredLibraries:
         assert "proxy" in inspect.signature(connect.__init__).parameters
         # proxy_* keywords travel through **kwargs; the API doc names proxy_ssl.
         assert "proxy_ssl" in (connect.__doc__ or "")
-        assert httpx.__version__.startswith("0.28.")
+        # httpx 1.x is a rewrite; pre-releases such as 1.0.dev3 count as 1.x.
+        assert Version(httpx.__version__).major < 1, (
+            f"vendored httpx is {httpx.__version__}, 1.x or later; its API "
+            "differs from the 0.x one the add-on is written against"
+        )
         assert "ssl_context" in inspect.signature(httpx.Proxy.__init__).parameters
         assert "trust_env" in inspect.signature(httpx.AsyncClient.__init__).parameters
 
